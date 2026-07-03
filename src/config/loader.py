@@ -34,6 +34,7 @@ class FederatedConfig:
     min_fit_clients: int = 2
     min_evaluate_clients: int = 2
     min_available_nodes: int = 2
+    proximal_mu: float = 0.0
 
 
 @dataclass

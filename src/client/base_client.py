@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 import flwr as fl
@@ -49,6 +50,9 @@ class FlowerClient(fl.client.NumPyClient):
         net = self.model.get_model()
         net.train()
 
+        proximal_mu = config.get("proximal-mu", 0.0)
+        global_params = copy.deepcopy(list(net.parameters())) if proximal_mu > 0 else []
+
         optimizer = _get_optimizer(net, self.config)
         criterion = nn.CrossEntropyLoss()
 
@@ -58,6 +62,14 @@ class FlowerClient(fl.client.NumPyClient):
                 optimizer.zero_grad()
                 outputs = net(images)
                 loss = criterion(outputs, labels)
+
+                if proximal_mu > 0:
+                    proximal_term = sum(
+                        (w - w_global).norm(2)
+                        for w, w_global in zip(net.parameters(), global_params)
+                    )
+                    loss = loss + (proximal_mu / 2) * proximal_term
+
                 loss.backward()
                 optimizer.step()
 

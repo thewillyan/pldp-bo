@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 from flwr.app import ArrayRecord, Context, MetricRecord
 from flwr.serverapp import Grid, ServerApp
-from flwr.serverapp.strategy import FedAvg
+from flwr.serverapp.strategy import FedAvg, FedProx
 
 from src.config.loader import load_config
 from src.data import create_client_dataloaders
@@ -30,13 +30,23 @@ def main(grid: Grid, context: Context) -> None:
     global_model = create_model(config.model)
     arrays = ArrayRecord(global_model.get_model().state_dict())
 
-    strategy = FedAvg(
-        fraction_train=config.federated.fraction_fit,
-        fraction_evaluate=config.federated.fraction_evaluate,
-        min_train_nodes=config.federated.min_fit_clients,
-        min_evaluate_nodes=config.federated.min_evaluate_clients,
-        min_available_nodes=config.federated.min_available_nodes,
-    )
+    if config.federated.strategy == "fedprox":
+        strategy = FedProx(
+            fraction_train=config.federated.fraction_fit,
+            fraction_evaluate=config.federated.fraction_evaluate,
+            min_train_nodes=config.federated.min_fit_clients,
+            min_evaluate_nodes=config.federated.min_evaluate_clients,
+            min_available_nodes=config.federated.min_available_nodes,
+            proximal_mu=config.federated.proximal_mu,
+        )
+    else:
+        strategy = FedAvg(
+            fraction_train=config.federated.fraction_fit,
+            fraction_evaluate=config.federated.fraction_evaluate,
+            min_train_nodes=config.federated.min_fit_clients,
+            min_evaluate_nodes=config.federated.min_evaluate_clients,
+            min_available_nodes=config.federated.min_available_nodes,
+        )
 
     def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
         model = create_model(config.model)
