@@ -45,3 +45,15 @@ package = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.flwr.app]
+publisher = "pldp-bo"
+fab-format-version = 1
+flwr-version-target = "1.32.1"
+
+[tool.flwr.app.components]
+serverapp = "src.server_app:app"
+clientapp = "src.client_app:app"
+
+[tool.flwr.app.config]
+config-path = "config/default.yaml"

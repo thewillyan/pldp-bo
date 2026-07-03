@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-uv run python -m src.main --config "$@"
+CONFIG_PATH="${1:-config/default.yaml}"
+
+flwr run . --stream --run-config "config-path=$CONFIG_PATH"
