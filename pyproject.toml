@@ -17,6 +17,9 @@ dependencies = [
     "tqdm>=4.68.3",
 ]
 
+[project.license]
+file = "LICENSE"
+
 [dependency-groups]
 dev = [
     "mypy>=1.19.1",
