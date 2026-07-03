@@ -37,3 +37,17 @@ class RDPAccountant:
     def reset(self) -> None:
         self._accountant = OpacusRDPAccountant()
         self._steps = []
+
+    def get_state(self) -> dict:
+        return {"delta": self._delta, "steps": list(self._steps)}
+
+    @classmethod
+    def from_state(cls, state: dict) -> RDPAccountant:
+        accountant = cls(delta=state["delta"])
+        for step_info in state.get("steps", []):
+            accountant.step(
+                noise_multiplier=step_info["noise_multiplier"],
+                sample_rate=step_info["sample_rate"],
+                num_steps=step_info["num_steps"],
+            )
+        return accountant

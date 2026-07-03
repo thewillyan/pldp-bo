@@ -46,6 +46,15 @@ class ExperimentTracker:
                 "privacy.delta": str(self._config.privacy.delta),
                 "privacy.accountant": self._config.privacy.accountant,
             })
+        if self._config.personalization.enabled:
+            params.update({
+                "personalization.enabled": "True",
+                "personalization.strategy": self._config.personalization.strategy,
+                "personalization.epsilon_min": str(self._config.personalization.epsilon_min),
+                "personalization.epsilon_max": str(self._config.personalization.epsilon_max),
+                "personalization.epsilon_base": str(self._config.personalization.epsilon_base),
+                "personalization.track_cumulative": str(self._config.personalization.track_cumulative),
+            })
         mlflow.log_params(params)
 
     def log_round_metrics(self, round_num: int, metrics: dict[str, Any]) -> None:

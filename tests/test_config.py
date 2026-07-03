@@ -43,3 +43,29 @@ def test_config_from_custom_yaml(tmp_path: Path) -> None:
     assert config.data.name == "mnist"
     assert config.federated.num_rounds == 5
     assert config.model.name == "cnn"  # default preserved
+
+
+def test_load_personalization_config() -> None:
+    config = load_config("config/experiments/personalized_custom.yaml")
+    assert config.personalization.enabled is True
+    assert config.personalization.strategy == "custom"
+    assert config.personalization.client_epsilon_map[0] == 1.0
+    assert config.personalization.track_cumulative is True
+
+
+def test_personalization_defaults_when_absent() -> None:
+    config = load_config("config/default.yaml")
+    assert config.personalization.enabled is False
+    assert config.personalization.strategy == "uniform"
+    assert config.personalization.epsilon_min == 0.1
+    assert config.personalization.epsilon_max == 10.0
+    assert config.personalization.client_epsilon_map == {}
+
+
+def test_personalization_config_override() -> None:
+    config = load_config(
+        "config/default.yaml",
+        overrides={"personalization.enabled": True, "personalization.strategy": "heterogeneity"},
+    )
+    assert config.personalization.enabled is True
+    assert config.personalization.strategy == "heterogeneity"

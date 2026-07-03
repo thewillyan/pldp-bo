@@ -56,6 +56,17 @@ class PrivacyConfig:
 
 
 @dataclass
+class PersonalizationConfig:
+    enabled: bool = False
+    strategy: str = "uniform"
+    epsilon_min: float = 0.1
+    epsilon_max: float = 10.0
+    epsilon_base: float = 1.0
+    client_epsilon_map: dict = field(default_factory=dict)
+    track_cumulative: bool = True
+
+
+@dataclass
 class LoggingConfig:
     tracker: str = "mlflow"
     experiment_name: str = "pldp-bo"
@@ -70,6 +81,7 @@ class ExperimentConfig:
     federated: FederatedConfig = field(default_factory=FederatedConfig)
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     privacy: PrivacyConfig = field(default_factory=PrivacyConfig)
+    personalization: PersonalizationConfig = field(default_factory=PersonalizationConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     seed: int = 42
 
@@ -80,6 +92,7 @@ _CONFIG_KEY_MAP = {
     "federated": FederatedConfig,
     "optimizer": OptimizerConfig,
     "privacy": PrivacyConfig,
+    "personalization": PersonalizationConfig,
     "logging": LoggingConfig,
 }
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import math
 from typing import Any
 
 import torch
@@ -10,6 +12,10 @@ from opacus import PrivacyEngine
 from src.client.base_client import FlowerClient, _get_optimizer
 from src.config.loader import ExperimentConfig
 from src.models.base import BaseModel
+from src.privacy.accountant import RDPAccountant
+from src.privacy.analysis import find_noise_for_target_epsilon
+
+logger = logging.getLogger(__name__)
 
 
 class DPClient(FlowerClient):
@@ -19,16 +25,59 @@ class DPClient(FlowerClient):
         trainloader: DataLoader,
         valloader: DataLoader,
         config: ExperimentConfig,
+        client_epsilon: float | None = None,
+        accountant: RDPAccountant | None = None,
+        num_rounds: int | None = None,
     ):
         super().__init__(model, trainloader, valloader, config)
         self._privacy_engine: PrivacyEngine | None = None
+        self._client_epsilon = client_epsilon
+        self._accountant = accountant
+        self._num_rounds = num_rounds
+
+    def _compute_noise_multiplier(self) -> float:
+        if self._client_epsilon is None:
+            return self.config.privacy.noise_multiplier
+
+        sampling_rate = self.config.data.batch_size / len(self.trainloader.dataset)
+        local_steps = self.config.federated.local_epochs * math.ceil(
+            len(self.trainloader.dataset) / self.config.data.batch_size
+        )
+
+        return find_noise_for_target_epsilon(
+            target_epsilon=self._client_epsilon,
+            num_rounds=self._num_rounds or self.config.federated.num_rounds,
+            sampling_rate=sampling_rate,
+            local_steps=local_steps,
+            delta=self.config.privacy.delta,
+        )
 
     def fit(
         self, parameters: list[Any], config: dict[str, Any]
     ) -> tuple[list[Any], int, dict[str, Any]]:
+        if self._accountant is not None and self._client_epsilon is not None:
+            cumulative_epsilon = self._accountant.get_epsilon()
+            if cumulative_epsilon >= self._client_epsilon:
+                logger.warning(
+                    "Client budget exhausted: cumulative epsilon %.4f >= budget %.4f. "
+                    "Returning current model unchanged.",
+                    cumulative_epsilon,
+                    self._client_epsilon,
+                )
+                metrics = {
+                    "epsilon": 0.0,
+                    "cumulative_epsilon": cumulative_epsilon,
+                    "client_epsilon": self._client_epsilon,
+                    "budget_exhausted": True,
+                    "noise_multiplier": 0.0,
+                }
+                return self.model.get_weights(), 0, metrics
+
         self.model.set_weights(parameters)
         net = self.model.get_model()
         net.train()
+
+        noise_multiplier = self._compute_noise_multiplier()
 
         optimizer = _get_optimizer(net, self.config)
         criterion = nn.CrossEntropyLoss()
@@ -38,7 +87,7 @@ class DPClient(FlowerClient):
             module=net,
             optimizer=optimizer,
             data_loader=self.trainloader,
-            noise_multiplier=self.config.privacy.noise_multiplier,
+            noise_multiplier=noise_multiplier,
             max_grad_norm=self.config.privacy.max_grad_norm,
         )
         self._privacy_engine = privacy_engine
@@ -52,11 +101,34 @@ class DPClient(FlowerClient):
                 optimizer.step()
 
         epsilon = privacy_engine.get_epsilon(delta=self.config.privacy.delta)
-        metrics = {"epsilon": epsilon, "noise_multiplier": self.config.privacy.noise_multiplier}
+
+        if self._accountant is not None:
+            sampling_rate = self.config.data.batch_size / len(self.trainloader.dataset)
+            local_steps = self.config.federated.local_epochs * math.ceil(
+                len(self.trainloader.dataset) / self.config.data.batch_size
+            )
+            self._accountant.step(
+                noise_multiplier=noise_multiplier,
+                sample_rate=sampling_rate,
+                num_steps=local_steps,
+            )
+            cumulative_epsilon = self._accountant.get_epsilon()
+        else:
+            cumulative_epsilon = epsilon
+
+        metrics = {
+            "epsilon": epsilon,
+            "cumulative_epsilon": cumulative_epsilon,
+            "client_epsilon": self._client_epsilon or 0.0,
+            "noise_multiplier": noise_multiplier,
+            "budget_exhausted": False,
+        }
 
         return self.model.get_weights(), len(self.trainloader.dataset), metrics
 
     def get_privacy_spent(self) -> dict[str, float]:
+        if self._accountant is not None:
+            return self._accountant.get_privacy_spent()
         if self._privacy_engine is None:
             return {"epsilon": 0.0}
         return {"epsilon": self._privacy_engine.get_epsilon(delta=self.config.privacy.delta)}

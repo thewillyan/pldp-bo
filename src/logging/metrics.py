@@ -20,5 +20,8 @@ class ClientMetrics:
     loss: float | None = None
     accuracy: float | None = None
     epsilon: float | None = None
+    cumulative_epsilon: float | None = None
+    client_epsilon: float | None = None
+    budget_exhausted: bool = False
     num_samples: int = 0
     extra: dict[str, Any] = field(default_factory=dict)
