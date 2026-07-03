@@ -1,0 +1,125 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field, fields
+from pathlib import Path
+from typing import Optional
+
+import yaml
+
+
+@dataclass
+class DataConfig:
+    name: str = "cifar10"
+    data_dir: str = "./data"
+    num_clients: int = 10
+    partition_type: str = "iid"
+    partition_alpha: float = 1.0
+    batch_size: int = 64
+    val_split: float = 0.1
+
+
+@dataclass
+class ModelConfig:
+    name: str = "cnn"
+    num_classes: int = 10
+
+
+@dataclass
+class FederatedConfig:
+    num_rounds: int = 50
+    fraction_fit: float = 0.5
+    fraction_evaluate: float = 0.2
+    local_epochs: int = 5
+    strategy: str = "fedavg"
+    min_fit_clients: int = 2
+    min_evaluate_clients: int = 2
+
+
+@dataclass
+class OptimizerConfig:
+    name: str = "sgd"
+    lr: float = 0.01
+    momentum: float = 0.9
+    weight_decay: float = 0.0
+
+
+@dataclass
+class PrivacyConfig:
+    enabled: bool = False
+    mechanism: str = "gaussian"
+    noise_multiplier: float = 1.0
+    max_grad_norm: float = 1.0
+    delta: float = 1e-5
+    target_epsilon: Optional[float] = None
+    accountant: str = "rdp"
+
+
+@dataclass
+class LoggingConfig:
+    tracker: str = "mlflow"
+    experiment_name: str = "pldp-bo"
+    run_name: Optional[str] = None
+    tracking_uri: str = "./mlruns"
+
+
+@dataclass
+class ExperimentConfig:
+    data: DataConfig = field(default_factory=DataConfig)
+    model: ModelConfig = field(default_factory=ModelConfig)
+    federated: FederatedConfig = field(default_factory=FederatedConfig)
+    optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
+    privacy: PrivacyConfig = field(default_factory=PrivacyConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
+    seed: int = 42
+
+
+_CONFIG_KEY_MAP = {
+    "data": DataConfig,
+    "model": ModelConfig,
+    "federated": FederatedConfig,
+    "optimizer": OptimizerConfig,
+    "privacy": PrivacyConfig,
+    "logging": LoggingConfig,
+}
+
+
+def _expand_dot_keys(overrides: dict) -> dict:
+    result: dict = {}
+    for key, value in overrides.items():
+        parts = key.split(".")
+        current = result
+        for part in parts[:-1]:
+            current = current.setdefault(part, {})
+        current[parts[-1]] = value
+    return result
+
+
+def _merge_dict_into_dataclass(dc_instance, override: dict):
+    for key, value in override.items():
+        if hasattr(dc_instance, key):
+            if isinstance(value, dict) and hasattr(getattr(dc_instance, key), "__dataclass_fields__"):
+                _merge_dict_into_dataclass(getattr(dc_instance, key), value)
+            else:
+                setattr(dc_instance, key, value)
+
+
+def load_config(config_path: str, overrides: Optional[dict] = None) -> ExperimentConfig:
+    config = ExperimentConfig()
+
+    path = Path(config_path)
+    if path.exists():
+        with open(path) as f:
+            raw = yaml.safe_load(f) or {}
+        for key, sub_config in raw.items():
+            if key in _CONFIG_KEY_MAP and isinstance(sub_config, dict):
+                dc_type = _CONFIG_KEY_MAP[key]
+                current = getattr(config, key)
+                for fld in fields(dc_type):
+                    if fld.name in sub_config:
+                        setattr(current, fld.name, sub_config[fld.name])
+
+    if overrides:
+        expanded = _expand_dot_keys(overrides)
+        _merge_dict_into_dataclass(config, expanded)
+
+    return config

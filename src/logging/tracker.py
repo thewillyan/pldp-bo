@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+from typing import Any, Optional
+
+import mlflow
+
+from src.config.loader import ExperimentConfig
+
+
+class ExperimentTracker:
+    def __init__(self, config: ExperimentConfig):
+        self._config = config
+        mlflow.set_tracking_uri(config.logging.tracking_uri)
+        mlflow.set_experiment(config.logging.experiment_name)
+
+    def start_run(self) -> None:
+        run_name = self._config.logging.run_name
+        mlflow.start_run(run_name=run_name)
+        self._log_config()
+
+    def end_run(self) -> None:
+        mlflow.end_run()
+
+    def _log_config(self) -> None:
+        params = {
+            "data.name": self._config.data.name,
+            "data.num_clients": str(self._config.data.num_clients),
+            "data.partition_type": self._config.data.partition_type,
+            "data.batch_size": str(self._config.data.batch_size),
+            "model.name": self._config.model.name,
+            "model.num_classes": str(self._config.model.num_classes),
+            "federated.num_rounds": str(self._config.federated.num_rounds),
+            "federated.fraction_fit": str(self._config.federated.fraction_fit),
+            "federated.local_epochs": str(self._config.federated.local_epochs),
+            "federated.strategy": self._config.federated.strategy,
+            "optimizer.name": self._config.optimizer.name,
+            "optimizer.lr": str(self._config.optimizer.lr),
+            "privacy.enabled": str(self._config.privacy.enabled),
+            "seed": str(self._config.seed),
+        }
+        if self._config.privacy.enabled:
+            params.update({
+                "privacy.mechanism": self._config.privacy.mechanism,
+                "privacy.noise_multiplier": str(self._config.privacy.noise_multiplier),
+                "privacy.max_grad_norm": str(self._config.privacy.max_grad_norm),
+                "privacy.delta": str(self._config.privacy.delta),
+                "privacy.accountant": self._config.privacy.accountant,
+            })
+        mlflow.log_params(params)
+
+    def log_round_metrics(self, round_num: int, metrics: dict[str, Any]) -> None:
+        prefixed = {f"round_{round_num}_{k}": v for k, v in metrics.items()}
+        mlflow.log_metrics(prefixed, step=round_num)
+
+    def log_final_metrics(self, metrics: dict[str, Any]) -> None:
+        prefixed = {f"final_{k}": v for k, v in metrics.items()}
+        mlflow.log_metrics(prefixed)
+
+    def log_artifact(self, local_path: str) -> None:
+        mlflow.log_artifact(local_path)
+
+    @staticmethod
+    def get_run_id() -> Optional[str]:
+        return mlflow.active_run().info.run_id if mlflow.active_run() else None

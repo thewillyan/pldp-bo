@@ -1,0 +1,47 @@
+[project]
+name = "pldp-bo"
+version = "0.1.0"
+description = "Federated Learning with Differential Privacy experiments"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "flwr[simulation]>=1.32.1",
+    "matplotlib",
+    "mlflow>=3.14.0",
+    "numpy>=2.5.0",
+    "opacus",
+    "pyyaml>=6.0.3",
+    "seaborn",
+    "torch>=2.12.1",
+    "torchvision>=0.27.1",
+    "tqdm>=4.68.3",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.19.1",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.15.20",
+]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "ARG", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+ignore_missing_imports = true
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+[tool.uv]
+package = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

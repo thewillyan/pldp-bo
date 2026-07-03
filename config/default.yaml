@@ -1,0 +1,40 @@
+data:
+  name: cifar10
+  num_clients: 10
+  partition_type: iid
+  batch_size: 64
+  val_split: 0.1
+
+model:
+  name: cnn
+  num_classes: 10
+
+federated:
+  num_rounds: 50
+  fraction_fit: 0.5
+  fraction_evaluate: 0.2
+  local_epochs: 5
+  strategy: fedavg
+  min_fit_clients: 2
+  min_evaluate_clients: 2
+
+optimizer:
+  name: sgd
+  lr: 0.01
+  momentum: 0.9
+  weight_decay: 0.0
+
+privacy:
+  enabled: false
+  mechanism: gaussian
+  noise_multiplier: 1.0
+  max_grad_norm: 1.0
+  delta: 1e-5
+  accountant: rdp
+
+logging:
+  tracker: mlflow
+  experiment_name: pldp-bo
+  tracking_uri: sqlite:///./mlflow.db
+
+seed: 42
