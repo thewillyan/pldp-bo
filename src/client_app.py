@@ -11,6 +11,7 @@ from src.data import create_client_dataloader
 from src.models import create_model
 from src.privacy.accountant import RDPAccountant
 from src.privacy.personalization import assign_epsilon
+from src.utils import set_seed
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,8 @@ ACCOUNTANT_STATE_KEY = "pldp_accountant_state"
 def train(msg: Message, context: Context) -> Message:
     config_path = str(context.run_config.get("config-path", "config/default.yaml"))
     config = load_config(config_path)
+
+    set_seed(config.seed, deterministic=config.deterministic)
 
     partition_id = int(context.node_config["partition-id"])
     num_partitions = int(context.node_config["num-partitions"])
@@ -95,6 +98,8 @@ def train(msg: Message, context: Context) -> Message:
 def evaluate(msg: Message, context: Context) -> Message:
     config_path = str(context.run_config.get("config-path", "config/default.yaml"))
     config = load_config(config_path)
+
+    set_seed(config.seed, deterministic=config.deterministic)
 
     partition_id = int(context.node_config["partition-id"])
     num_partitions = int(context.node_config["num-partitions"])

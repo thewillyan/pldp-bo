@@ -55,6 +55,7 @@ class ExperimentTracker:
                 "personalization.epsilon_base": str(self._config.personalization.epsilon_base),
                 "personalization.track_cumulative": str(self._config.personalization.track_cumulative),
             })
+        params["deterministic"] = str(self._config.deterministic)
         mlflow.log_params(params)
 
     def log_round_metrics(self, round_num: int, metrics: dict[str, Any]) -> None:

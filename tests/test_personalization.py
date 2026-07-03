@@ -56,7 +56,6 @@ def test_assign_uniform_strategy() -> None:
     )
     dataset = _make_dataset([0, 1, 2])
 
-    np.random.seed(42)
     epsilons = [assign_epsilon(0, dataset, config) for _ in range(100)]
 
     assert all(1.0 <= e <= 10.0 for e in epsilons)

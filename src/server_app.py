@@ -9,13 +9,7 @@ from src.config.loader import load_config
 from src.data import create_client_dataloaders
 from src.logging.tracker import ExperimentTracker
 from src.models import create_model
-
-
-def _set_seed(seed: int) -> None:
-    import numpy as np
-
-    torch.manual_seed(seed)
-    np.random.seed(seed)
+from src.utils import set_seed
 
 
 app = ServerApp()
@@ -26,7 +20,7 @@ def main(grid: Grid, context: Context) -> None:
     config_path = str(context.run_config.get("config-path", "config/default.yaml"))
     config = load_config(config_path)
 
-    _set_seed(config.seed)
+    set_seed(config.seed, deterministic=config.deterministic)
 
     _, valloader, _ = create_client_dataloaders(config.data, config.seed)
 

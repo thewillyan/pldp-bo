@@ -14,6 +14,7 @@ from src.config.loader import ExperimentConfig
 from src.models.base import BaseModel
 from src.privacy.accountant import RDPAccountant
 from src.privacy.analysis import find_noise_for_target_epsilon
+from src.utils import set_seed
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,8 @@ class DPClient(FlowerClient):
 
         optimizer = _get_optimizer(net, self.config)
         criterion = nn.CrossEntropyLoss()
+
+        set_seed(self.config.seed, deterministic=self.config.deterministic)
 
         privacy_engine = PrivacyEngine(secure_mode=False)
         net, optimizer, trainloader = privacy_engine.make_private(

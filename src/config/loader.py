@@ -84,6 +84,7 @@ class ExperimentConfig:
     personalization: PersonalizationConfig = field(default_factory=PersonalizationConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     seed: int = 42
+    deterministic: bool = False
 
 
 _CONFIG_KEY_MAP = {

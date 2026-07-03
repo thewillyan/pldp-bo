@@ -48,3 +48,4 @@ logging:
   tracking_uri: sqlite:///./mlflow.db
 
 seed: 42
+deterministic: false
