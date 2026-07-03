@@ -1,34 +1,23 @@
-from __future__ import annotations
-
 from pathlib import Path
+from typing import Optional
 
+import matplotlib.axes
+import matplotlib.figure
 import matplotlib.pyplot as plt
-import mlflow
+
+from src.plotting._helpers import extract_metrics_by_round, get_run_by_id
 
 
 def plot_privacy_budget(
     experiment_id: str,
-    save_path: str | Path | None = None,
-) -> plt.Figure:
-    client = mlflow.tracking.MlflowClient()
-    run = client.get_run(experiment_id)
+    save_path: Optional[Path] = None,
+) -> matplotlib.figure.Figure:
+    run = get_run_by_id(experiment_id)
 
-    rounds = []
-    epsilons = []
-
-    for key, value in run.data.metrics.items():
-        if key.startswith("round_") and key.endswith("_epsilon"):
-            parts = key.split("_")
-            if len(parts) >= 3:
-                round_num = int(parts[1])
-                rounds.append(round_num)
-                epsilons.append(float(value))
+    rounds, epsilons = extract_metrics_by_round(run, "epsilon")
 
     if not rounds:
         raise ValueError(f"No epsilon metrics found in experiment {experiment_id}")
-
-    sorted_data = sorted(zip(rounds, epsilons))
-    rounds, epsilons = zip(*sorted_data)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
