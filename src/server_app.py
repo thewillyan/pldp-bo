@@ -41,7 +41,7 @@ def main(grid: Grid, context: Context) -> None:
         fraction_evaluate=config.federated.fraction_evaluate,
         min_train_nodes=config.federated.min_fit_clients,
         min_evaluate_nodes=config.federated.min_evaluate_clients,
-        min_available_nodes=config.data.num_clients,
+        min_available_nodes=config.federated.min_available_nodes,
     )
 
     def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
