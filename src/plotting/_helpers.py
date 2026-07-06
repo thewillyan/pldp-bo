@@ -73,6 +73,72 @@ def extract_all_round_metrics(
     return result
 
 
+def extract_per_client_metric(
+    run: Run,
+    client_id: int,
+    metric_name: str,
+) -> tuple[list[int], list[float]]:
+    rounds: dict[int, float] = {}
+    prefix = "round_"
+    pattern = f"_client_{client_id}_{metric_name}"
+
+    for key, value in run.data.metrics.items():
+        if key.startswith(prefix) and key.endswith(pattern):
+            parts = key.split("_")
+            if len(parts) >= 5:
+                try:
+                    round_num = int(parts[1])
+                    rounds[round_num] = float(value)
+                except (ValueError, IndexError):
+                    continue
+
+    if not rounds:
+        return [], []
+
+    sorted_items = sorted(rounds.items())
+    rds, vals = zip(*sorted_items, strict=True)
+    return list(rds), list(vals)
+
+
+def extract_round_stats(
+    run: Run,
+    stat_name: str,
+    aggs: tuple[str, ...] = ("mean", "std", "min", "max", "median"),
+) -> tuple[list[int], dict[str, list[float]]]:
+    result: dict[str, dict[int, float]] = {agg: {} for agg in aggs}
+
+    for key, value in run.data.metrics.items():
+        if not key.startswith("round_"):
+            continue
+        parts = key.split("_")
+        if len(parts) < 4:
+            continue
+        if parts[2] != stat_name:
+            continue
+        agg = parts[3]
+        if agg not in aggs:
+            continue
+        try:
+            round_num = int(parts[1])
+            result[agg][round_num] = float(value)
+        except (ValueError, IndexError):
+            continue
+
+    all_rounds: set[int] = set()
+    for agg_data in result.values():
+        all_rounds.update(agg_data.keys())
+
+    if not all_rounds:
+        return [], {}
+
+    sorted_rounds = sorted(all_rounds)
+    output: dict[str, list[float]] = {}
+    for agg in aggs:
+        output[agg] = [result[agg].get(r, float("nan")) for r in sorted_rounds]
+
+    return sorted_rounds, output
+
+
 def list_runs(experiment_name: str | None = None) -> list[Run]:
     client = get_client()
     if experiment_name:

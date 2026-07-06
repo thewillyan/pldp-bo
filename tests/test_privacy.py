@@ -10,6 +10,7 @@ from src.privacy.per_update_dp import (
     calibrate_sigma,
     clip_update,
     compute_rdp_cost,
+    enforce_epsilon_budget,
 )
 
 
@@ -152,3 +153,56 @@ def test_rdp_accountant_reset() -> None:
     accountant.reset()
     assert accountant.get_epsilon() == 0.0
     assert accountant.total_steps() == 0
+
+
+class TestEnforceEpsilonBudget:
+    def test_valid_epsilon_unchanged(self) -> None:
+        accountant = RDPAccountant(delta=1e-5)
+        result = enforce_epsilon_budget(
+            candidate_epsilon=2.0,
+            current_rdp=accountant.rdp_per_alpha,
+            epsilon_budget=8.0,
+            epsilon_min=0.1,
+            clipping_norm=1.0,
+            delta=1e-5,
+        )
+        assert result == pytest.approx(2.0, rel=1e-3)
+
+    def test_reduces_epsilon_when_budget_violated(self) -> None:
+        accountant = RDPAccountant(delta=1e-5)
+        accountant.step(sigma=0.5, clipping_norm=1.0, num_steps=50)
+        result = enforce_epsilon_budget(
+            candidate_epsilon=5.0,
+            current_rdp=accountant.rdp_per_alpha,
+            epsilon_budget=2.0,
+            epsilon_min=0.1,
+            clipping_norm=1.0,
+            delta=1e-5,
+        )
+        assert result < 5.0
+        assert result >= 0.1
+
+    def test_exhausted_budget_returns_epsilon_min(self) -> None:
+        accountant = RDPAccountant(delta=1e-5)
+        accountant.step(sigma=0.1, clipping_norm=1.0, num_steps=200)
+        result = enforce_epsilon_budget(
+            candidate_epsilon=1.0,
+            current_rdp=accountant.rdp_per_alpha,
+            epsilon_budget=0.5,
+            epsilon_min=0.5,
+            clipping_norm=1.0,
+            delta=1e-5,
+        )
+        assert result == pytest.approx(0.5, rel=1e-3)
+
+    def test_candidate_below_min_returns_candidate(self) -> None:
+        accountant = RDPAccountant(delta=1e-5)
+        result = enforce_epsilon_budget(
+            candidate_epsilon=0.05,
+            current_rdp=accountant.rdp_per_alpha,
+            epsilon_budget=8.0,
+            epsilon_min=0.1,
+            clipping_norm=1.0,
+            delta=1e-5,
+        )
+        assert result == pytest.approx(0.05)

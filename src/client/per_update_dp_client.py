@@ -13,6 +13,7 @@ from src.client.base_client import FlowerClient, _get_optimizer
 from src.config.loader import ExperimentConfig
 from src.models.base import BaseModel
 from src.privacy.accountant import RDPAccountant
+from src.privacy.metrics import compute_utility_loss
 from src.privacy.per_update_dp import PerUpdateGaussianMechanism
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,7 @@ class PerUpdateDPClient(FlowerClient):
                 "cumulative_epsilon": self._accountant.get_epsilon() if self._accountant else 0.0,
                 "client_epsilon": self._client_epsilon or 0.0,
                 "update_norm": 0.0,
+                "utility_loss": 0.0,
                 "budget_exhausted": True,
             }
             return self.model.get_weights(), 0, metrics
@@ -123,11 +125,17 @@ class PerUpdateDPClient(FlowerClient):
             )
             offset += size
 
+        self.model.set_weights(noisy_weights)
+        utility_loss = compute_utility_loss(
+            self.model.get_model(), self.valloader, criterion
+        )
+
         metrics = {
             "epsilon": epsilon,
             "cumulative_epsilon": cumulative_epsilon,
             "client_epsilon": self._client_epsilon or 0.0,
             "update_norm": update_norm,
+            "utility_loss": utility_loss,
             "sigma": sigma,
             "budget_exhausted": False,
         }

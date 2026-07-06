@@ -9,6 +9,7 @@ from src.config.loader import load_config
 from src.data import create_client_dataloaders
 from src.logging.tracker import ExperimentTracker
 from src.models import create_model
+from src.server.strategy import MedianRobustAggregation
 from src.utils import set_seed
 
 
@@ -30,7 +31,16 @@ def main(grid: Grid, context: Context) -> None:
     global_model = create_model(config.model)
     arrays = ArrayRecord(global_model.get_model().state_dict())
 
-    if config.federated.strategy == "fedprox":
+    if config.federated.strategy == "pldp_bo":
+        strategy = MedianRobustAggregation(
+            server_learning_rate=config.federated.server_learning_rate,
+            fraction_train=config.federated.fraction_fit,
+            fraction_evaluate=config.federated.fraction_evaluate,
+            min_train_nodes=config.federated.min_fit_clients,
+            min_evaluate_nodes=config.federated.min_evaluate_clients,
+            min_available_nodes=config.federated.min_available_nodes,
+        )
+    elif config.federated.strategy == "fedprox":
         strategy = FedProx(
             fraction_train=config.federated.fraction_fit,
             fraction_evaluate=config.federated.fraction_evaluate,

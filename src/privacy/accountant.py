@@ -47,6 +47,10 @@ class RDPAccountant:
     def total_steps(self) -> int:
         return sum(s["num_steps"] for s in self._steps)
 
+    @property
+    def rdp_per_alpha(self) -> np.ndarray:
+        return self._rdp_per_alpha.copy()
+
     def reset(self) -> None:
         self._rdp_per_alpha = np.zeros_like(_RDP_ALPHAS)
         self._steps = []

@@ -35,6 +35,7 @@ class FederatedConfig:
     min_evaluate_clients: int = 2
     min_available_nodes: int = 2
     proximal_mu: float = 0.0
+    server_learning_rate: float = 1.0
 
 
 @dataclass
@@ -68,6 +69,20 @@ class PersonalizationConfig:
 
 
 @dataclass
+class BOConfig:
+    enabled: bool = False
+    warmup_rounds: int = 20
+    epsilon_min: float = 0.1
+    epsilon_max: float = 10.0
+    epsilon_budget: float = 8.0
+    optimization_metric: str = "nun"
+    grid_points: int = 100
+    acquisition_penalty: float = 0.1
+    gp_kernel: str = "matern52"
+    observation_noise: float = 0.01
+
+
+@dataclass
 class LoggingConfig:
     tracker: str = "mlflow"
     experiment_name: str = "pldp-bo"
@@ -83,6 +98,7 @@ class ExperimentConfig:
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     privacy: PrivacyConfig = field(default_factory=PrivacyConfig)
     personalization: PersonalizationConfig = field(default_factory=PersonalizationConfig)
+    bo: BOConfig = field(default_factory=BOConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     seed: int = 42
     deterministic: bool = False
@@ -95,6 +111,7 @@ _CONFIG_KEY_MAP = {
     "optimizer": OptimizerConfig,
     "privacy": PrivacyConfig,
     "personalization": PersonalizationConfig,
+    "bo": BOConfig,
     "logging": LoggingConfig,
 }
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-
 import numpy as np
 
 
@@ -55,3 +54,63 @@ class PerUpdateGaussianMechanism:
     @property
     def delta(self) -> float:
         return self._delta
+
+
+_RDP_ALPHAS: np.ndarray = np.arange(2, 65, dtype=np.float64)
+
+
+def _hypothetical_epsilon(
+    current_rdp: np.ndarray,
+    sigma: float,
+    clipping_norm: float,
+    delta: float,
+) -> float:
+    import math as _math
+
+    alphas = _RDP_ALPHAS
+    cost = np.array(
+        [compute_rdp_cost(float(a), sigma, clipping_norm) for a in alphas],
+        dtype=np.float64,
+    )
+    total_rdp = current_rdp + cost
+    log_one_over_delta = _math.log(1.0 / delta)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        epsilons = total_rdp + log_one_over_delta / (alphas - 1.0)
+    valid = np.isfinite(epsilons)
+    if not valid.any():
+        return 0.0
+    return float(np.min(epsilons[valid]))
+
+
+def enforce_epsilon_budget(
+    candidate_epsilon: float,
+    current_rdp: np.ndarray,
+    epsilon_budget: float,
+    epsilon_min: float,
+    clipping_norm: float,
+    delta: float,
+) -> float:
+    if candidate_epsilon <= epsilon_min:
+        return candidate_epsilon
+
+    sigma_candidate = calibrate_sigma(candidate_epsilon, clipping_norm, delta)
+    hypothetical = _hypothetical_epsilon(
+        current_rdp, sigma_candidate, clipping_norm, delta,
+    )
+
+    if hypothetical <= epsilon_budget:
+        return candidate_epsilon
+
+    lo, hi = epsilon_min, candidate_epsilon
+    for _ in range(30):
+        mid = (lo + hi) / 2.0
+        sigma_mid = calibrate_sigma(mid, clipping_norm, delta)
+        eps_mid = _hypothetical_epsilon(
+            current_rdp, sigma_mid, clipping_norm, delta,
+        )
+        if eps_mid <= epsilon_budget:
+            lo = mid
+        else:
+            hi = mid
+
+    return lo

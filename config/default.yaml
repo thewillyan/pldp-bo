@@ -42,6 +42,18 @@ personalization:
   client_epsilon_map: {}
   track_cumulative: true
 
+bo:
+  enabled: false
+  warmup_rounds: 20
+  epsilon_min: 0.1
+  epsilon_max: 10.0
+  epsilon_budget: 8.0
+  optimization_metric: nun
+  grid_points: 100
+  acquisition_penalty: 0.1
+  gp_kernel: matern52
+  observation_noise: 0.01
+
 logging:
   tracker: mlflow
   experiment_name: pldp-bo

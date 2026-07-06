@@ -55,6 +55,21 @@ class ExperimentTracker:
                 "personalization.epsilon_base": str(self._config.personalization.epsilon_base),
                 "personalization.track_cumulative": str(self._config.personalization.track_cumulative),
             })
+        if self._config.bo.enabled:
+            params.update({
+                "bo.enabled": "True",
+                "bo.warmup_rounds": str(self._config.bo.warmup_rounds),
+                "bo.epsilon_min": str(self._config.bo.epsilon_min),
+                "bo.epsilon_max": str(self._config.bo.epsilon_max),
+                "bo.epsilon_budget": str(self._config.bo.epsilon_budget),
+                "bo.optimization_metric": self._config.bo.optimization_metric,
+                "bo.grid_points": str(self._config.bo.grid_points),
+                "bo.acquisition_penalty": str(self._config.bo.acquisition_penalty),
+                "bo.gp_kernel": self._config.bo.gp_kernel,
+                "bo.observation_noise": str(self._config.bo.observation_noise),
+            })
+        if self._config.federated.server_learning_rate != 1.0:
+            params["federated.server_learning_rate"] = str(self._config.federated.server_learning_rate)
         params["deterministic"] = str(self._config.deterministic)
         mlflow.log_params(params)
 

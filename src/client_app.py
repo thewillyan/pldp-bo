@@ -10,6 +10,13 @@ from src.config.loader import load_config
 from src.data import create_client_dataloader
 from src.models import create_model
 from src.privacy.accountant import RDPAccountant
+from src.privacy.bo_scheduler import PLDPBOScheduler
+from src.privacy.epsilon_scheduler import (
+    EpsilonScheduler,
+    FixedEpsilonScheduler,
+    UniformRandomEpsilonScheduler,
+)
+from src.privacy.per_update_dp import enforce_epsilon_budget
 from src.privacy.personalization import assign_epsilon
 from src.utils import set_seed
 
@@ -18,6 +25,59 @@ logger = logging.getLogger(__name__)
 app = ClientApp()
 
 ACCOUNTANT_STATE_KEY = "pldp_accountant_state"
+SCHEDULER_STATE_KEY = "pldp_scheduler_state"
+
+
+def _make_scheduler(
+    partition_id: int,
+    train_dataset: object,
+    config,
+    _num_partitions: int,
+) -> EpsilonScheduler | None:
+    if not config.privacy.enabled:
+        return None
+    if config.bo.enabled:
+        return PLDPBOScheduler(
+            epsilon_min=config.bo.epsilon_min,
+            epsilon_max=config.bo.epsilon_max,
+            warmup_rounds=config.bo.warmup_rounds,
+            acquisition_penalty=config.bo.acquisition_penalty,
+            grid_points=config.bo.grid_points,
+            gp_kernel=config.bo.gp_kernel,
+            observation_noise=config.bo.observation_noise,
+            seed=config.seed,
+        )
+    if config.personalization.enabled:
+        epsilon = assign_epsilon(
+            partition_id,
+            train_dataset,
+            config.personalization,
+            num_clients=config.data.num_clients,
+        )
+        return FixedEpsilonScheduler(epsilon)
+    if config.privacy.target_epsilon is not None:
+        return FixedEpsilonScheduler(config.privacy.target_epsilon)
+    return None
+
+
+def _restore_or_create_scheduler(
+    context: Context,
+    partition_id: int,
+    train_dataset: object,
+    config,
+    num_partitions: int,
+) -> EpsilonScheduler | None:
+    if SCHEDULER_STATE_KEY in context.state:
+        state = context.state[SCHEDULER_STATE_KEY]
+        stype = state.get("type")
+        if stype == "fixed":
+            return FixedEpsilonScheduler.from_state(state)
+        elif stype == "uniform_random":
+            return UniformRandomEpsilonScheduler.from_state(state)
+        elif stype == "pldp_bo":
+            return PLDPBOScheduler.from_state(state)
+        raise ValueError(f"Unknown scheduler type: {stype}")
+    return _make_scheduler(partition_id, train_dataset, config, num_partitions)
 
 
 @app.train()
@@ -34,29 +94,28 @@ def train(msg: Message, context: Context) -> Message:
         config.data, partition_id, num_partitions, config.seed
     )
 
-    client_epsilon = None
-    accountant = None
+    accountant: RDPAccountant | None = None
+    scheduler: EpsilonScheduler | None = None
 
-    if config.privacy.enabled and config.personalization.enabled:
-        client_epsilon = assign_epsilon(
-            partition_id,
-            train_dataset,
-            config.personalization,
-            num_clients=config.data.num_clients,
-        )
-        logger.info(
-            "Client %d assigned epsilon=%.4f (strategy=%s)",
-            partition_id,
-            client_epsilon,
-            config.personalization.strategy,
-        )
+    if config.privacy.enabled:
+        if ACCOUNTANT_STATE_KEY in context.state:
+            state = context.state[ACCOUNTANT_STATE_KEY]
+            accountant = RDPAccountant.from_state(state)
+        else:
+            accountant = RDPAccountant(delta=config.privacy.delta)
 
-        if config.personalization.track_cumulative:
-            if ACCOUNTANT_STATE_KEY in context.state:
-                state = context.state[ACCOUNTANT_STATE_KEY]
-                accountant = RDPAccountant.from_state(state)
-            else:
-                accountant = RDPAccountant(delta=config.privacy.delta)
+        scheduler = _restore_or_create_scheduler(
+            context, partition_id, train_dataset, config, num_partitions,
+        )
+        if scheduler is not None:
+            logger.info(
+                "Client %d scheduler: %s",
+                partition_id,
+                scheduler,
+            )
+
+    epsilon = _resolve_epsilon(scheduler, accountant, config)
+    logger.debug("Client %d using epsilon=%.4f", partition_id, epsilon)
 
     client_model = create_model(config.model)
     client = create_client(
@@ -65,7 +124,7 @@ def train(msg: Message, context: Context) -> Message:
         trainloader=trainloader,
         valloader=valloader,
         config=config,
-        client_epsilon=client_epsilon,
+        client_epsilon=epsilon,
         accountant=accountant,
     )
 
@@ -74,13 +133,16 @@ def train(msg: Message, context: Context) -> Message:
     parameters = arrays.to_numpy_ndarrays()
     parameters_prime, num_examples, fit_metrics = client.fit(parameters, {})
 
-    if (
-        config.privacy.enabled
-        and config.personalization.enabled
-        and config.personalization.track_cumulative
-        and accountant is not None
-    ):
+    if scheduler is not None and accountant is not None:
+        metric_value = fit_metrics.get(config.bo.optimization_metric)
+        if metric_value is not None:
+            scheduler.step(epsilon, float(metric_value))
+
+    if accountant is not None and config.privacy.enabled:
         context.state[ACCOUNTANT_STATE_KEY] = accountant.get_state()
+
+    if scheduler is not None and config.privacy.enabled:
+        context.state[SCHEDULER_STATE_KEY] = scheduler.get_state()
 
     model_record = ArrayRecord(client_model.get_model().state_dict())
     metrics = {
@@ -91,6 +153,30 @@ def train(msg: Message, context: Context) -> Message:
     metric_record = MetricRecord(metrics)
     content = RecordDict({"arrays": model_record, "metrics": metric_record})
     return Message(content=content, reply_to=msg)
+
+
+def _resolve_epsilon(
+    scheduler: EpsilonScheduler | None,
+    accountant: RDPAccountant | None,
+    config,
+) -> float:
+    if scheduler is not None:
+        candidate = scheduler.get_epsilon()
+    elif config.privacy.target_epsilon is not None:
+        candidate = config.privacy.target_epsilon
+    else:
+        return config.privacy.noise_multiplier
+
+    if accountant is not None and config.bo.enabled:
+        budget = config.bo.epsilon_budget
+        eps_min = config.bo.epsilon_min
+        C = config.privacy.max_grad_norm
+        delta = config.privacy.delta
+        candidate = enforce_epsilon_budget(
+            candidate, accountant.rdp_per_alpha, budget, eps_min, C, delta,
+        )
+
+    return candidate
 
 
 @app.evaluate()

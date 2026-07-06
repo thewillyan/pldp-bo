@@ -69,3 +69,27 @@ def test_personalization_config_override() -> None:
     )
     assert config.personalization.enabled is True
     assert config.personalization.strategy == "heterogeneity"
+
+
+def test_bo_config_defaults() -> None:
+    config = load_config("config/default.yaml")
+    assert config.bo.enabled is False
+    assert config.bo.warmup_rounds == 20
+    assert config.bo.epsilon_budget == 8.0
+    assert config.bo.optimization_metric == "nun"
+
+
+def test_bo_config_override() -> None:
+    config = load_config(
+        "config/default.yaml",
+        overrides={
+            "bo.enabled": True,
+            "bo.warmup_rounds": 10,
+            "bo.epsilon_budget": 5.0,
+            "bo.optimization_metric": "utility",
+        },
+    )
+    assert config.bo.enabled is True
+    assert config.bo.warmup_rounds == 10
+    assert config.bo.epsilon_budget == 5.0
+    assert config.bo.optimization_metric == "utility"
