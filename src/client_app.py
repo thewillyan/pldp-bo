@@ -67,7 +67,6 @@ def train(msg: Message, context: Context) -> Message:
         config=config,
         client_epsilon=client_epsilon,
         accountant=accountant,
-        num_rounds=config.federated.num_rounds,
     )
 
     arrays = msg.content["arrays"]

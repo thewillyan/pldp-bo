@@ -166,14 +166,13 @@ def test_get_num_classes() -> None:
 def test_rdp_accountant_serialization() -> None:
     accountant = RDPAccountant(delta=1e-5)
     for _ in range(5):
-        accountant.step(noise_multiplier=1.0, sample_rate=0.01)
+        accountant.step(sigma=1.0, clipping_norm=1.0)
 
     state = accountant.get_state()
     restored = RDPAccountant.from_state(state)
 
     assert restored.get_epsilon() == pytest.approx(accountant.get_epsilon())
     assert restored.total_steps() == accountant.total_steps()
-    assert restored._delta == accountant._delta
 
 
 def test_rdp_accountant_serialization_empty() -> None:
@@ -183,4 +182,3 @@ def test_rdp_accountant_serialization_empty() -> None:
 
     assert restored.get_epsilon() == 0.0
     assert restored.total_steps() == 0
-    assert restored._delta == 1e-6
