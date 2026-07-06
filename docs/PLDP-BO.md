@@ -1,6 +1,6 @@
 # PLDP-BO - Algorithm Description
 
-**Version:** 0.2 (Experimental Development Version)
+**Version:** 0.3 (Implemented)
 
 ## Table of Contents
 
