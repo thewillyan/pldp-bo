@@ -35,16 +35,17 @@ privacy:
 
 personalization:
   enabled: true
-  strategy: uniform
+  strategy: data_proportional
   epsilon_min: 0.1
   epsilon_max: 10.0
+  epsilon_base: 5.0
   client_epsilon_map: {}
   track_cumulative: true
 
 logging:
   tracker: mlflow
   experiment_name: pldp-bo
-  run_name: cifar100-iid-uniform-dp
+  run_name: cifar100-iid-data-proportional-dp
   tracking_uri: sqlite:///./mlflow.db
 
 seed: 42

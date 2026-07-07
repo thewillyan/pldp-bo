@@ -31,19 +31,30 @@ privacy:
   max_grad_norm: 1.0
   delta: 1e-5
   accountant: rdp
+  total_budget: 10.0
 
 personalization:
-  enabled: false
+  enabled: true
+  strategy: data_proportional
+  epsilon_min: 0.1
+  epsilon_max: 10.0
+  epsilon_base: 5.0
+  client_epsilon_map: {}
+  track_cumulative: true
 
 bo:
   enabled: true
-  epsilon_max: 5.0
+  epsilon_budget: 10.0
   optimization_metric: utility
+  bounds_strategy: from_epsilon
+  bounds_ratio_min: 0.01
+  bounds_ratio_max: 0.2
+  warmup_rounds: 20
 
 logging:
   tracker: mlflow
   experiment_name: pldp-bo
-  run_name: mnist-iid-pldp-bo-utility
+  run_name: mnist-iid-pldp-bo-personalized-utility
   tracking_uri: sqlite:///./mlflow.db
 
 seed: 42
