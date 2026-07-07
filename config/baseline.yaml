@@ -1,0 +1,16 @@
+# Baseline FedAvg experiment (no privacy)
+data:
+  name: cifar10
+  num_clients: 10
+
+model:
+  name: cnn
+
+federated:
+  num_rounds: 50
+  fraction_fit: 0.5
+  local_epochs: 5
+  strategy: fedavg
+
+privacy:
+  enabled: false

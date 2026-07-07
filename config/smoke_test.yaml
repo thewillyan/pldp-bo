@@ -1,0 +1,24 @@
+# Quick smoke test: 2 rounds, 5 clients
+data:
+  name: mnist
+  num_clients: 5
+  partition_type: iid
+  batch_size: 32
+
+model:
+  name: mlp
+
+federated:
+  num_rounds: 2
+  fraction_fit: 1.0
+  fraction_evaluate: 1.0
+  local_epochs: 1
+  min_available_nodes: 5
+
+privacy:
+  enabled: false
+
+logging:
+  experiment_name: smoke-test
+  run_name: smoke-test-run
+  tracking_uri: sqlite:///./mlflow.db
