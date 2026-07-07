@@ -1,0 +1,50 @@
+data:
+  name: mnist
+  num_clients: 10
+  partition_type: noniid
+  partition_alpha: 0.5
+  batch_size: 64
+
+model:
+  name: mlp
+  num_classes: 10
+
+federated:
+  num_rounds: 50
+  fraction_fit: 0.5
+  fraction_evaluate: 0.2
+  local_epochs: 5
+  strategy: pldp_bo
+  min_fit_clients: 2
+  min_evaluate_clients: 2
+  min_available_nodes: 10
+
+optimizer:
+  name: sgd
+  lr: 0.01
+  momentum: 0.9
+  weight_decay: 0.0
+
+privacy:
+  enabled: true
+  mechanism: gaussian
+  noise_multiplier: 1.0
+  max_grad_norm: 1.0
+  delta: 1e-5
+  accountant: rdp
+
+personalization:
+  enabled: false
+
+bo:
+  enabled: true
+  optimization_metric: utility
+
+logging:
+  tracker: mlflow
+  experiment_name: pldp-bo
+  run_name: mnist-noniid-pldp-bo-utility
+  tracking_uri: sqlite:///./mlflow.db
+
+seed: 42
+deterministic: false
