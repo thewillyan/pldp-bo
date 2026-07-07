@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-import torch
+# TODO: Not yet integrated — planned for per-gradient clipping.
+# This module will be wired into PerUpdateDPClient once
+# gradient-level DP is required alongside per-update DP.
+#
 from torch import nn
 
 

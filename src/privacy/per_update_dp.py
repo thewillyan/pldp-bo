@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import math
+
 import numpy as np
 
 
@@ -21,8 +23,14 @@ def clip_update(delta: np.ndarray, clipping_norm: float) -> np.ndarray:
     return delta
 
 
-def add_gaussian_noise(clipped_delta: np.ndarray, sigma: float) -> np.ndarray:
-    noise = np.random.normal(0, sigma, size=clipped_delta.shape).astype(clipped_delta.dtype)
+def add_gaussian_noise(
+    clipped_delta: np.ndarray,
+    sigma: float,
+    rng: np.random.RandomState | None = None,
+) -> np.ndarray:
+    if rng is None:
+        rng = np.random.RandomState()
+    noise = rng.normal(0, sigma, size=clipped_delta.shape).astype(clipped_delta.dtype)
     return clipped_delta + noise
 
 
@@ -33,19 +41,39 @@ def compute_rdp_cost(alpha: float, sigma: float, clipping_norm: float) -> float:
 
 
 class PerUpdateGaussianMechanism:
-    def __init__(self, clipping_norm: float, delta: float):
+    def __init__(self, clipping_norm: float, delta: float, seed: int | None = None):
         if clipping_norm <= 0:
             raise ValueError("clipping_norm must be positive")
         if delta <= 0 or delta >= 1:
             raise ValueError("delta must be in (0, 1)")
         self._clipping_norm = clipping_norm
         self._delta = delta
+        self._rng = np.random.RandomState(seed)
 
     def apply(self, delta: np.ndarray, epsilon: float) -> tuple[np.ndarray, float]:
         sigma = calibrate_sigma(epsilon, self._clipping_norm, self._delta)
         clipped = clip_update(delta, self._clipping_norm)
-        noisy = add_gaussian_noise(clipped, sigma)
+        noisy = add_gaussian_noise(clipped, sigma, rng=self._rng)
         return noisy, sigma
+
+    def get_state(self) -> dict:
+        rng_state = self._rng.get_state()
+        return {
+            "rng_state": json.dumps([
+                x.tolist() if isinstance(x, np.ndarray) else x for x in rng_state
+            ]),
+        }
+
+    @classmethod
+    def from_state(
+        cls, state: dict, clipping_norm: float, delta: float,
+    ) -> PerUpdateGaussianMechanism:
+        mechanism = cls(clipping_norm=clipping_norm, delta=delta)
+        rng_data = json.loads(state["rng_state"])
+        mechanism._rng.set_state(tuple(
+            np.array(x, dtype=np.uint32) if isinstance(x, list) else x for x in rng_data  # type: ignore[arg-type]
+        ))
+        return mechanism
 
     @property
     def clipping_norm(self) -> float:
@@ -65,15 +93,13 @@ def _hypothetical_epsilon(
     clipping_norm: float,
     delta: float,
 ) -> float:
-    import math as _math
-
     alphas = _RDP_ALPHAS
     cost = np.array(
         [compute_rdp_cost(float(a), sigma, clipping_norm) for a in alphas],
         dtype=np.float64,
     )
     total_rdp = current_rdp + cost
-    log_one_over_delta = _math.log(1.0 / delta)
+    log_one_over_delta = math.log(1.0 / delta)
     with np.errstate(divide="ignore", invalid="ignore"):
         epsilons = total_rdp + log_one_over_delta / (alphas - 1.0)
     valid = np.isfinite(epsilons)

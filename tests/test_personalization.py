@@ -6,6 +6,7 @@ import torch
 from torch.utils.data import TensorDataset
 
 from src.config.loader import BOConfig, PersonalizationConfig
+from src.privacy.accountant import RDPAccountant
 from src.privacy.personalization import (
     _compute_label_entropy,
     _get_num_classes,
@@ -13,7 +14,6 @@ from src.privacy.personalization import (
     assign_epsilon,
     assign_epsilon_bounds,
 )
-from src.privacy.accountant import RDPAccountant
 
 
 def _make_dataset(labels: list[int]) -> TensorDataset:

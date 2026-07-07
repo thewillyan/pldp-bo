@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader
 
 from src.client.base_client import FlowerClient, _get_optimizer
 from src.config.loader import ExperimentConfig
+from src.device import get_device, to_device
 from src.models.base import BaseModel
 from src.privacy.accountant import RDPAccountant
 from src.privacy.metrics import compute_utility_loss
@@ -37,6 +38,7 @@ class PerUpdateDPClient(FlowerClient):
         self._mechanism = PerUpdateGaussianMechanism(
             clipping_norm=config.privacy.max_grad_norm,
             delta=config.privacy.delta,
+            seed=config.seed,
         )
 
     def _check_budget(self) -> bool:
@@ -75,7 +77,7 @@ class PerUpdateDPClient(FlowerClient):
 
         self.model.set_weights(parameters)
         global_model_state = copy.deepcopy(self.model.get_model().state_dict())
-        net = self.model.get_model()
+        net = self.model.get_model().to(get_device())
         net.train()
 
         proximal_mu = self.config.federated.proximal_mu
@@ -86,7 +88,7 @@ class PerUpdateDPClient(FlowerClient):
 
         for _ in range(self.config.federated.local_epochs):
             for batch in self.trainloader:
-                images, labels = batch
+                images, labels = to_device(batch)
                 optimizer.zero_grad()
                 outputs = net(images)
                 loss = criterion(outputs, labels)

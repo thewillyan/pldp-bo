@@ -16,7 +16,6 @@ from src.privacy.per_update_dp import (
     enforce_epsilon_budget,
 )
 
-
 _OPTIMIZATION_METRIC_KEY_MAP: dict[str, str] = {
     "nun": "update_norm",
     "utility": "utility_loss",

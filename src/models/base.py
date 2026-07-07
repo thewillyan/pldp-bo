@@ -6,6 +6,8 @@ import numpy as np
 import torch
 from torch import nn
 
+from src.device import get_device
+
 
 class BaseModel(ABC):
     @abstractmethod
@@ -17,5 +19,9 @@ class BaseModel(ABC):
 
     def set_weights(self, weights: list[np.ndarray]) -> None:
         state_dict = self.get_model().state_dict()
-        new_state = {k: torch.tensor(w, dtype=state_dict[k].dtype) for k, w in zip(state_dict.keys(), weights)}
+        device = get_device()
+        new_state = {
+            k: torch.tensor(w, dtype=state_dict[k].dtype, device=device)
+            for k, w in zip(state_dict.keys(), weights, strict=True)
+        }
         self.get_model().load_state_dict(new_state)

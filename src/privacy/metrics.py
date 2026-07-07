@@ -4,6 +4,8 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
+from src.device import to_device
+
 
 def compute_utility_loss(
     model: nn.Module,
@@ -17,6 +19,7 @@ def compute_utility_loss(
     num_batches = 0
     with torch.no_grad():
         for images, labels in valloader:
+            images, labels = to_device((images, labels))
             outputs = model(images)
             total_loss += criterion(outputs, labels).item()
             num_batches += 1

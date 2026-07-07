@@ -9,6 +9,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from src.config.loader import ExperimentConfig
+from src.device import get_device, to_device
 from src.models.base import BaseModel
 
 
@@ -47,7 +48,7 @@ class FlowerClient(fl.client.NumPyClient):
         self, parameters: list[Any], config: dict[str, Any]
     ) -> tuple[list[Any], int, dict[str, Any]]:
         self.model.set_weights(parameters)
-        net = self.model.get_model()
+        net = self.model.get_model().to(get_device())
         net.train()
 
         proximal_mu = config.get("proximal-mu", 0.0)
@@ -58,7 +59,7 @@ class FlowerClient(fl.client.NumPyClient):
 
         for _ in range(self.config.federated.local_epochs):
             for batch in self.trainloader:
-                images, labels = batch
+                images, labels = to_device(batch)
                 optimizer.zero_grad()
                 outputs = net(images)
                 loss = criterion(outputs, labels)
@@ -79,7 +80,7 @@ class FlowerClient(fl.client.NumPyClient):
         self, parameters: list[Any], config: dict[str, Any]
     ) -> tuple[float, int, dict[str, Any]]:
         self.model.set_weights(parameters)
-        net = self.model.get_model()
+        net = self.model.get_model().to(get_device())
         net.eval()
 
         criterion = nn.CrossEntropyLoss()
@@ -89,6 +90,7 @@ class FlowerClient(fl.client.NumPyClient):
 
         with torch.no_grad():
             for images, labels in self.valloader:
+                images, labels = to_device((images, labels))
                 outputs = net(images)
                 loss += criterion(outputs, labels).item()
                 _, predicted = torch.max(outputs, 1)

@@ -7,11 +7,11 @@ from flwr.serverapp.strategy import FedAvg, FedProx
 
 from src.config.loader import load_config
 from src.data import create_client_dataloaders
+from src.device import get_device, to_device
 from src.logging.tracker import ExperimentTracker
 from src.models import create_model
 from src.server.strategy import MedianRobustAggregation
 from src.utils import set_seed
-
 
 app = ServerApp()
 
@@ -64,7 +64,7 @@ def main(grid: Grid, context: Context) -> None:
     def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
         model = create_model(config.model)
         model.get_model().load_state_dict(arrays.to_torch_state_dict())
-        net = model.get_model()
+        net = model.get_model().to(get_device())
         net.eval()
 
         criterion = torch.nn.CrossEntropyLoss()
@@ -74,6 +74,7 @@ def main(grid: Grid, context: Context) -> None:
 
         with torch.no_grad():
             for images, labels in valloader:
+                images, labels = to_device((images, labels))
                 outputs = net(images)
                 loss += criterion(outputs, labels).item()
                 _, predicted = torch.max(outputs, 1)

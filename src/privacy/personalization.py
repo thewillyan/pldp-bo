@@ -1,13 +1,11 @@
 from __future__ import annotations
 
+import logging
 import math
 from typing import Union
 
 import numpy as np
-import torch
 from torch.utils.data import Dataset, Subset
-
-import logging
 
 from src.config.loader import BOConfig, PersonalizationConfig
 
