@@ -83,6 +83,9 @@ class ExperimentTracker:
         prefixed = {f"final_{k}": v for k, v in metrics.items()}
         mlflow.log_metrics(prefixed)
 
+    def log_metrics(self, metrics: dict[str, Any], step: int | None = None) -> None:
+        mlflow.log_metrics(metrics, step=step)
+
     def log_artifact(self, local_path: str) -> None:
         mlflow.log_artifact(local_path)
 

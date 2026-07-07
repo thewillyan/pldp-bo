@@ -5,6 +5,8 @@ from typing import Iterable
 
 import mlflow
 import numpy as np
+
+from src.logging.tracker import ExperimentTracker
 from flwr.app import Array, ArrayRecord, ConfigRecord, MetricRecord, RecordDict
 from flwr.common import Message
 from flwr.serverapp.grid.grid import Grid
@@ -27,6 +29,7 @@ class MedianRobustAggregation(FedAvg):
         configrecord_key: str = "config",
         train_metrics_aggr_fn = None,
         evaluate_metrics_aggr_fn = None,
+        tracker: ExperimentTracker | None = None,
     ) -> None:
         super().__init__(
             fraction_train=fraction_train,
@@ -42,6 +45,7 @@ class MedianRobustAggregation(FedAvg):
         )
         self._server_learning_rate = server_learning_rate
         self._current_arrays: ArrayRecord | None = None
+        self._tracker = tracker
 
     def configure_train(
         self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid
@@ -133,6 +137,12 @@ class MedianRobustAggregation(FedAvg):
 
         return aggregated, metrics
 
+    def _log_metric(self, key: str, value: float, step: int) -> None:
+        if self._tracker is not None:
+            self._tracker.log_metrics({key: value}, step=step)
+        else:
+            mlflow.log_metric(key, value, step=step)
+
     def _log_client_metrics(
         self,
         server_round: int,
@@ -158,7 +168,7 @@ class MedianRobustAggregation(FedAvg):
             epsilon = m.get("epsilon")
             if epsilon is not None:
                 epsilons.append(float(epsilon))
-                mlflow.log_metric(
+                self._log_metric(
                     f"round_{server_round}_client_{cid}_epsilon",
                     float(epsilon),
                     step=server_round,
@@ -167,7 +177,7 @@ class MedianRobustAggregation(FedAvg):
             update_norm = m.get("update_norm")
             if update_norm is not None:
                 update_norms.append(float(update_norm))
-                mlflow.log_metric(
+                self._log_metric(
                     f"round_{server_round}_client_{cid}_update_norm",
                     float(update_norm),
                     step=server_round,
@@ -176,7 +186,7 @@ class MedianRobustAggregation(FedAvg):
             utility_loss = m.get("utility_loss")
             if utility_loss is not None:
                 utility_losses.append(float(utility_loss))
-                mlflow.log_metric(
+                self._log_metric(
                     f"round_{server_round}_client_{cid}_utility_loss",
                     float(utility_loss),
                     step=server_round,
@@ -185,7 +195,7 @@ class MedianRobustAggregation(FedAvg):
             cum_eps = m.get("cumulative_epsilon")
             if cum_eps is not None:
                 cumulative_epsilons.append(float(cum_eps))
-                mlflow.log_metric(
+                self._log_metric(
                     f"round_{server_round}_client_{cid}_cumulative_epsilon",
                     float(cum_eps),
                     step=server_round,
@@ -193,19 +203,19 @@ class MedianRobustAggregation(FedAvg):
 
         if epsilons:
             eps_arr = np.array(epsilons)
-            mlflow.log_metric(
+            self._log_metric(
                 f"round_{server_round}_epsilon_mean", float(eps_arr.mean()), step=server_round,
             )
-            mlflow.log_metric(
+            self._log_metric(
                 f"round_{server_round}_epsilon_std", float(eps_arr.std()), step=server_round,
             )
-            mlflow.log_metric(
+            self._log_metric(
                 f"round_{server_round}_epsilon_min", float(eps_arr.min()), step=server_round,
             )
-            mlflow.log_metric(
+            self._log_metric(
                 f"round_{server_round}_epsilon_max", float(eps_arr.max()), step=server_round,
             )
-            mlflow.log_metric(
+            self._log_metric(
                 f"round_{server_round}_epsilon_median",
                 float(np.median(eps_arr)),
                 step=server_round,
@@ -213,33 +223,33 @@ class MedianRobustAggregation(FedAvg):
 
         if update_norms:
             un_arr = np.array(update_norms)
-            mlflow.log_metric(
+            self._log_metric(
                 f"round_{server_round}_update_norm_mean",
                 float(un_arr.mean()), step=server_round,
             )
-            mlflow.log_metric(
+            self._log_metric(
                 f"round_{server_round}_update_norm_std",
                 float(un_arr.std()), step=server_round,
             )
 
         if utility_losses:
             ul_arr = np.array(utility_losses)
-            mlflow.log_metric(
+            self._log_metric(
                 f"round_{server_round}_utility_loss_mean",
                 float(ul_arr.mean()), step=server_round,
             )
-            mlflow.log_metric(
+            self._log_metric(
                 f"round_{server_round}_utility_loss_std",
                 float(ul_arr.std()), step=server_round,
             )
 
         if cumulative_epsilons:
             ce_arr = np.array(cumulative_epsilons)
-            mlflow.log_metric(
+            self._log_metric(
                 f"round_{server_round}_cumulative_epsilon_mean",
                 float(ce_arr.mean()), step=server_round,
             )
-            mlflow.log_metric(
+            self._log_metric(
                 f"round_{server_round}_cumulative_epsilon_std",
                 float(ce_arr.std()), step=server_round,
             )

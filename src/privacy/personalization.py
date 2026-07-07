@@ -17,12 +17,13 @@ def assign_epsilon(
     train_dataset: Union[Dataset, Subset],
     config: PersonalizationConfig,
     num_clients: int = 1,
+    total_train_size: int | None = None,
 ) -> float:
     strategy = config.strategy
     if strategy == "custom":
         return _assign_custom(partition_id, config)
     elif strategy == "data_proportional":
-        return _assign_data_proportional(train_dataset, config, num_clients)
+        return _assign_data_proportional(train_dataset, config, num_clients, total_train_size=total_train_size)
     elif strategy == "heterogeneity":
         return _assign_heterogeneity(train_dataset, config)
     elif strategy == "uniform":
@@ -46,10 +47,14 @@ def _assign_custom(partition_id: int, config: PersonalizationConfig) -> float:
 
 
 def _assign_data_proportional(
-    dataset: Union[Dataset, Subset], config: PersonalizationConfig, num_clients: int
+    dataset: Union[Dataset, Subset], config: PersonalizationConfig, num_clients: int,
+    total_train_size: int | None = None,
 ) -> float:
     client_size = len(dataset)
-    total_size = config.client_epsilon_map.get("__total_size")
+    if total_train_size is not None:
+        total_size = total_train_size
+    else:
+        total_size = config.client_epsilon_map.get("__total_size")
     if total_size is None:
         total_size = client_size * num_clients
     expected_per_client = total_size / num_clients
@@ -103,6 +108,7 @@ def assign_epsilon_bounds(
     personalization_config: PersonalizationConfig,
     bo_config: BOConfig,
     num_clients: int = 1,
+    total_train_size: int | None = None,
 ) -> tuple[float, float, int]:
     warmup = bo_config.client_warmup_rounds_map.get(partition_id, bo_config.warmup_rounds)
 
@@ -129,6 +135,7 @@ def assign_epsilon_bounds(
             )
         epsilon = assign_epsilon(
             partition_id, train_dataset, personalization_config, num_clients,
+            total_train_size=total_train_size,
         )
         eps_min = max(epsilon * bo_config.bounds_ratio_min, 1e-6)
         eps_max = epsilon * bo_config.bounds_ratio_max

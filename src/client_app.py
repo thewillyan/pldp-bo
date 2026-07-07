@@ -50,6 +50,7 @@ def _make_scheduler(
     eps_min: float | None = None,
     eps_max: float | None = None,
     warmup_rounds: int | None = None,
+    total_train_size: int | None = None,
 ) -> EpsilonScheduler | None:
     if not config.privacy.enabled:
         return None
@@ -73,6 +74,7 @@ def _make_scheduler(
             train_dataset,
             config.personalization,
             num_clients=config.data.num_clients,
+            total_train_size=total_train_size,
         )
         return FixedEpsilonScheduler(epsilon)
     if config.privacy.target_epsilon is not None:
@@ -89,6 +91,7 @@ def _restore_or_create_scheduler(
     eps_min: float | None = None,
     eps_max: float | None = None,
     warmup_rounds: int | None = None,
+    total_train_size: int | None = None,
 ) -> EpsilonScheduler | None:
     if SCHEDULER_STATE_KEY in context.state:
         state = context.state[SCHEDULER_STATE_KEY]
@@ -103,6 +106,7 @@ def _restore_or_create_scheduler(
     return _make_scheduler(
         partition_id, train_dataset, config, num_partitions,
         eps_min=eps_min, eps_max=eps_max, warmup_rounds=warmup_rounds,
+        total_train_size=total_train_size,
     )
 
 
@@ -124,9 +128,6 @@ def train(msg: Message, context: Context) -> Message:
         config.data, partition_id, num_partitions, config.seed
     )
 
-    if config.personalization.enabled and config.personalization.strategy == "data_proportional":
-        config.personalization.client_epsilon_map["__total_size"] = int(total_train_size)
-
     accountant: RDPAccountant | None = None
     scheduler: EpsilonScheduler | None = None
 
@@ -135,6 +136,7 @@ def train(msg: Message, context: Context) -> Message:
         bounds_min, bounds_max, warmup = assign_epsilon_bounds(
             partition_id, client_subset,
             config.personalization, config.bo, config.data.num_clients,
+            total_train_size=total_train_size,
         )
         eps_min_per_client = bounds_min
     else:
@@ -152,6 +154,7 @@ def train(msg: Message, context: Context) -> Message:
         scheduler = _restore_or_create_scheduler(
             context, partition_id, client_subset, config, num_partitions,
             eps_min=bounds_min, eps_max=bounds_max, warmup_rounds=warmup,
+            total_train_size=total_train_size,
         )
         if scheduler is not None:
             logger.info(
@@ -179,7 +182,7 @@ def train(msg: Message, context: Context) -> Message:
         epsilon = 0.0
     logger.debug("Client %d using epsilon=%.4f", partition_id, epsilon)
 
-    client_model = create_model(config.model)
+    client_model = create_model(config.model, dataset_name=config.data.name)
     client = create_client(
         cid=partition_id,
         model=client_model,
@@ -273,7 +276,7 @@ def evaluate(msg: Message, context: Context) -> Message:
             accountant = RDPAccountant.from_state(state)
             client_epsilon = accountant.get_epsilon()
 
-    client_model = create_model(config.model)
+    client_model = create_model(config.model, dataset_name=config.data.name)
     client = create_client(
         cid=partition_id,
         model=client_model,

@@ -6,7 +6,7 @@ from flwr.serverapp import Grid, ServerApp
 from flwr.serverapp.strategy import FedAvg, FedProx
 
 from src.config.loader import load_config
-from src.data import create_client_dataloaders
+from src.data import create_validation_loader
 from src.device import get_device, to_device
 from src.logging.tracker import ExperimentTracker
 from src.models import create_model
@@ -26,12 +26,12 @@ def main(grid: Grid, context: Context) -> None:
 
     set_seed(config.seed, deterministic=config.deterministic)
 
-    _, valloader, _ = create_client_dataloaders(config.data, config.seed)
+    valloader = create_validation_loader(config.data)
 
     tracker = ExperimentTracker(config)
     tracker.start_run()
 
-    global_model = create_model(config.model)
+    global_model = create_model(config.model, dataset_name=config.data.name)
     arrays = ArrayRecord(global_model.get_model().state_dict())
 
     if config.federated.strategy == "pldp_bo":
@@ -42,6 +42,7 @@ def main(grid: Grid, context: Context) -> None:
             min_train_nodes=config.federated.min_fit_clients,
             min_evaluate_nodes=config.federated.min_evaluate_clients,
             min_available_nodes=config.federated.min_available_nodes,
+            tracker=tracker,
         )
     elif config.federated.strategy == "fedprox":
         strategy = FedProx(
@@ -62,7 +63,7 @@ def main(grid: Grid, context: Context) -> None:
         )
 
     def global_evaluate(server_round: int, arrays: ArrayRecord) -> MetricRecord:
-        model = create_model(config.model)
+        model = create_model(config.model, dataset_name=config.data.name)
         model.get_model().load_state_dict(arrays.to_torch_state_dict())
         net = model.get_model().to(get_device())
         net.eval()
