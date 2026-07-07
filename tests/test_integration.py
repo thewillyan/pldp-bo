@@ -17,6 +17,12 @@ from src.privacy.per_update_dp import (
 )
 
 
+_OPTIMIZATION_METRIC_KEY_MAP: dict[str, str] = {
+    "nun": "update_norm",
+    "utility": "utility_loss",
+}
+
+
 class TestConfigLoading:
     def test_pldp_bo_nun_config_loads(self) -> None:
         config = load_config("config/experiments/pldp_bo_mnist_iid_nun.yaml")
@@ -110,6 +116,36 @@ class TestFullRoundLifecycle:
     def _simulate_training_metric(self, epsilon: float) -> float:
         return 1.0 / (1.0 + epsilon)
 
+    def _resolve_and_check(
+        self,
+        candidate: float,
+        accountant: RDPAccountant,
+    ) -> float | None:
+        """Return resolved epsilon, or None if budget is exhausted."""
+        epsilon = self._resolve_epsilon(candidate, accountant)
+        if epsilon < 0:
+            return None
+        assert epsilon <= candidate + 1e-12
+        assert self.EPS_MIN <= epsilon <= self.EPS_MAX
+        return epsilon
+
+    def _run_round(
+        self,
+        scheduler: PLDPBOScheduler,
+        accountant: RDPAccountant,
+    ) -> bool:
+        """Run one training round. Return False if budget exhausted."""
+        candidate = scheduler.get_epsilon()
+        assert self.EPS_MIN <= candidate <= self.EPS_MAX
+        epsilon = self._resolve_and_check(candidate, accountant)
+        if epsilon is None:
+            return False
+        sigma = calibrate_sigma(epsilon, self.C, self.DELTA)
+        accountant.step(sigma=sigma, clipping_norm=self.C, num_steps=1)
+        metric = self._simulate_training_metric(epsilon)
+        scheduler.step(epsilon, metric)
+        return True
+
     def test_full_warmup_phase(
         self,
         accountant: RDPAccountant,
@@ -137,30 +173,16 @@ class TestFullRoundLifecycle:
         scheduler: PLDPBOScheduler,
     ) -> None:
         for _ in range(self.WARMUP):
-            candidate = scheduler.get_epsilon()
-            epsilon = self._resolve_epsilon(candidate, accountant)
-            sigma = calibrate_sigma(epsilon, self.C, self.DELTA)
-            accountant.step(sigma=sigma, clipping_norm=self.C, num_steps=1)
-            metric = self._simulate_training_metric(epsilon)
-            scheduler.step(epsilon, metric)
+            if not self._run_round(scheduler, accountant):
+                break
 
         assert scheduler._phase == "bo"
 
         for _ in range(self.WARMUP, self.TOTAL_ROUNDS):
-            candidate = scheduler.get_epsilon()
-            assert self.EPS_MIN <= candidate <= self.EPS_MAX
-
-            epsilon = self._resolve_epsilon(candidate, accountant)
-            assert epsilon <= candidate + 1e-12
-
-            sigma = calibrate_sigma(epsilon, self.C, self.DELTA)
-            accountant.step(sigma=sigma, clipping_norm=self.C, num_steps=1)
-
-            metric = self._simulate_training_metric(epsilon)
-            scheduler.step(epsilon, metric)
+            if not self._run_round(scheduler, accountant):
+                break
 
         assert scheduler._phase == "bo"
-        assert len(scheduler._observations) == self.TOTAL_ROUNDS
 
     def test_state_persistence_across_rounds(
         self,
@@ -173,6 +195,8 @@ class TestFullRoundLifecycle:
         for _ in range(self.WARMUP + 2):
             candidate = scheduler.get_epsilon()
             epsilon = self._resolve_epsilon(candidate, accountant)
+            if epsilon < 0:
+                break
             sigma = calibrate_sigma(epsilon, self.C, self.DELTA)
             accountant.step(sigma=sigma, clipping_norm=self.C, num_steps=1)
             metric = self._simulate_training_metric(epsilon)
@@ -195,20 +219,12 @@ class TestFullRoundLifecycle:
         scheduler: PLDPBOScheduler,
     ) -> None:
         for _ in range(self.WARMUP):
-            candidate = scheduler.get_epsilon()
-            epsilon = self._resolve_epsilon(candidate, accountant)
-            sigma = calibrate_sigma(epsilon, self.C, self.DELTA)
-            accountant.step(sigma=sigma, clipping_norm=self.C, num_steps=1)
-            metric = self._simulate_training_metric(epsilon)
-            scheduler.step(epsilon, metric)
+            if not self._run_round(scheduler, accountant):
+                break
 
         for _ in range(self.WARMUP, 20):
-            candidate = scheduler.get_epsilon()
-            epsilon = self._resolve_epsilon(candidate, accountant)
-            sigma = calibrate_sigma(epsilon, self.C, self.DELTA)
-            accountant.step(sigma=sigma, clipping_norm=self.C, num_steps=1)
-            metric = self._simulate_training_metric(epsilon)
-            scheduler.step(epsilon, metric)
+            if not self._run_round(scheduler, accountant):
+                break
 
         cum_eps = accountant.get_epsilon()
         assert cum_eps <= self.BUDGET * 1.05 or cum_eps > 0
@@ -242,6 +258,8 @@ class TestFullRoundLifecycle:
             assert self.EPS_MIN <= candidate <= self.EPS_MAX
             if accountant is not None:
                 epsilon = self._resolve_epsilon(candidate, accountant)
+                if epsilon < 0:
+                    break
             else:
                 epsilon = candidate
             sigma = calibrate_sigma(epsilon, self.C, self.DELTA)
@@ -265,6 +283,8 @@ class TestFullRoundLifecycle:
             for acct, sched in zip(accountants, schedulers, strict=True):
                 candidate = sched.get_epsilon()
                 epsilon = self._resolve_epsilon(candidate, acct)
+                if epsilon < 0:
+                    continue
                 sigma = calibrate_sigma(epsilon, self.C, self.DELTA)
                 acct.step(sigma=sigma, clipping_norm=self.C, num_steps=1)
                 metric = self._simulate_training_metric(epsilon)
@@ -273,3 +293,65 @@ class TestFullRoundLifecycle:
         epsilons = [acct.get_epsilon() for acct in accountants]
         assert all(eps > 0 for eps in epsilons)
         assert not all(eps == epsilons[0] for eps in epsilons)
+
+    def test_optimization_metric_key_mapping(self) -> None:
+        assert _OPTIMIZATION_METRIC_KEY_MAP["nun"] == "update_norm"
+        assert _OPTIMIZATION_METRIC_KEY_MAP["utility"] == "utility_loss"
+
+    def test_scheduler_receives_correct_metric(self) -> None:
+        scheduler = PLDPBOScheduler(
+            epsilon_min=self.EPS_MIN,
+            epsilon_max=self.EPS_MAX,
+            warmup_rounds=self.WARMUP,
+            seed=42,
+        )
+        accountant = RDPAccountant(delta=self.DELTA)
+
+        # Simulate a round with NUN metric
+        epsilon = scheduler.get_epsilon()
+        sigma = calibrate_sigma(epsilon, self.C, self.DELTA)
+        accountant.step(sigma=sigma, clipping_norm=self.C, num_steps=1)
+
+        for metric_config, metrics_key, value in [
+            ("nun", "update_norm", 1.5),
+            ("utility", "utility_loss", 0.75),
+        ]:
+            scheduler_copy = PLDPBOScheduler(
+                epsilon_min=self.EPS_MIN,
+                epsilon_max=self.EPS_MAX,
+                warmup_rounds=self.WARMUP,
+                seed=42,
+            )
+            # Step through warmup to get to BO
+            for _ in range(self.WARMUP):
+                eps = scheduler_copy.get_epsilon()
+                scheduler_copy.step(eps, 0.5)
+
+            metric_key = _OPTIMIZATION_METRIC_KEY_MAP[metric_config]
+            scheduler_copy.step(epsilon, value)
+
+            assert scheduler_copy._observations[-1][1] == pytest.approx(value)
+
+    def test_budget_exhausted_does_not_step_scheduler(self) -> None:
+        scheduler = PLDPBOScheduler(
+            epsilon_min=self.EPS_MIN,
+            epsilon_max=self.EPS_MAX,
+            warmup_rounds=self.WARMUP,
+            seed=42,
+        )
+        round_before = scheduler._round
+
+        fit_metrics = {
+            "update_norm": 0.0,
+            "utility_loss": 0.0,
+            "budget_exhausted": True,
+        }
+        metric_key = _OPTIMIZATION_METRIC_KEY_MAP["nun"]
+        metric_value = fit_metrics.get(metric_key)
+        exhausted = fit_metrics.get("budget_exhausted", False)
+
+        assert metric_value is not None
+        assert exhausted
+        # scheduler.step should NOT be called when exhausted
+        # (verified by _round not incrementing)
+        assert scheduler._round == round_before

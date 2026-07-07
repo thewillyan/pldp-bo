@@ -11,7 +11,7 @@ from src.privacy.epsilon_scheduler import (
     FixedEpsilonScheduler,
     UniformRandomEpsilonScheduler,
 )
-from src.privacy.metrics import compute_nun, compute_utility_loss
+from src.privacy.metrics import compute_utility_loss
 from src.privacy.per_update_dp import (
     PerUpdateGaussianMechanism,
     calibrate_sigma,
@@ -29,7 +29,6 @@ __all__ = [
     "assign_epsilon",
     "calibrate_sigma",
     "clip_gradients",
-    "compute_nun",
     "compute_utility_loss",
     "enforce_epsilon_budget",
     "expected_improvement",

@@ -170,7 +170,7 @@ class TestEnforceEpsilonBudget:
 
     def test_reduces_epsilon_when_budget_violated(self) -> None:
         accountant = RDPAccountant(delta=1e-5)
-        accountant.step(sigma=0.5, clipping_norm=1.0, num_steps=50)
+        accountant.step(sigma=10.0, clipping_norm=1.0, num_steps=1)
         result = enforce_epsilon_budget(
             candidate_epsilon=5.0,
             current_rdp=accountant.rdp_per_alpha,
@@ -179,10 +179,9 @@ class TestEnforceEpsilonBudget:
             clipping_norm=1.0,
             delta=1e-5,
         )
-        assert result < 5.0
-        assert result >= 0.1
+        assert 0.1 <= result < 5.0
 
-    def test_exhausted_budget_returns_epsilon_min(self) -> None:
+    def test_exhausted_budget_returns_sentinel(self) -> None:
         accountant = RDPAccountant(delta=1e-5)
         accountant.step(sigma=0.1, clipping_norm=1.0, num_steps=200)
         result = enforce_epsilon_budget(
@@ -193,7 +192,7 @@ class TestEnforceEpsilonBudget:
             clipping_norm=1.0,
             delta=1e-5,
         )
-        assert result == pytest.approx(0.5, rel=1e-3)
+        assert result == pytest.approx(-1.0)
 
     def test_candidate_below_min_returns_candidate(self) -> None:
         accountant = RDPAccountant(delta=1e-5)
@@ -206,3 +205,16 @@ class TestEnforceEpsilonBudget:
             delta=1e-5,
         )
         assert result == pytest.approx(0.05)
+
+    def test_exhaustion_with_binary_search(self) -> None:
+        accountant = RDPAccountant(delta=1e-5)
+        accountant.step(sigma=0.3, clipping_norm=1.0, num_steps=100)
+        result = enforce_epsilon_budget(
+            candidate_epsilon=10.0,
+            current_rdp=accountant.rdp_per_alpha,
+            epsilon_budget=1.0,
+            epsilon_min=0.1,
+            clipping_norm=1.0,
+            delta=1e-5,
+        )
+        assert result == pytest.approx(-1.0)

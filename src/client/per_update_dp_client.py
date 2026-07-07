@@ -28,22 +28,31 @@ class PerUpdateDPClient(FlowerClient):
         config: ExperimentConfig,
         client_epsilon: float | None = None,
         accountant: RDPAccountant | None = None,
+        total_budget: float | None = None,
     ):
         super().__init__(model, trainloader, valloader, config)
         self._client_epsilon = client_epsilon
         self._accountant = accountant
+        self._total_budget = total_budget
         self._mechanism = PerUpdateGaussianMechanism(
             clipping_norm=config.privacy.max_grad_norm,
             delta=config.privacy.delta,
         )
 
     def _check_budget(self) -> bool:
-        if self._accountant is not None and self._client_epsilon is not None:
-            cumulative = self._accountant.get_epsilon()
-            if cumulative >= self._client_epsilon:
+        if self._accountant is not None:
+            if self._total_budget is not None:
+                cumulative = self._accountant.get_epsilon()
+                if cumulative >= self._total_budget:
+                    logger.warning(
+                        "Client budget exhausted: cumulative ε=%.4f >= total budget ε=%.4f",
+                        cumulative,
+                        self._total_budget,
+                    )
+                    return True
+            if self._client_epsilon is not None and self._client_epsilon <= 0:
                 logger.warning(
-                    "Client budget exhausted: cumulative ε=%.4f >= budget ε=%.4f",
-                    cumulative,
+                    "Client budget exhausted: epsilon=%.4f (≤ 0)",
                     self._client_epsilon,
                 )
                 return True
@@ -61,7 +70,7 @@ class PerUpdateDPClient(FlowerClient):
                 "utility_loss": 0.0,
                 "budget_exhausted": True,
             }
-            return self.model.get_weights(), 0, metrics
+            return parameters, 0, metrics
 
         self.model.set_weights(parameters)
         global_model_state = copy.deepcopy(self.model.get_model().state_dict())
@@ -91,7 +100,12 @@ class PerUpdateDPClient(FlowerClient):
                 loss.backward()
                 optimizer.step()
 
-        epsilon = self._client_epsilon or self.config.privacy.target_epsilon or 1.0
+        if self._client_epsilon is not None:
+            epsilon = self._client_epsilon
+        elif self.config.privacy.target_epsilon is not None:
+            epsilon = self.config.privacy.target_epsilon
+        else:
+            epsilon = 1.0
 
         local_weights = self.model.get_weights()
         global_weights = [

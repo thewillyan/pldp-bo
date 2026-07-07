@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+
 import numpy as np
 import pytest
 
@@ -181,6 +183,34 @@ class TestPLDPBOScheduler:
         state = scheduler.get_state()
         restored = PLDPBOScheduler.from_state(state)
         assert restored.get_epsilon() == pytest.approx(scheduler.get_epsilon())
+
+    # --- RNG preservation ---
+
+    def test_rng_preserved_after_serialization(self) -> None:
+        s1 = self.make_scheduler(seed=42)
+        for _ in range(self.WARMUP + 3):
+            eps = s1.get_epsilon()
+            s1.step(eps, float(eps))
+
+        restored = PLDPBOScheduler.from_state(copy.deepcopy(s1.get_state()))
+        for _ in range(5):
+            e1 = s1.get_epsilon()
+            e2 = restored.get_epsilon()
+            assert e1 == pytest.approx(e2)
+            s1.step(e1, float(e1))
+            restored.step(e2, float(e2))
+
+    def test_bo_rng_preserved_after_serialization(self) -> None:
+        s1 = self.make_scheduler(seed=42)
+        for _ in range(self.WARMUP + 3):
+            eps = s1.get_epsilon()
+            s1.step(eps, float(eps))
+
+        restored = PLDPBOScheduler.from_state(copy.deepcopy(s1.get_state()))
+        gp1_pred = s1._gp.predict(np.array([[0.5], [2.5], [4.5]]), return_std=True)
+        gp2_pred = restored._gp.predict(np.array([[0.5], [2.5], [4.5]]), return_std=True)
+        np.testing.assert_array_almost_equal(gp1_pred[0], gp2_pred[0])
+        np.testing.assert_array_almost_equal(gp1_pred[1], gp2_pred[1])
 
     # --- Multiple steps ---
 

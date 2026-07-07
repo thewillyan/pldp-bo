@@ -1,13 +1,8 @@
 from __future__ import annotations
 
-import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-
-
-def compute_nun(noisy_delta: np.ndarray) -> float:
-    return float(np.linalg.norm(noisy_delta))
 
 
 def compute_utility_loss(

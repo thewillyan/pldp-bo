@@ -141,6 +141,7 @@ class PLDPBOScheduler(EpsilonScheduler):
             "round": self._round,
             "observations": list(self._observations),
             "f_best": self._f_best,
+            "rng_state": self._rng.get_state(),
         }
 
     @classmethod
@@ -158,6 +159,8 @@ class PLDPBOScheduler(EpsilonScheduler):
         scheduler._round = state["round"]
         scheduler._observations = list(state["observations"])
         scheduler._f_best = state["f_best"]
+        if "rng_state" in state:
+            scheduler._rng.set_state(tuple(state["rng_state"]))
         if scheduler._phase == "bo":
             scheduler._fit_gp()
         return scheduler

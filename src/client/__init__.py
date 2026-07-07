@@ -17,6 +17,7 @@ def create_client(
     config: ExperimentConfig,
     client_epsilon: float | None = None,
     accountant: RDPAccountant | None = None,
+    total_budget: float | None = None,
 ) -> FlowerClient:
     if config.privacy.enabled:
         return PerUpdateDPClient(
@@ -26,5 +27,6 @@ def create_client(
             config,
             client_epsilon=client_epsilon,
             accountant=accountant,
+            total_budget=total_budget,
         )
     return FlowerClient(model, trainloader, valloader, config)

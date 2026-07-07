@@ -27,6 +27,11 @@ app = ClientApp()
 ACCOUNTANT_STATE_KEY = "pldp_accountant_state"
 SCHEDULER_STATE_KEY = "pldp_scheduler_state"
 
+_OPTIMIZATION_METRIC_KEY_MAP: dict[str, str] = {
+    "nun": "update_norm",
+    "utility": "utility_loss",
+}
+
 
 def _make_scheduler(
     partition_id: int,
@@ -115,7 +120,20 @@ def train(msg: Message, context: Context) -> Message:
             )
 
     epsilon = _resolve_epsilon(scheduler, accountant, config)
+    if epsilon < 0:
+        logger.info(
+            "Client %d privacy budget exhausted (epsilon=%.4f), ceasing participation",
+            partition_id,
+            epsilon,
+        )
+        epsilon = 0.0
     logger.debug("Client %d using epsilon=%.4f", partition_id, epsilon)
+
+    total_budget: float | None = None
+    if config.bo.enabled:
+        total_budget = config.bo.epsilon_budget
+    elif scheduler is not None:
+        total_budget = epsilon
 
     client_model = create_model(config.model)
     client = create_client(
@@ -126,6 +144,7 @@ def train(msg: Message, context: Context) -> Message:
         config=config,
         client_epsilon=epsilon,
         accountant=accountant,
+        total_budget=total_budget,
     )
 
     arrays = msg.content["arrays"]
@@ -134,9 +153,13 @@ def train(msg: Message, context: Context) -> Message:
     parameters_prime, num_examples, fit_metrics = client.fit(parameters, {})
 
     if scheduler is not None and accountant is not None:
-        metric_value = fit_metrics.get(config.bo.optimization_metric)
-        if metric_value is not None:
-            scheduler.step(epsilon, float(metric_value))
+        if not fit_metrics.get("budget_exhausted", False):
+            metric_key = _OPTIMIZATION_METRIC_KEY_MAP.get(
+                config.bo.optimization_metric, config.bo.optimization_metric,
+            )
+            metric_value = fit_metrics.get(metric_key)
+            if metric_value is not None:
+                scheduler.step(epsilon, float(metric_value))
 
     if accountant is not None and config.privacy.enabled:
         context.state[ACCOUNTANT_STATE_KEY] = accountant.get_state()

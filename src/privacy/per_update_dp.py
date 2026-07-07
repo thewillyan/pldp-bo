@@ -82,6 +82,18 @@ def _hypothetical_epsilon(
     return float(np.min(epsilons[valid]))
 
 
+def _is_epsilon_within_budget(
+    epsilon: float,
+    current_rdp: np.ndarray,
+    epsilon_budget: float,
+    clipping_norm: float,
+    delta: float,
+) -> bool:
+    sigma = calibrate_sigma(epsilon, clipping_norm, delta)
+    projected = _hypothetical_epsilon(current_rdp, sigma, clipping_norm, delta)
+    return projected <= epsilon_budget
+
+
 def enforce_epsilon_budget(
     candidate_epsilon: float,
     current_rdp: np.ndarray,
@@ -90,8 +102,16 @@ def enforce_epsilon_budget(
     clipping_norm: float,
     delta: float,
 ) -> float:
+    """Return the largest ε ≤ candidate_epsilon that fits the budget.
+
+    Returns -1.0 if even *epsilon_min* would exceed the remaining budget,
+    signalling that the client's privacy budget is exhausted.
+    """
     if candidate_epsilon <= epsilon_min:
-        return candidate_epsilon
+        if _is_epsilon_within_budget(epsilon_min, current_rdp, epsilon_budget,
+                                     clipping_norm, delta):
+            return candidate_epsilon
+        return -1.0
 
     sigma_candidate = calibrate_sigma(candidate_epsilon, clipping_norm, delta)
     hypothetical = _hypothetical_epsilon(
@@ -113,4 +133,7 @@ def enforce_epsilon_budget(
         else:
             hi = mid
 
-    return lo
+    if _is_epsilon_within_budget(lo, current_rdp, epsilon_budget,
+                                 clipping_norm, delta):
+        return lo
+    return -1.0
