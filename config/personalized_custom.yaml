@@ -17,7 +17,7 @@ federated:
   strategy: fedavg
   min_fit_clients: 2
   min_evaluate_clients: 2
-  min_available_nodes: 10
+#  min_available_nodes: 10
 
 optimizer:
   name: sgd

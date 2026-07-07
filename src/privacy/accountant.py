@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 from typing import Optional
 
@@ -58,7 +59,7 @@ class RDPAccountant:
     def get_state(self) -> dict:
         return {
             "delta": self._delta,
-            "steps": list(self._steps),
+            "steps": json.dumps(self._steps),
             "rdp_per_alpha": self._rdp_per_alpha.tolist(),
         }
 
@@ -69,7 +70,7 @@ class RDPAccountant:
         accountant._rdp_per_alpha = np.array(rdp_data, dtype=np.float64)
         if accountant._rdp_per_alpha.shape != _RDP_ALPHAS.shape:
             accountant._rdp_per_alpha = np.zeros_like(_RDP_ALPHAS)
-        for step_info in state.get("steps", []):
+        for step_info in json.loads(state.get("steps", "[]")):
             accountant._steps.append({
                 "sigma": step_info["sigma"],
                 "clipping_norm": step_info["clipping_norm"],

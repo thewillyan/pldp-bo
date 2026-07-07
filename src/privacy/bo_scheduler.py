@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import numpy as np
 from scipy.stats import norm
 from sklearn.gaussian_process import GaussianProcessRegressor
@@ -128,6 +130,7 @@ class PLDPBOScheduler(EpsilonScheduler):
         return float(grid[np.argmax(alpha)])
 
     def get_state(self) -> dict:
+        rng_state = self._rng.get_state()
         return {
             "type": "pldp_bo",
             "epsilon_min": self._epsilon_min,
@@ -139,9 +142,11 @@ class PLDPBOScheduler(EpsilonScheduler):
             "observation_noise": self._observation_noise,
             "phase": self._phase,
             "round": self._round,
-            "observations": list(self._observations),
+            "observations": json.dumps(self._observations),
             "f_best": self._f_best,
-            "rng_state": self._rng.get_state(),
+            "rng_state": json.dumps([
+                x.tolist() if isinstance(x, np.ndarray) else x for x in rng_state
+            ]),
         }
 
     @classmethod
@@ -157,10 +162,13 @@ class PLDPBOScheduler(EpsilonScheduler):
         )
         scheduler._phase = state["phase"]
         scheduler._round = state["round"]
-        scheduler._observations = list(state["observations"])
+        scheduler._observations = json.loads(state["observations"])
         scheduler._f_best = state["f_best"]
         if "rng_state" in state:
-            scheduler._rng.set_state(tuple(state["rng_state"]))
+            rng = json.loads(state["rng_state"])
+            scheduler._rng.set_state(tuple(
+                np.array(x, dtype=np.uint32) if isinstance(x, list) else x for x in rng
+            ))
         if scheduler._phase == "bo":
             scheduler._fit_gp()
         return scheduler

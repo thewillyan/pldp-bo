@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import typing
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Optional
@@ -148,9 +149,17 @@ def load_config(config_path: str, overrides: Optional[dict] = None) -> Experimen
             if key in _CONFIG_KEY_MAP and isinstance(sub_config, dict):
                 dc_type = _CONFIG_KEY_MAP[key]
                 current = getattr(config, key)
+                type_hints = typing.get_type_hints(dc_type)
                 for fld in fields(dc_type):
                     if fld.name in sub_config:
-                        setattr(current, fld.name, sub_config[fld.name])
+                        value = sub_config[fld.name]
+                        expected = type_hints.get(fld.name)
+                        if isinstance(value, str) and expected in (float, int):
+                            try:
+                                value = expected(value)
+                            except (ValueError, TypeError):
+                                pass
+                        setattr(current, fld.name, value)
 
     if overrides:
         expanded = _expand_dot_keys(overrides)

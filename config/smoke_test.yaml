@@ -13,7 +13,7 @@ federated:
   fraction_fit: 1.0
   fraction_evaluate: 1.0
   local_epochs: 1
-  min_available_nodes: 5
+#  min_available_nodes: 5
 
 privacy:
   enabled: false

@@ -68,6 +68,7 @@ class PerUpdateDPClient(FlowerClient):
                 "client_epsilon": self._client_epsilon or 0.0,
                 "update_norm": 0.0,
                 "utility_loss": 0.0,
+                "sigma": 0.0,
                 "budget_exhausted": True,
             }
             return parameters, 0, metrics

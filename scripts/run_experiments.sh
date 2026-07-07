@@ -60,7 +60,8 @@ print(cfg.get('logging', {}).get('run_name', '') or '')
       --tracking-uri "$tracking_uri" \
       list-runs > /dev/null 2>&1 || true
 
-    ./scripts/run.sh "$config" "$NUM_CLIENTS" "logging.tracking-uri=$tracking_uri"
+    MLFLOW_TRACKING_URI="$tracking_uri" \
+      ./scripts/run.sh "$config" "$NUM_CLIENTS"
 
     echo "  Fetching run_id for run_name='$run_name'..."
     run_id=$($VENV_PYTHON -m scripts.plot_results \

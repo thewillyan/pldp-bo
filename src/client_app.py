@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
+from flwr.app import ArrayRecord, ConfigRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
 
 from src.client import create_client
@@ -25,6 +25,15 @@ logger = logging.getLogger(__name__)
 app = ClientApp()
 
 ACCOUNTANT_STATE_KEY = "pldp_accountant_state"
+
+def _sanitize_metrics(metrics: dict) -> dict:
+    return {
+        k: (int(v) if isinstance(v, bool) else v)
+        for k, v in metrics.items()
+    }
+
+
+
 SCHEDULER_STATE_KEY = "pldp_scheduler_state"
 
 _OPTIMIZATION_METRIC_KEY_MAP: dict[str, str] = {
@@ -166,10 +175,10 @@ def train(msg: Message, context: Context) -> Message:
                 scheduler.step(epsilon, float(metric_value))
 
     if accountant is not None and config.privacy.enabled:
-        context.state[ACCOUNTANT_STATE_KEY] = accountant.get_state()
+        context.state[ACCOUNTANT_STATE_KEY] = ConfigRecord(accountant.get_state())
 
     if scheduler is not None and config.privacy.enabled:
-        context.state[SCHEDULER_STATE_KEY] = scheduler.get_state()
+        context.state[SCHEDULER_STATE_KEY] = ConfigRecord(scheduler.get_state())
 
     model_record = ArrayRecord(client_model.get_model().state_dict())
     metrics = {
@@ -177,7 +186,7 @@ def train(msg: Message, context: Context) -> Message:
         "client-id": partition_id,
         **fit_metrics,
     }
-    metric_record = MetricRecord(metrics)
+    metric_record = MetricRecord(_sanitize_metrics(metrics))
     content = RecordDict({"arrays": model_record, "metrics": metric_record})
     return Message(content=content, reply_to=msg)
 
@@ -251,8 +260,7 @@ def evaluate(msg: Message, context: Context) -> Message:
         "client-id": partition_id,
         **eval_metrics,
     }
-    if client_epsilon is not None:
-        metrics["cumulative_epsilon"] = client_epsilon
-    metric_record = MetricRecord(metrics)
+    metrics["cumulative_epsilon"] = client_epsilon if client_epsilon is not None else 0.0
+    metric_record = MetricRecord(_sanitize_metrics(metrics))
     content = RecordDict({"metrics": metric_record})
     return Message(content=content, reply_to=msg)
