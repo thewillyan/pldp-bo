@@ -1489,21 +1489,6 @@ wheels = [
 ]
 
 [[package]]
-name = "opacus"
-version = "1.6.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy" },
-    { name = "opt-einsum" },
-    { name = "scipy" },
-    { name = "torch" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/31/39/a92b485f5a9c65bdd18c574d24c3b17800e39f02d66e665ab9bfbde77c52/opacus-1.6.0.tar.gz", hash = "sha256:20d77252c1e8528cd5826fbaba345cd39ed5c3edb841707eafb6403fe276140a", size = 184592, upload-time = "2026-05-05T18:15:26.103Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/45/2d/cb1b04cc674f3e06dbe1afc02ed977f066f39c7a4a313372353f82c26117/opacus-1.6.0-py3-none-any.whl", hash = "sha256:342123624c56c09d47eaba44010ed216d51c63132b543d67cba53a49ed6dc41e", size = 308911, upload-time = "2026-05-05T18:15:24.479Z" },
-]
-
-[[package]]
 name = "opentelemetry-api"
 version = "1.43.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1552,15 +1537,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/5a/30/5f26df29509eccd86b99b481ac9ffa39da49ba9577cc69071c552ae30447/opentelemetry_semantic_conventions-0.64b0.tar.gz", hash = "sha256:72f76fb2d1582d9d033dd1fcd84532e961e6ff3d90d24ba6fabc72975a83864c", size = 148340, upload-time = "2026-06-24T15:20:09.267Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f2/ca/23ba87a221b574a7c5a99d48849d80bfe8b047624681357e2b002e566187/opentelemetry_semantic_conventions-0.64b0-py3-none-any.whl", hash = "sha256:ea77e85e354b8f604ddbe5f3d9135216f982fa4d77e5859ac30f6d8a50505aa6", size = 203713, upload-time = "2026-06-24T15:19:53.339Z" },
-]
-
-[[package]]
-name = "opt-einsum"
-version = "3.4.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/8c/b9/2ac072041e899a52f20cf9510850ff58295003aa75525e58343591b0cbfb/opt_einsum-3.4.0.tar.gz", hash = "sha256:96ca72f1b886d148241348783498194c577fa30a8faac108586b14f1ba4473ac", size = 63004, upload-time = "2024-09-26T14:33:24.483Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/23/cd/066e86230ae37ed0be70aae89aabf03ca8d9f39c8aea0dec8029455b5540/opt_einsum-3.4.0-py3-none-any.whl", hash = "sha256:69bb92469f86a1565195ece4ac0323943e83477171b91d24c35afe028a90d7cd", size = 71932, upload-time = "2024-09-26T14:33:23.039Z" },
 ]
 
 [[package]]
@@ -1667,8 +1643,8 @@ dependencies = [
     { name = "matplotlib" },
     { name = "mlflow" },
     { name = "numpy" },
-    { name = "opacus" },
     { name = "pyyaml" },
+    { name = "scikit-learn" },
     { name = "seaborn" },
     { name = "torch" },
     { name = "torchvision" },
@@ -1689,8 +1665,8 @@ requires-dist = [
     { name = "matplotlib" },
     { name = "mlflow", specifier = ">=3.14.0" },
     { name = "numpy", specifier = ">=2.5.0" },
-    { name = "opacus" },
     { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "scikit-learn" },
     { name = "seaborn" },
     { name = "torch", specifier = ">=2.12.1" },
     { name = "torchvision", specifier = ">=0.27.1" },

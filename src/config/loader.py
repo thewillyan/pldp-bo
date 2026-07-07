@@ -55,6 +55,7 @@ class PrivacyConfig:
     delta: float = 1e-5
     target_epsilon: Optional[float] = None
     accountant: str = "rdp"
+    total_budget: Optional[float] = None
 
 
 @dataclass
@@ -74,7 +75,7 @@ class BOConfig:
     warmup_rounds: int = 20
     epsilon_min: float = 0.1
     epsilon_max: float = 10.0
-    epsilon_budget: float = 8.0
+    epsilon_budget: float = 10.0
     optimization_metric: str = "nun"
     grid_points: int = 100
     acquisition_penalty: float = 0.1

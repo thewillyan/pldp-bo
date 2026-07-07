@@ -75,7 +75,7 @@ def test_bo_config_defaults() -> None:
     config = load_config("config/default.yaml")
     assert config.bo.enabled is False
     assert config.bo.warmup_rounds == 20
-    assert config.bo.epsilon_budget == 8.0
+    assert config.bo.epsilon_budget == 10.0
     assert config.bo.optimization_metric == "nun"
 
 

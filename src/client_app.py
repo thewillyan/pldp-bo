@@ -119,7 +119,13 @@ def train(msg: Message, context: Context) -> Message:
                 scheduler,
             )
 
-    epsilon = _resolve_epsilon(scheduler, accountant, config)
+    total_budget: float | None = None
+    if config.privacy.total_budget is not None:
+        total_budget = config.privacy.total_budget
+    elif config.bo.enabled:
+        total_budget = config.bo.epsilon_budget
+
+    epsilon = _resolve_epsilon(scheduler, accountant, config, total_budget)
     if epsilon < 0:
         logger.info(
             "Client %d privacy budget exhausted (epsilon=%.4f), ceasing participation",
@@ -128,12 +134,6 @@ def train(msg: Message, context: Context) -> Message:
         )
         epsilon = 0.0
     logger.debug("Client %d using epsilon=%.4f", partition_id, epsilon)
-
-    total_budget: float | None = None
-    if config.bo.enabled:
-        total_budget = config.bo.epsilon_budget
-    elif scheduler is not None:
-        total_budget = epsilon
 
     client_model = create_model(config.model)
     client = create_client(
@@ -182,6 +182,7 @@ def _resolve_epsilon(
     scheduler: EpsilonScheduler | None,
     accountant: RDPAccountant | None,
     config,
+    total_budget: float | None = None,
 ) -> float:
     if scheduler is not None:
         candidate = scheduler.get_epsilon()
@@ -190,13 +191,12 @@ def _resolve_epsilon(
     else:
         return config.privacy.noise_multiplier
 
-    if accountant is not None and config.bo.enabled:
-        budget = config.bo.epsilon_budget
-        eps_min = config.bo.epsilon_min
+    if accountant is not None and total_budget is not None:
         C = config.privacy.max_grad_norm
         delta = config.privacy.delta
         candidate = enforce_epsilon_budget(
-            candidate, accountant.rdp_per_alpha, budget, eps_min, C, delta,
+            candidate, accountant.rdp_per_alpha, total_budget,
+            config.bo.epsilon_min, C, delta,
         )
 
     return candidate
