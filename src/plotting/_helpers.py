@@ -113,10 +113,11 @@ def extract_round_stats(
         parts = key.split("_")
         if len(parts) < 4:
             continue
-        if parts[2] != stat_name:
-            continue
-        agg = parts[3]
+        agg = parts[-1]
         if agg not in aggs:
+            continue
+        actual_stat = "_".join(parts[2:-1])
+        if actual_stat != stat_name:
             continue
         try:
             round_num = int(parts[1])

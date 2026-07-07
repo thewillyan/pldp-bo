@@ -11,12 +11,12 @@ from src.plotting._helpers import extract_metrics_by_round, get_run_by_id
 def plot_convergence(
     experiment_id: str,
     save_path: Optional[Path] = None,
+    dpi: int = 150,
 ) -> matplotlib.figure.Figure:
     run = get_run_by_id(experiment_id)
 
     rounds, losses = extract_metrics_by_round(run, "server_loss")
-    _, accuracies = extract_metrics_by_round(run, "accuracy")
-    _, acc_rounds = extract_metrics_by_round(run, "accuracy")
+    acc_rounds, accuracies = extract_metrics_by_round(run, "accuracy")
 
     if not rounds and not acc_rounds:
         raise ValueError(f"No round metrics found in experiment {experiment_id}")
@@ -40,6 +40,6 @@ def plot_convergence(
     plt.tight_layout()
 
     if save_path:
-        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+        fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
 
     return fig

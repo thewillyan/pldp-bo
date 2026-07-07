@@ -5,6 +5,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import seaborn as sns
+
 from src.plotting._helpers import get_run_name, get_run_params, list_runs
 from src.plotting.comparison import (
     plot_comparison_convergence,
@@ -12,6 +14,8 @@ from src.plotting.comparison import (
 )
 from src.plotting.convergence import plot_convergence
 from src.plotting.privacy import plot_privacy_budget
+
+sns.set_theme(style="whitegrid", font_scale=1.1)
 
 
 def _format_time(start_ms: int, end_ms: int | None) -> str:
@@ -70,6 +74,8 @@ def cmd_list_runs(args: argparse.Namespace) -> None:
 
 
 def cmd_single(args: argparse.Namespace) -> None:
+    import matplotlib.pyplot as plt
+
     save_dir = Path(args.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
@@ -77,16 +83,18 @@ def cmd_single(args: argparse.Namespace) -> None:
         path = save_dir / "convergence.png"
         fig = plot_convergence(args.experiment_id, save_path=path)
         print(f"Saved convergence plot to {path}")
-        fig.clear()
+        plt.close(fig)
 
     if args.type in ("privacy", "all"):
         path = save_dir / "privacy_budget.png"
         fig = plot_privacy_budget(args.experiment_id, save_path=path)
         print(f"Saved privacy plot to {path}")
-        fig.clear()
+        plt.close(fig)
 
 
 def cmd_compare(args: argparse.Namespace) -> None:
+    import matplotlib.pyplot as plt
+
     save_dir = Path(args.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
@@ -107,7 +115,7 @@ def cmd_compare(args: argparse.Namespace) -> None:
             run_ids, labels=labels, save_path=path
         )
         print(f"Saved comparison convergence plot to {path}")
-        fig.clear()
+        plt.close(fig)
 
     if args.type in ("privacy", "all"):
         path = save_dir / "privacy_budget.png"
@@ -115,7 +123,7 @@ def cmd_compare(args: argparse.Namespace) -> None:
             run_ids, labels=labels, save_path=path
         )
         print(f"Saved comparison privacy plot to {path}")
-        fig.clear()
+        plt.close(fig)
 
 
 def main() -> None:

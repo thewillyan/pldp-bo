@@ -18,6 +18,7 @@ def plot_epsilon_schedules(
     client_ids: Optional[list[int]] = None,
     show_mean_std: bool = True,
     save_path: Optional[Path] = None,
+    dpi: int = 150,
 ) -> plt.Figure:
     run = get_run_by_id(run_id)
 
@@ -83,7 +84,7 @@ def plot_epsilon_schedules(
     fig.tight_layout()
 
     if save_path:
-        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+        fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
 
     return fig
 
@@ -94,6 +95,7 @@ def plot_metric_vs_epsilon(
     metric: str = "utility_loss",
     warmup_rounds: Optional[int] = None,
     save_path: Optional[Path] = None,
+    dpi: int = 150,
 ) -> plt.Figure:
     run = get_run_by_id(run_id)
 
@@ -104,11 +106,15 @@ def plot_metric_vs_epsilon(
         msg = f"No data for client {client_id} metric '{metric}'"
         raise ValueError(msg)
 
+    if not metric_vals:
+        msg = f"No data for client {client_id} metric '{metric}'"
+        raise ValueError(msg)
+
     fig, ax = plt.subplots(figsize=(8, 6))
 
     rds_arr = np.array(rounds)
     eps_arr = np.array(epsilons)
-    met_arr = np.array(metric_vals) if metric_vals else np.zeros_like(eps_arr)
+    met_arr = np.array(metric_vals)
 
     if warmup_rounds is not None:
         warmup_idx = (
@@ -141,6 +147,6 @@ def plot_metric_vs_epsilon(
     fig.tight_layout()
 
     if save_path:
-        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+        fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
 
     return fig

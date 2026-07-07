@@ -13,8 +13,6 @@ from src.plotting._helpers import (
     get_run_name,
 )
 
-sns.set_theme(style="whitegrid", font_scale=1.1)
-
 LINE_STYLES = ["-", "--", "-.", ":"]
 PALETTE = "husl"
 
@@ -52,6 +50,7 @@ def plot_comparison_convergence(
     run_ids: Sequence[str],
     labels: Optional[Sequence[str]] = None,
     save_path: Optional[Path] = None,
+    dpi: int = 150,
 ) -> matplotlib.figure.Figure:
     resolved_labels = _resolve_labels(run_ids, labels)
     palette = sns.color_palette(PALETTE, n_colors=len(run_ids))
@@ -95,7 +94,7 @@ def plot_comparison_convergence(
     fig.tight_layout()
 
     if save_path:
-        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+        fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
 
     return fig
 
@@ -104,6 +103,7 @@ def plot_comparison_privacy(
     run_ids: Sequence[str],
     labels: Optional[Sequence[str]] = None,
     save_path: Optional[Path] = None,
+    dpi: int = 150,
 ) -> matplotlib.figure.Figure:
     resolved_labels = _resolve_labels(run_ids, labels)
     palette = sns.color_palette(PALETTE, n_colors=len(run_ids))
@@ -138,6 +138,6 @@ def plot_comparison_privacy(
     fig.tight_layout()
 
     if save_path:
-        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+        fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
 
     return fig
