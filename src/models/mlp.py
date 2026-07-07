@@ -18,8 +18,7 @@ class MLP(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.relu(self.fc1(x))
         x = self.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
+        return self.fc3(x)
 
 
 class MLPModel(BaseModel):

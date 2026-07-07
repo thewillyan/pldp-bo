@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from src.server.strategy import _EPS, _MIN_VALUES_FOR_STATS
+
 
 def _median_weights(norms: list[float]) -> np.ndarray:
     b = float(np.median(norms))
@@ -103,3 +105,12 @@ class TestWeightedAveraging:
         new_weights = global_weights + lr * aggregated_delta
         expected = np.array([1.25, 0.85])
         np.testing.assert_array_almost_equal(new_weights, expected)
+
+
+class TestModuleConstants:
+    def test_eps_is_small_positive(self) -> None:
+        assert _EPS > 0
+        assert _EPS < 1e-10
+
+    def test_min_values_for_stats(self) -> None:
+        assert _MIN_VALUES_FOR_STATS == 3

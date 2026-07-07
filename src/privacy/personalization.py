@@ -31,7 +31,7 @@ def assign_epsilon(
 
 
 def _assign_uniform(config: PersonalizationConfig) -> float:
-    return float(np.random.uniform(config.epsilon_min, config.epsilon_max))
+    return float(np.random.uniform(config.epsilon_min, config.epsilon_max))  # noqa: NPY002
 
 
 def _assign_custom(partition_id: int, config: PersonalizationConfig) -> float:
@@ -92,7 +92,7 @@ def _get_targets(dataset: Dataset | Subset) -> np.ndarray:
 
 def _get_num_classes(dataset: Dataset | Subset) -> int:
     targets = _get_targets(dataset)
-    return int(len(np.unique(targets)))
+    return len(np.unique(targets))
 
 
 def assign_epsilon_bounds(

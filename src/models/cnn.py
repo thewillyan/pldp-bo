@@ -23,8 +23,7 @@ class CNN(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.relu(self.fc1(x))
         x = self.dropout(x)
-        x = self.fc2(x)
-        return x
+        return self.fc2(x)
 
 
 class CNNModel(BaseModel):

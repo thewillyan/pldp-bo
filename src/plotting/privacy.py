@@ -142,7 +142,7 @@ def plot_cumulative_privacy_budget(
     ax.set_ylabel("Cumulative Epsilon (ε)")
     ax.set_title("Cumulative Privacy Budget Per Client")
     ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize="small")
-    ax.grid(True, alpha=0.3)
+    ax.grid(alpha=0.3)
 
     plt.tight_layout()
 

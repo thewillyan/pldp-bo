@@ -5,7 +5,7 @@ import json
 import numpy as np
 from scipy.stats import norm
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import RBF, Matern, WhiteKernel
+from sklearn.gaussian_process.kernels import Kernel, RBF, Matern, WhiteKernel
 
 from src.privacy.epsilon_scheduler import EpsilonScheduler
 
@@ -29,7 +29,7 @@ def normalize_ei(ei: np.ndarray) -> np.ndarray:
     return np.zeros_like(ei)
 
 
-def _build_kernel(name: str = "matern52", noise_level: float = 0.01):
+def _build_kernel(name: str = "matern52", noise_level: float = 0.01) -> Kernel:
     if name == "matern52":
         return Matern(nu=2.5) + WhiteKernel(noise_level=noise_level)
     if name == "rbf":
@@ -89,8 +89,7 @@ class PLDPBOScheduler(EpsilonScheduler):
 
     def step(self, epsilon: float, metric: float) -> None:
         self._observations.append((epsilon, metric))
-        if metric < self._f_best:
-            self._f_best = metric
+        self._f_best = min(self._f_best, metric)
 
         if self._phase == "warmup" and len(self._observations) >= self._warmup_rounds:
             self._fit_gp()
@@ -101,7 +100,7 @@ class PLDPBOScheduler(EpsilonScheduler):
         self._round += 1
 
     def _fit_gp(self) -> None:
-        X = np.array([[eps] for eps, _ in self._observations])
+        x = np.array([[eps] for eps, _ in self._observations])
         y = np.array([m for _, m in self._observations])
         kernel = _build_kernel(self._gp_kernel_name, self._observation_noise)
         self._gp = GaussianProcessRegressor(
@@ -110,7 +109,7 @@ class PLDPBOScheduler(EpsilonScheduler):
             random_state=self._rng.randint(0, 2**31),
             normalize_y=True,
         )
-        self._gp.fit(X, y)
+        self._gp.fit(x, y)
 
     def _select_bo_epsilon(self) -> float:
         if self._gp is None:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Iterable
+from collections.abc import Iterable
 
 import mlflow
 import numpy as np
@@ -10,9 +10,10 @@ from flwr.common import Message
 from flwr.serverapp.grid.grid import Grid
 from flwr.serverapp.strategy import FedAvg
 
-from src.logging.tracker import ExperimentTracker
+from src.tracking.tracker import ExperimentTracker
 
-log = logging.getLogger(__name__)
+_EPS = 1e-12
+_MIN_VALUES_FOR_STATS = 3
 
 
 class MedianRobustAggregation(FedAvg):
@@ -95,7 +96,7 @@ class MedianRobustAggregation(FedAvg):
 
         median_norm = float(np.median(norms))
         weights = np.array(
-            [1.0 if r <= 1e-12 else min(1.0, median_norm / r) for r in norms],
+            [1.0 if r <= _EPS else min(1.0, median_norm / r) for r in norms],
             dtype=np.float64,
         )
 
@@ -149,7 +150,7 @@ class MedianRobustAggregation(FedAvg):
         arr = np.array(values)
         self._log_metric(f"round_{server_round}_{prefix}_mean", float(arr.mean()), step=server_round)
         self._log_metric(f"round_{server_round}_{prefix}_std", float(arr.std()), step=server_round)
-        if len(values) >= 3:
+        if len(values) >= _MIN_VALUES_FOR_STATS:
             self._log_metric(f"round_{server_round}_{prefix}_min", float(arr.min()), step=server_round)
             self._log_metric(f"round_{server_round}_{prefix}_max", float(arr.max()), step=server_round)
             self._log_metric(f"round_{server_round}_{prefix}_median", float(np.median(arr)), step=server_round)

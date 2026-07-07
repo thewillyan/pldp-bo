@@ -15,6 +15,7 @@ from src.plotting._helpers import (
 def plot_epsilon_schedules(
     run_id: str,
     client_ids: list[int] | None = None,
+    *,
     show_mean_std: bool = True,
     save_path: Path | None = None,
     dpi: int = 150,
@@ -79,7 +80,7 @@ def plot_epsilon_schedules(
     ax.set_ylabel("Epsilon (ε)")
     ax.set_title("Per-Client Epsilon Schedules")
     ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize="small", framealpha=0.9)
-    ax.grid(True, alpha=0.3)
+    ax.grid(alpha=0.3)
     fig.tight_layout()
 
     if save_path:
@@ -142,7 +143,7 @@ def plot_metric_vs_epsilon(
     ax.set_xlabel("Epsilon (ε)")
     ax.set_ylabel(metric.replace("_", " ").title())
     ax.set_title(f"Client {client_id}: {metric.replace('_', ' ').title()} vs ε")
-    ax.grid(True, alpha=0.3)
+    ax.grid(alpha=0.3)
     fig.tight_layout()
 
     if save_path:

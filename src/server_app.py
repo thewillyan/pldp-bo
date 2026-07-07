@@ -8,7 +8,7 @@ from flwr.serverapp.strategy import FedAvg, FedProx
 from src.config.loader import load_config
 from src.data import create_validation_loader
 from src.device import get_device, to_device
-from src.logging.tracker import ExperimentTracker
+from src.tracking.tracker import ExperimentTracker
 from src.models import create_model
 from src.server.strategy import MedianRobustAggregation
 from src.utils import set_seed

@@ -151,7 +151,7 @@ def load_config(config_path: str, overrides: dict | None = None) -> ExperimentCo
 
     path = Path(config_path)
     if path.exists():
-        with open(path) as f:
+        with path.open() as f:
             raw = yaml.safe_load(f) or {}
         for key, sub_config in raw.items():
             if key in _CONFIG_KEY_MAP and isinstance(sub_config, dict):

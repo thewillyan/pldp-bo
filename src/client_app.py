@@ -241,12 +241,12 @@ def _resolve_epsilon(
         return config.privacy.noise_multiplier
 
     if accountant is not None and total_budget is not None:
-        C = config.privacy.max_grad_norm
+        c = config.privacy.max_grad_norm
         delta = config.privacy.delta
         lower_bound = eps_min if eps_min is not None else config.bo.epsilon_min
         candidate = enforce_epsilon_budget(
             candidate, accountant.rdp_per_alpha, total_budget,
-            lower_bound, C, delta,
+            lower_bound, c, delta,
         )
 
     return candidate
