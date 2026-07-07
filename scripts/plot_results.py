@@ -7,7 +7,7 @@ from pathlib import Path
 
 import seaborn as sns
 
-from src.plotting._helpers import get_run_name, get_run_params, list_runs
+from src.plotting import get_run_name, get_run_params, list_runs
 from src.plotting.comparison import (
     plot_comparison_convergence,
     plot_comparison_privacy,
@@ -81,13 +81,13 @@ def cmd_single(args: argparse.Namespace) -> None:
 
     if args.type in ("convergence", "all"):
         path = save_dir / "convergence.png"
-        fig = plot_convergence(args.experiment_id, save_path=path)
+        fig = plot_convergence(args.run_id, save_path=path)
         print(f"Saved convergence plot to {path}")
         plt.close(fig)
 
     if args.type in ("privacy", "all"):
         path = save_dir / "privacy_budget.png"
-        fig = plot_privacy_budget(args.experiment_id, save_path=path)
+        fig = plot_privacy_budget(args.run_id, save_path=path)
         print(f"Saved privacy plot to {path}")
         plt.close(fig)
 
@@ -136,7 +136,7 @@ def main() -> None:
     )
 
     single_parser = subparsers.add_parser("plot", help="Plot a single run")
-    single_parser.add_argument("experiment_id", type=str, help="Run UUID")
+    single_parser.add_argument("run_id", type=str, help="Run UUID")
     single_parser.add_argument(
         "--type",
         choices=["convergence", "privacy", "all"],

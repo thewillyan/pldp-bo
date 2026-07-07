@@ -10,25 +10,25 @@ from src.plotting._helpers import extract_metrics_by_round, get_run_by_id
 
 
 def plot_convergence(
-    experiment_id: str,
+    run_id: str,
     save_path: Optional[Path] = None,
     dpi: int = 150,
 ) -> matplotlib.figure.Figure:
-    run = get_run_by_id(experiment_id)
+    run = get_run_by_id(run_id)
 
     rounds, losses = extract_metrics_by_round(run, "server_loss")
     acc_rounds, accuracies = extract_metrics_by_round(run, "accuracy")
 
     if not rounds and not acc_rounds:
-        raise ValueError(f"No round metrics found in experiment {experiment_id}")
+        raise ValueError(f"No round metrics found in run {run_id}")
     if not rounds and acc_rounds:
         warnings.warn(
-            f"No server_loss data for {experiment_id}; plotting accuracy only",
+            f"No server_loss data for {run_id}; plotting accuracy only",
             stacklevel=2,
         )
     if rounds and not acc_rounds:
         warnings.warn(
-            f"No accuracy data for {experiment_id}; plotting loss only",
+            f"No accuracy data for {run_id}; plotting loss only",
             stacklevel=2,
         )
 

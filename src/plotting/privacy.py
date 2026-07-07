@@ -10,16 +10,16 @@ from src.plotting._helpers import extract_metrics_by_round, get_run_by_id
 
 
 def plot_privacy_budget(
-    experiment_id: str,
+    run_id: str,
     save_path: Optional[Path] = None,
     dpi: int = 150,
 ) -> matplotlib.figure.Figure:
-    run = get_run_by_id(experiment_id)
+    run = get_run_by_id(run_id)
 
     rounds, epsilons = extract_metrics_by_round(run, "epsilon")
 
     if not rounds:
-        raise ValueError(f"No epsilon metrics found in experiment {experiment_id}")
+        raise ValueError(f"No epsilon metrics found in run {run_id}")
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
@@ -45,11 +45,11 @@ def plot_privacy_budget(
 
 
 def plot_client_epsilon_distribution(
-    experiment_id: str,
+    run_id: str,
     save_path: Optional[Path] = None,
     dpi: int = 150,
 ) -> matplotlib.figure.Figure:
-    run = get_run_by_id(experiment_id)
+    run = get_run_by_id(run_id)
 
     client_epsilons: dict[int, tuple[int, float]] = {}
     for key, value in run.data.metrics.items():
@@ -65,7 +65,7 @@ def plot_client_epsilon_distribution(
                 client_epsilons[client_id] = (round_num, float(value))
 
     if not client_epsilons:
-        raise ValueError(f"No per-client epsilon metrics found in experiment {experiment_id}")
+        raise ValueError(f"No per-client epsilon metrics found in run {run_id}")
 
     client_ids = sorted(client_epsilons.keys())
     epsilons = [client_epsilons[cid][1] for cid in client_ids]
@@ -102,11 +102,11 @@ def plot_client_epsilon_distribution(
 
 
 def plot_cumulative_privacy_budget(
-    experiment_id: str,
+    run_id: str,
     save_path: Optional[Path] = None,
     dpi: int = 150,
 ) -> matplotlib.figure.Figure:
-    run = get_run_by_id(experiment_id)
+    run = get_run_by_id(run_id)
 
     client_cumulative: dict[int, list[tuple[int, float]]] = {}
     for key, value in run.data.metrics.items():
@@ -122,7 +122,7 @@ def plot_cumulative_privacy_budget(
             client_cumulative[client_id].append((round_num, float(value)))
 
     if not client_cumulative:
-        raise ValueError(f"No cumulative epsilon metrics found in experiment {experiment_id}")
+        raise ValueError(f"No cumulative epsilon metrics found in run {run_id}")
 
     fig, ax = plt.subplots(figsize=(10, 6))
 
