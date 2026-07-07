@@ -120,7 +120,8 @@ def test_rdp_accountant_get_state() -> None:
     state = accountant.get_state()
     assert "delta" in state
     assert "steps" in state
-    assert len(state["steps"]) == 3
+    import json
+    assert len(json.loads(state["steps"])) == 3
     assert "rdp_per_alpha" in state
 
 
@@ -137,7 +138,7 @@ def test_rdp_accountant_from_state_roundtrip() -> None:
 
 
 def test_rdp_accountant_from_state_empty() -> None:
-    state = {"delta": 1e-6, "steps": [], "rdp_per_alpha": []}
+    state = {"delta": 1e-6, "steps": "[]", "rdp_per_alpha": []}
     accountant = RDPAccountant.from_state(state)
 
     assert accountant.get_epsilon() == 0.0

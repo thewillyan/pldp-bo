@@ -162,7 +162,7 @@ class PLDPBOScheduler(EpsilonScheduler):
         )
         scheduler._phase = state["phase"]
         scheduler._round = state["round"]
-        scheduler._observations = json.loads(state["observations"])
+        scheduler._observations = [tuple(obs) for obs in json.loads(state["observations"])]
         scheduler._f_best = state["f_best"]
         if "rng_state" in state:
             rng = json.loads(state["rng_state"])

@@ -70,7 +70,9 @@ class RDPAccountant:
         accountant._rdp_per_alpha = np.array(rdp_data, dtype=np.float64)
         if accountant._rdp_per_alpha.shape != _RDP_ALPHAS.shape:
             accountant._rdp_per_alpha = np.zeros_like(_RDP_ALPHAS)
-        for step_info in json.loads(state.get("steps", "[]")):
+        steps_raw = state.get("steps", "[]")
+        steps_data = json.loads(steps_raw) if isinstance(steps_raw, str) else steps_raw
+        for step_info in steps_data:
             accountant._steps.append({
                 "sigma": step_info["sigma"],
                 "clipping_norm": step_info["clipping_norm"],
