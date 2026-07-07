@@ -124,10 +124,12 @@ class MedianRobustAggregation(FedAvg):
 
         self._log_client_metrics(server_round, reply_contents)
 
-        metrics = self.train_metrics_aggr_fn(
-            reply_contents,
-            self.weighted_by_key,
-        )
+        metrics = None
+        if self.train_metrics_aggr_fn is not None:
+            metrics = self.train_metrics_aggr_fn(
+                reply_contents,
+                self.weighted_by_key,
+            )
 
         return aggregated, metrics
 

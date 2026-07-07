@@ -16,7 +16,7 @@ def test_load_default_config() -> None:
 
 
 def test_load_experiment_config() -> None:
-    config = load_config("config/experiments/dp_example.yaml")
+    config = load_config("config/dp_example.yaml")
     assert config.privacy.enabled is True
     assert config.privacy.noise_multiplier == 1.0
 
@@ -46,7 +46,7 @@ def test_config_from_custom_yaml(tmp_path: Path) -> None:
 
 
 def test_load_personalization_config() -> None:
-    config = load_config("config/experiments/personalized_custom.yaml")
+    config = load_config("config/personalized_custom.yaml")
     assert config.personalization.enabled is True
     assert config.personalization.strategy == "custom"
     assert config.personalization.client_epsilon_map[0] == 1.0
