@@ -120,9 +120,12 @@ def train(msg: Message, context: Context) -> Message:
     partition_id = int(context.node_config["partition-id"])
     num_partitions = int(context.node_config["num-partitions"])
 
-    trainloader, valloader, train_dataset = create_client_dataloader(
+    trainloader, valloader, client_subset, total_train_size = create_client_dataloader(
         config.data, partition_id, num_partitions, config.seed
     )
+
+    if config.personalization.enabled and config.personalization.strategy == "data_proportional":
+        config.personalization.client_epsilon_map["__total_size"] = int(total_train_size)
 
     accountant: RDPAccountant | None = None
     scheduler: EpsilonScheduler | None = None
@@ -130,7 +133,7 @@ def train(msg: Message, context: Context) -> Message:
     eps_min_per_client: float | None = None
     if config.bo.enabled and config.privacy.enabled:
         bounds_min, bounds_max, warmup = assign_epsilon_bounds(
-            partition_id, train_dataset,
+            partition_id, client_subset,
             config.personalization, config.bo, config.data.num_clients,
         )
         eps_min_per_client = bounds_min
@@ -147,7 +150,7 @@ def train(msg: Message, context: Context) -> Message:
             accountant = RDPAccountant(delta=config.privacy.delta)
 
         scheduler = _restore_or_create_scheduler(
-            context, partition_id, train_dataset, config, num_partitions,
+            context, partition_id, client_subset, config, num_partitions,
             eps_min=bounds_min, eps_max=bounds_max, warmup_rounds=warmup,
         )
         if scheduler is not None:
@@ -259,7 +262,7 @@ def evaluate(msg: Message, context: Context) -> Message:
     partition_id = int(context.node_config["partition-id"])
     num_partitions = int(context.node_config["num-partitions"])
 
-    trainloader, valloader, _ = create_client_dataloader(
+    trainloader, valloader, *_ = create_client_dataloader(
         config.data, partition_id, num_partitions, config.seed
     )
 
