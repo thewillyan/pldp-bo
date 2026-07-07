@@ -30,7 +30,7 @@ class PerUpdateDPClient(FlowerClient):
         client_epsilon: float | None = None,
         accountant: RDPAccountant | None = None,
         total_budget: float | None = None,
-    ):
+    ) -> None:
         super().__init__(model, trainloader, valloader, config)
         self._client_epsilon = client_epsilon
         self._accountant = accountant
@@ -61,7 +61,7 @@ class PerUpdateDPClient(FlowerClient):
         return False
 
     def fit(
-        self, parameters: list[Any], config: dict[str, Any]  # noqa: ARG002
+        self, parameters: list[Any], config: dict[str, Any],  # noqa: ARG002
     ) -> tuple[list[Any], int, dict[str, Any]]:
         if self._check_budget():
             metrics = {
@@ -138,13 +138,13 @@ class PerUpdateDPClient(FlowerClient):
             size = w.size
             noisy_w = noisy_flat[offset : offset + size].reshape(w.shape)
             noisy_weights.append(
-                global_weights[len(noisy_weights)] + noisy_w
+                global_weights[len(noisy_weights)] + noisy_w,
             )
             offset += size
 
         self.model.set_weights(noisy_weights)
         utility_loss = compute_utility_loss(
-            self.model.get_model(), self.valloader, criterion
+            self.model.get_model(), self.valloader, criterion,
         )
 
         metrics = {

@@ -50,7 +50,7 @@ class PLDPBOScheduler(EpsilonScheduler):
         gp_kernel: str = "matern52",
         observation_noise: float = 0.01,
         seed: int | None = None,
-    ):
+    ) -> None:
         if epsilon_min <= 0:
             raise ValueError("epsilon_min must be positive")
         if epsilon_max <= epsilon_min:
@@ -72,7 +72,7 @@ class PLDPBOScheduler(EpsilonScheduler):
         self._rng = np.random.RandomState(seed)
 
         self._warmup_epsilons = np.linspace(
-            epsilon_min, epsilon_max, warmup_rounds
+            epsilon_min, epsilon_max, warmup_rounds,
         )
         self._phase: str = "warmup"
         self._round: int = 0

@@ -6,7 +6,7 @@ from flwr.app import ArrayRecord, ConfigRecord, Context, Message, MetricRecord, 
 from flwr.clientapp import ClientApp
 
 from src.client import create_client
-from src.config.loader import load_config
+from src.config.loader import ExperimentConfig, load_config
 from src.data import create_client_dataloader
 from src.models import create_model
 from src.privacy.accountant import RDPAccountant
@@ -45,7 +45,7 @@ _OPTIMIZATION_METRIC_KEY_MAP: dict[str, str] = {
 def _make_scheduler(
     partition_id: int,
     train_dataset: object,
-    config,
+    config: ExperimentConfig,
     _num_partitions: int,
     eps_min: float | None = None,
     eps_max: float | None = None,
@@ -86,7 +86,7 @@ def _restore_or_create_scheduler(
     context: Context,
     partition_id: int,
     train_dataset: object,
-    config,
+    config: ExperimentConfig,
     num_partitions: int,
     eps_min: float | None = None,
     eps_max: float | None = None,
@@ -98,9 +98,9 @@ def _restore_or_create_scheduler(
         stype = state.get("type")
         if stype == "fixed":
             return FixedEpsilonScheduler.from_state(state)
-        elif stype == "uniform_random":
+        if stype == "uniform_random":
             return UniformRandomEpsilonScheduler.from_state(state)
-        elif stype == "pldp_bo":
+        if stype == "pldp_bo":
             return PLDPBOScheduler.from_state(state)
         raise ValueError(f"Unknown scheduler type: {stype}")
     return _make_scheduler(
@@ -125,7 +125,7 @@ def train(msg: Message, context: Context) -> Message:
     num_partitions = int(context.node_config["num-partitions"])
 
     trainloader, valloader, client_subset, total_train_size = create_client_dataloader(
-        config.data, partition_id, num_partitions, config.seed
+        config.data, partition_id, num_partitions, config.seed,
     )
 
     accountant: RDPAccountant | None = None
@@ -194,13 +194,14 @@ def train(msg: Message, context: Context) -> Message:
         total_budget=total_budget,
     )
 
-    arrays = msg.content["arrays"]
-    assert isinstance(arrays, ArrayRecord)
+    arrays_raw = msg.content.get("arrays")
+    if not isinstance(arrays_raw, ArrayRecord):
+        raise TypeError(f"Expected ArrayRecord, got {type(arrays_raw).__name__}")
+    arrays: ArrayRecord = arrays_raw
     parameters = arrays.to_numpy_ndarrays()
-    parameters_prime, num_examples, fit_metrics = client.fit(parameters, {})
+    num_examples, fit_metrics = client.fit(parameters, {})[1:]
 
-    if scheduler is not None and accountant is not None:
-        if not fit_metrics.get("budget_exhausted", False):
+    if scheduler is not None and accountant is not None and not fit_metrics.get("budget_exhausted", False):
             metric_key = _OPTIMIZATION_METRIC_KEY_MAP.get(
                 config.bo.optimization_metric, config.bo.optimization_metric,
             )
@@ -228,7 +229,7 @@ def train(msg: Message, context: Context) -> Message:
 def _resolve_epsilon(
     scheduler: EpsilonScheduler | None,
     accountant: RDPAccountant | None,
-    config,
+    config: ExperimentConfig,
     total_budget: float | None = None,
     eps_min: float | None = None,
 ) -> float:
@@ -266,12 +267,11 @@ def evaluate(msg: Message, context: Context) -> Message:
     num_partitions = int(context.node_config["num-partitions"])
 
     trainloader, valloader, *_ = create_client_dataloader(
-        config.data, partition_id, num_partitions, config.seed
+        config.data, partition_id, num_partitions, config.seed,
     )
 
     client_epsilon = None
-    if config.privacy.enabled and config.personalization.enabled:
-        if ACCOUNTANT_STATE_KEY in context.state:
+    if config.privacy.enabled and config.personalization.enabled and ACCOUNTANT_STATE_KEY in context.state:
             state = context.state[ACCOUNTANT_STATE_KEY]
             accountant = RDPAccountant.from_state(state)
             client_epsilon = accountant.get_epsilon()
@@ -285,8 +285,10 @@ def evaluate(msg: Message, context: Context) -> Message:
         config=config,
     )
 
-    arrays = msg.content["arrays"]
-    assert isinstance(arrays, ArrayRecord)
+    arrays_raw = msg.content.get("arrays")
+    if not isinstance(arrays_raw, ArrayRecord):
+        raise TypeError(f"Expected ArrayRecord, got {type(arrays_raw).__name__}")
+    arrays: ArrayRecord = arrays_raw
     parameters = arrays.to_numpy_ndarrays()
     loss, num_examples, eval_metrics = client.evaluate(parameters, {})
 

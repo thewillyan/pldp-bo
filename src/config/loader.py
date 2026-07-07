@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import typing
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -54,9 +54,9 @@ class PrivacyConfig:
     noise_multiplier: float = 1.0
     max_grad_norm: float = 1.0
     delta: float = 1e-5
-    target_epsilon: Optional[float] = None
+    target_epsilon: float | None = None
     accountant: str = "rdp"
-    total_budget: Optional[float] = None
+    total_budget: float | None = None
 
 
 @dataclass
@@ -96,7 +96,7 @@ class BOConfig:
 class LoggingConfig:
     tracker: str = "mlflow"
     experiment_name: str = "pldp-bo"
-    run_name: Optional[str] = None
+    run_name: str | None = None
     tracking_uri: str = "./mlruns"
 
 
@@ -137,7 +137,7 @@ def _expand_dot_keys(overrides: dict) -> dict:
     return result
 
 
-def _merge_dict_into_dataclass(dc_instance, override: dict):
+def _merge_dict_into_dataclass(dc_instance: object, override: dict) -> None:
     for key, value in override.items():
         if hasattr(dc_instance, key):
             if isinstance(value, dict) and hasattr(getattr(dc_instance, key), "__dataclass_fields__"):
@@ -146,7 +146,7 @@ def _merge_dict_into_dataclass(dc_instance, override: dict):
                 setattr(dc_instance, key, value)
 
 
-def load_config(config_path: str, overrides: Optional[dict] = None) -> ExperimentConfig:
+def load_config(config_path: str, overrides: dict | None = None) -> ExperimentConfig:
     config = ExperimentConfig()
 
     path = Path(config_path)
@@ -163,10 +163,8 @@ def load_config(config_path: str, overrides: Optional[dict] = None) -> Experimen
                         value = sub_config[fld.name]
                         expected = type_hints.get(fld.name)
                         if isinstance(value, str) and expected in (float, int):
-                            try:
+                            with contextlib.suppress(ValueError, TypeError):
                                 value = expected(value)
-                            except (ValueError, TypeError):
-                                pass
                         setattr(current, fld.name, value)
 
     if overrides:

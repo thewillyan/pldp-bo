@@ -7,7 +7,7 @@ from src.models.base import BaseModel
 
 
 class MLP(nn.Module):
-    def __init__(self, num_classes: int = 10):
+    def __init__(self, num_classes: int = 10) -> None:
         super().__init__()
         self.fc1 = nn.Linear(28 * 28, 200)
         self.fc2 = nn.Linear(200, 200)
@@ -23,7 +23,7 @@ class MLP(nn.Module):
 
 
 class MLPModel(BaseModel):
-    def __init__(self, num_classes: int = 10):
+    def __init__(self, num_classes: int = 10) -> None:
         self._model = MLP(num_classes)
 
     def get_model(self) -> nn.Module:

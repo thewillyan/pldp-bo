@@ -34,6 +34,7 @@ def main(grid: Grid, context: Context) -> None:
     global_model = create_model(config.model, dataset_name=config.data.name)
     arrays = ArrayRecord(global_model.get_model().state_dict())
 
+    strategy: FedAvg
     if config.federated.strategy == "pldp_bo":
         strategy = MedianRobustAggregation(
             server_learning_rate=config.federated.server_learning_rate,
@@ -74,8 +75,8 @@ def main(grid: Grid, context: Context) -> None:
         total = 0
 
         with torch.no_grad():
-            for images, labels in valloader:
-                images, labels = to_device((images, labels))
+            for batch_images, batch_labels in valloader:
+                images, labels = to_device((batch_images, batch_labels))
                 outputs = net(images)
                 loss += criterion(outputs, labels).item()
                 _, predicted = torch.max(outputs, 1)

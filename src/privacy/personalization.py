@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Union
 
 import numpy as np
 from torch.utils.data import Dataset, Subset
@@ -14,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def assign_epsilon(
     partition_id: int,
-    train_dataset: Union[Dataset, Subset],
+    train_dataset: Dataset | Subset,
     config: PersonalizationConfig,
     num_clients: int = 1,
     total_train_size: int | None = None,
@@ -22,14 +21,13 @@ def assign_epsilon(
     strategy = config.strategy
     if strategy == "custom":
         return _assign_custom(partition_id, config)
-    elif strategy == "data_proportional":
+    if strategy == "data_proportional":
         return _assign_data_proportional(train_dataset, config, num_clients, total_train_size=total_train_size)
-    elif strategy == "heterogeneity":
+    if strategy == "heterogeneity":
         return _assign_heterogeneity(train_dataset, config)
-    elif strategy == "uniform":
+    if strategy == "uniform":
         return _assign_uniform(config)
-    else:
-        raise ValueError(f"Unknown personalization strategy: {strategy}")
+    raise ValueError(f"Unknown personalization strategy: {strategy}")
 
 
 def _assign_uniform(config: PersonalizationConfig) -> float:
@@ -41,22 +39,17 @@ def _assign_custom(partition_id: int, config: PersonalizationConfig) -> float:
     if partition_id not in epsilon_map:
         raise ValueError(
             f"partition_id {partition_id} not found in client_epsilon_map. "
-            f"Available: {sorted(epsilon_map.keys())}"
+            f"Available: {sorted(epsilon_map.keys())}",
         )
     return float(epsilon_map[partition_id])
 
 
 def _assign_data_proportional(
-    dataset: Union[Dataset, Subset], config: PersonalizationConfig, num_clients: int,
+    dataset: Dataset | Subset, config: PersonalizationConfig, num_clients: int,
     total_train_size: int | None = None,
 ) -> float:
     client_size = len(dataset)
-    if total_train_size is not None:
-        total_size = total_train_size
-    else:
-        total_size = config.client_epsilon_map.get("__total_size")
-    if total_size is None:
-        total_size = client_size * num_clients
+    total_size = total_train_size if total_train_size is not None else client_size * num_clients
     expected_per_client = total_size / num_clients
 
     epsilon = config.epsilon_base * (expected_per_client / client_size)
@@ -64,7 +57,7 @@ def _assign_data_proportional(
 
 
 def _assign_heterogeneity(
-    dataset: Union[Dataset, Subset], config: PersonalizationConfig
+    dataset: Dataset | Subset, config: PersonalizationConfig,
 ) -> float:
     entropy = _compute_label_entropy(dataset)
     normalized_entropy = entropy / math.log(_get_num_classes(dataset)) if entropy > 0 else 0.0
@@ -74,7 +67,7 @@ def _assign_heterogeneity(
     return float(np.clip(epsilon, config.epsilon_min, config.epsilon_max))
 
 
-def _compute_label_entropy(dataset: Union[Dataset, Subset]) -> float:
+def _compute_label_entropy(dataset: Dataset | Subset) -> float:
     targets = _get_targets(dataset)
     class_counts = np.bincount(targets, minlength=_get_num_classes(dataset)).astype(float)
     class_counts = class_counts[class_counts > 0]
@@ -83,12 +76,12 @@ def _compute_label_entropy(dataset: Union[Dataset, Subset]) -> float:
     return float(entropy)
 
 
-def _get_targets(dataset: Union[Dataset, Subset]) -> np.ndarray:
+def _get_targets(dataset: Dataset | Subset) -> np.ndarray:
     if isinstance(dataset, Subset):
         if hasattr(dataset.dataset, "targets"):
             all_targets = np.array(dataset.dataset.targets)
             return all_targets[dataset.indices]
-        elif hasattr(dataset.dataset, "tensors"):
+        if hasattr(dataset.dataset, "tensors"):
             return dataset.dataset.tensors[1].numpy()[dataset.indices]
     elif hasattr(dataset, "targets"):
         return np.array(dataset.targets)
@@ -97,14 +90,14 @@ def _get_targets(dataset: Union[Dataset, Subset]) -> np.ndarray:
     raise ValueError("Cannot extract targets from dataset")
 
 
-def _get_num_classes(dataset: Union[Dataset, Subset]) -> int:
+def _get_num_classes(dataset: Dataset | Subset) -> int:
     targets = _get_targets(dataset)
     return int(len(np.unique(targets)))
 
 
 def assign_epsilon_bounds(
     partition_id: int,
-    train_dataset: Union[Dataset, Subset],
+    train_dataset: Dataset | Subset,
     personalization_config: PersonalizationConfig,
     bo_config: BOConfig,
     num_clients: int = 1,
@@ -124,14 +117,14 @@ def assign_epsilon_bounds(
                 f"partition_id {partition_id} not found in client_eps_min_map "
                 f"or client_eps_max_map. "
                 f"Available eps_min keys: {sorted(bo_config.client_eps_min_map.keys())}, "
-                f"eps_max keys: {sorted(bo_config.client_eps_max_map.keys())}"
+                f"eps_max keys: {sorted(bo_config.client_eps_max_map.keys())}",
             )
         return eps_min, eps_max, warmup
 
     if strategy == "from_epsilon":
         if not personalization_config.enabled:
             raise ValueError(
-                "bounds_strategy='from_epsilon' requires personalization.enabled=True"
+                "bounds_strategy='from_epsilon' requires personalization.enabled=True",
             )
         epsilon = assign_epsilon(
             partition_id, train_dataset, personalization_config, num_clients,

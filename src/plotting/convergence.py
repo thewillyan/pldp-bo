@@ -1,6 +1,5 @@
 import warnings
 from pathlib import Path
-from typing import Optional
 
 import matplotlib.axes
 import matplotlib.figure
@@ -11,7 +10,7 @@ from src.plotting._helpers import extract_metrics_by_round, get_run_by_id
 
 def plot_convergence(
     run_id: str,
-    save_path: Optional[Path] = None,
+    save_path: Path | None = None,
     dpi: int = 150,
 ) -> matplotlib.figure.Figure:
     run = get_run_by_id(run_id)

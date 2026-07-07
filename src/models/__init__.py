@@ -17,11 +17,10 @@ def create_model(config: ModelConfig, dataset_name: str | None = None) -> BaseMo
         if allowed and dataset_name not in allowed:
             raise ValueError(
                 f"Model '{config.name}' is not compatible with dataset '{dataset_name}'. "
-                f"Compatible datasets: {allowed}"
+                f"Compatible datasets: {allowed}",
             )
     if config.name == "cnn":
         return CNNModel(config.num_classes)
-    elif config.name == "mlp":
+    if config.name == "mlp":
         return MLPModel(config.num_classes)
-    else:
-        raise ValueError(f"Unknown model: {config.name}")
+    raise ValueError(f"Unknown model: {config.name}")

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,9 +14,9 @@ from src.plotting._helpers import (
 
 def plot_epsilon_schedules(
     run_id: str,
-    client_ids: Optional[list[int]] = None,
+    client_ids: list[int] | None = None,
     show_mean_std: bool = True,
-    save_path: Optional[Path] = None,
+    save_path: Path | None = None,
     dpi: int = 150,
 ) -> plt.Figure:
     run = get_run_by_id(run_id)
@@ -93,8 +92,8 @@ def plot_metric_vs_epsilon(
     run_id: str,
     client_id: int = 0,
     metric: str = "utility_loss",
-    warmup_rounds: Optional[int] = None,
-    save_path: Optional[Path] = None,
+    warmup_rounds: int | None = None,
+    save_path: Path | None = None,
     dpi: int = 150,
 ) -> plt.Figure:
     run = get_run_by_id(run_id)

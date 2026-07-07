@@ -1,7 +1,5 @@
 from src.privacy.accountant import RDPAccountant
 from src.privacy.analysis import find_noise_for_target_epsilon, simulate_epsilon
-
-# from src.privacy.dp_mechanism import clip_gradients  # not yet integrated
 from src.privacy.bo_scheduler import (
     PLDPBOScheduler,
     expected_improvement,
@@ -29,7 +27,6 @@ __all__ = [
     "PLDPBOScheduler",
     "assign_epsilon",
     "calibrate_sigma",
-    # "clip_gradients",  # not yet integrated
     "compute_utility_loss",
     "enforce_epsilon_budget",
     "expected_improvement",

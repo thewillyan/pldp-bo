@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Optional
+from typing import Any
 
 import mlflow
 
@@ -9,7 +9,7 @@ from src.config.loader import ExperimentConfig
 
 
 class ExperimentTracker:
-    def __init__(self, config: ExperimentConfig):
+    def __init__(self, config: ExperimentConfig) -> None:
         self._config = config
         uri = os.environ.get("MLFLOW_TRACKING_URI") or config.logging.tracking_uri
         mlflow.set_tracking_uri(uri)
@@ -90,5 +90,5 @@ class ExperimentTracker:
         mlflow.log_artifact(local_path)
 
     @staticmethod
-    def get_run_id() -> Optional[str]:
+    def get_run_id() -> str | None:
         return mlflow.active_run().info.run_id if mlflow.active_run() else None

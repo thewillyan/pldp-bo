@@ -25,7 +25,7 @@ class EpsilonScheduler(ABC):
 
 
 class FixedEpsilonScheduler(EpsilonScheduler):
-    def __init__(self, epsilon: float):
+    def __init__(self, epsilon: float) -> None:
         if epsilon <= 0:
             raise ValueError("epsilon must be positive")
         self._epsilon = epsilon
@@ -45,7 +45,7 @@ class FixedEpsilonScheduler(EpsilonScheduler):
 
 
 class UniformRandomEpsilonScheduler(EpsilonScheduler):
-    def __init__(self, epsilon_min: float, epsilon_max: float, seed: int | None = None):
+    def __init__(self, epsilon_min: float, epsilon_max: float, seed: int | None = None) -> None:
         if epsilon_min <= 0:
             raise ValueError("epsilon_min must be positive")
         if epsilon_max <= epsilon_min:
@@ -56,7 +56,7 @@ class UniformRandomEpsilonScheduler(EpsilonScheduler):
 
     def get_epsilon(self) -> float:
         return float(
-            self._rng.uniform(self._epsilon_min, self._epsilon_max)
+            self._rng.uniform(self._epsilon_min, self._epsilon_max),
         )
 
     def get_state(self) -> dict:

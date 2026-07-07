@@ -5,12 +5,12 @@ from typing import Iterable
 
 import mlflow
 import numpy as np
-
-from src.logging.tracker import ExperimentTracker
 from flwr.app import Array, ArrayRecord, ConfigRecord, MetricRecord, RecordDict
 from flwr.common import Message
 from flwr.serverapp.grid.grid import Grid
 from flwr.serverapp.strategy import FedAvg
+
+from src.logging.tracker import ExperimentTracker
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ class MedianRobustAggregation(FedAvg):
         self._tracker = tracker
 
     def configure_train(
-        self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid
+        self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid,
     ) -> Iterable[Message]:
         self._current_arrays = arrays
         return super().configure_train(server_round, arrays, config, grid)
@@ -123,7 +123,7 @@ class MedianRobustAggregation(FedAvg):
             {
                 k: Array(np.asarray(v))
                 for k, v in zip(global_keys, new_ndarrays, strict=True)
-            }
+            },
         )
 
         self._log_client_metrics(server_round, reply_contents)
@@ -143,12 +143,22 @@ class MedianRobustAggregation(FedAvg):
         else:
             mlflow.log_metric(key, value, step=step)
 
+    def _log_metric_stats(self, prefix: str, values: list[float], server_round: int) -> None:
+        if not values:
+            return
+        arr = np.array(values)
+        self._log_metric(f"round_{server_round}_{prefix}_mean", float(arr.mean()), step=server_round)
+        self._log_metric(f"round_{server_round}_{prefix}_std", float(arr.std()), step=server_round)
+        if len(values) >= 3:
+            self._log_metric(f"round_{server_round}_{prefix}_min", float(arr.min()), step=server_round)
+            self._log_metric(f"round_{server_round}_{prefix}_max", float(arr.max()), step=server_round)
+            self._log_metric(f"round_{server_round}_{prefix}_median", float(np.median(arr)), step=server_round)
+
     def _log_client_metrics(
         self,
         server_round: int,
         reply_contents: list[RecordDict],
     ) -> None:
-        client_ids: list[int] = []
         epsilons: list[float] = []
         update_norms: list[float] = []
         utility_losses: list[float] = []
@@ -163,93 +173,28 @@ class MedianRobustAggregation(FedAvg):
                 continue
 
             cid = int(client_id)
-            client_ids.append(cid)
 
             epsilon = m.get("epsilon")
             if epsilon is not None:
                 epsilons.append(float(epsilon))
-                self._log_metric(
-                    f"round_{server_round}_client_{cid}_epsilon",
-                    float(epsilon),
-                    step=server_round,
-                )
+                self._log_metric(f"round_{server_round}_client_{cid}_epsilon", float(epsilon), step=server_round)
 
             update_norm = m.get("update_norm")
             if update_norm is not None:
                 update_norms.append(float(update_norm))
-                self._log_metric(
-                    f"round_{server_round}_client_{cid}_update_norm",
-                    float(update_norm),
-                    step=server_round,
-                )
+                self._log_metric(f"round_{server_round}_client_{cid}_update_norm", float(update_norm), step=server_round)
 
             utility_loss = m.get("utility_loss")
             if utility_loss is not None:
                 utility_losses.append(float(utility_loss))
-                self._log_metric(
-                    f"round_{server_round}_client_{cid}_utility_loss",
-                    float(utility_loss),
-                    step=server_round,
-                )
+                self._log_metric(f"round_{server_round}_client_{cid}_utility_loss", float(utility_loss), step=server_round)
 
             cum_eps = m.get("cumulative_epsilon")
             if cum_eps is not None:
                 cumulative_epsilons.append(float(cum_eps))
-                self._log_metric(
-                    f"round_{server_round}_client_{cid}_cumulative_epsilon",
-                    float(cum_eps),
-                    step=server_round,
-                )
+                self._log_metric(f"round_{server_round}_client_{cid}_cumulative_epsilon", float(cum_eps), step=server_round)
 
-        if epsilons:
-            eps_arr = np.array(epsilons)
-            self._log_metric(
-                f"round_{server_round}_epsilon_mean", float(eps_arr.mean()), step=server_round,
-            )
-            self._log_metric(
-                f"round_{server_round}_epsilon_std", float(eps_arr.std()), step=server_round,
-            )
-            self._log_metric(
-                f"round_{server_round}_epsilon_min", float(eps_arr.min()), step=server_round,
-            )
-            self._log_metric(
-                f"round_{server_round}_epsilon_max", float(eps_arr.max()), step=server_round,
-            )
-            self._log_metric(
-                f"round_{server_round}_epsilon_median",
-                float(np.median(eps_arr)),
-                step=server_round,
-            )
-
-        if update_norms:
-            un_arr = np.array(update_norms)
-            self._log_metric(
-                f"round_{server_round}_update_norm_mean",
-                float(un_arr.mean()), step=server_round,
-            )
-            self._log_metric(
-                f"round_{server_round}_update_norm_std",
-                float(un_arr.std()), step=server_round,
-            )
-
-        if utility_losses:
-            ul_arr = np.array(utility_losses)
-            self._log_metric(
-                f"round_{server_round}_utility_loss_mean",
-                float(ul_arr.mean()), step=server_round,
-            )
-            self._log_metric(
-                f"round_{server_round}_utility_loss_std",
-                float(ul_arr.std()), step=server_round,
-            )
-
-        if cumulative_epsilons:
-            ce_arr = np.array(cumulative_epsilons)
-            self._log_metric(
-                f"round_{server_round}_cumulative_epsilon_mean",
-                float(ce_arr.mean()), step=server_round,
-            )
-            self._log_metric(
-                f"round_{server_round}_cumulative_epsilon_std",
-                float(ce_arr.std()), step=server_round,
-            )
+        self._log_metric_stats("epsilon", epsilons, server_round)
+        self._log_metric_stats("update_norm", update_norms, server_round)
+        self._log_metric_stats("utility_loss", utility_losses, server_round)
+        self._log_metric_stats("cumulative_epsilon", cumulative_epsilons, server_round)

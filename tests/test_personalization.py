@@ -71,14 +71,13 @@ def test_assign_data_proportional_strategy() -> None:
         epsilon_base=5.0,
         epsilon_min=0.1,
         epsilon_max=10.0,
-        client_epsilon_map={"__total_size": total_size},
     )
 
     small_dataset = _make_dataset([0, 1] * 5)
     large_dataset = _make_dataset([0, 1] * 50)
 
-    small_eps = assign_epsilon(0, small_dataset, config, num_clients=2)
-    large_eps = assign_epsilon(0, large_dataset, config, num_clients=2)
+    small_eps = assign_epsilon(0, small_dataset, config, num_clients=2, total_train_size=total_size)
+    large_eps = assign_epsilon(0, large_dataset, config, num_clients=2, total_train_size=total_size)
 
     assert small_eps > large_eps
 
@@ -90,14 +89,13 @@ def test_data_proportional_respects_bounds() -> None:
         epsilon_base=5.0,
         epsilon_min=1.0,
         epsilon_max=8.0,
-        client_epsilon_map={"__total_size": 10100},
     )
 
     tiny_dataset = _make_dataset([0])
     huge_dataset = _make_dataset([0] * 10000)
 
-    tiny_eps = assign_epsilon(0, tiny_dataset, config, num_clients=100)
-    huge_eps = assign_epsilon(0, huge_dataset, config, num_clients=100)
+    tiny_eps = assign_epsilon(0, tiny_dataset, config, num_clients=100, total_train_size=10100)
+    huge_eps = assign_epsilon(0, huge_dataset, config, num_clients=100, total_train_size=10100)
 
     assert tiny_eps >= 1.0
     assert tiny_eps <= 8.0

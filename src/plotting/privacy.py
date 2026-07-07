@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import Optional
 
 import matplotlib.axes
 import matplotlib.figure
@@ -11,7 +10,7 @@ from src.plotting._helpers import extract_metrics_by_round, get_run_by_id
 
 def plot_privacy_budget(
     run_id: str,
-    save_path: Optional[Path] = None,
+    save_path: Path | None = None,
     dpi: int = 150,
 ) -> matplotlib.figure.Figure:
     run = get_run_by_id(run_id)
@@ -46,7 +45,7 @@ def plot_privacy_budget(
 
 def plot_client_epsilon_distribution(
     run_id: str,
-    save_path: Optional[Path] = None,
+    save_path: Path | None = None,
     dpi: int = 150,
 ) -> matplotlib.figure.Figure:
     run = get_run_by_id(run_id)
@@ -103,7 +102,7 @@ def plot_client_epsilon_distribution(
 
 def plot_cumulative_privacy_budget(
     run_id: str,
-    save_path: Optional[Path] = None,
+    save_path: Path | None = None,
     dpi: int = 150,
 ) -> matplotlib.figure.Figure:
     run = get_run_by_id(run_id)

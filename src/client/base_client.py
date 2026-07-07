@@ -22,10 +22,9 @@ def _get_optimizer(model: nn.Module, config: ExperimentConfig) -> torch.optim.Op
             momentum=config.optimizer.momentum,
             weight_decay=config.optimizer.weight_decay,
         )
-    elif config.optimizer.name == "adam":
+    if config.optimizer.name == "adam":
         return torch.optim.Adam(model.parameters(), lr=lr, weight_decay=config.optimizer.weight_decay)
-    else:
-        raise ValueError(f"Unknown optimizer: {config.optimizer.name}")
+    raise ValueError(f"Unknown optimizer: {config.optimizer.name}")
 
 
 class FlowerClient(fl.client.NumPyClient):
@@ -41,11 +40,11 @@ class FlowerClient(fl.client.NumPyClient):
         self.valloader = valloader
         self.config = config
 
-    def get_parameters(self, config: dict[str, Any]) -> list[Any]:
+    def get_parameters(self, config: dict[str, Any]) -> list[Any]:  # noqa: ARG002
         return self.model.get_weights()
 
     def fit(
-        self, parameters: list[Any], config: dict[str, Any]
+        self, parameters: list[Any], config: dict[str, Any],
     ) -> tuple[list[Any], int, dict[str, Any]]:
         self.model.set_weights(parameters)
         net = self.model.get_model().to(get_device())
@@ -67,7 +66,7 @@ class FlowerClient(fl.client.NumPyClient):
                 if proximal_mu > 0:
                     proximal_term = sum(
                         (w - w_global).norm(2)
-                        for w, w_global in zip(net.parameters(), global_params)
+                        for w, w_global in zip(net.parameters(), global_params, strict=True)
                     )
                     loss = loss + (proximal_mu / 2) * proximal_term
 
@@ -77,7 +76,7 @@ class FlowerClient(fl.client.NumPyClient):
         return self.model.get_weights(), len(self.trainloader.dataset), {}
 
     def evaluate(
-        self, parameters: list[Any], config: dict[str, Any]
+        self, parameters: list[Any], config: dict[str, Any],  # noqa: ARG002
     ) -> tuple[float, int, dict[str, Any]]:
         self.model.set_weights(parameters)
         net = self.model.get_model().to(get_device())
@@ -89,8 +88,8 @@ class FlowerClient(fl.client.NumPyClient):
         total = 0
 
         with torch.no_grad():
-            for images, labels in self.valloader:
-                images, labels = to_device((images, labels))
+            for batch_images, batch_labels in self.valloader:
+                images, labels = to_device((batch_images, batch_labels))
                 outputs = net(images)
                 loss += criterion(outputs, labels).item()
                 _, predicted = torch.max(outputs, 1)

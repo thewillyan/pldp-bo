@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import math
-from typing import Optional
 
 import numpy as np
 
@@ -12,7 +11,7 @@ _RDP_ALPHAS: np.ndarray = np.arange(2, 65, dtype=np.float64)
 
 
 class RDPAccountant:
-    def __init__(self, delta: float = 1e-5):
+    def __init__(self, delta: float = 1e-5) -> None:
         self._delta = delta
         self._rdp_per_alpha: np.ndarray = np.zeros_like(_RDP_ALPHAS)
         self._steps: list[dict] = []
@@ -29,7 +28,7 @@ class RDPAccountant:
             "num_steps": num_steps,
         })
 
-    def get_epsilon(self, delta: Optional[float] = None) -> float:
+    def get_epsilon(self, delta: float | None = None) -> float:
         if not self._steps:
             return 0.0
         delta_val = delta if delta is not None else self._delta
@@ -41,7 +40,7 @@ class RDPAccountant:
             return 0.0
         return float(np.min(epsilons[valid]))
 
-    def get_privacy_spent(self, delta: Optional[float] = None) -> dict[str, float]:
+    def get_privacy_spent(self, delta: float | None = None) -> dict[str, float]:
         eps = self.get_epsilon(delta)
         return {"epsilon": eps, "delta": delta if delta is not None else self._delta}
 

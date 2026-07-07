@@ -41,7 +41,7 @@ def compute_rdp_cost(alpha: float, sigma: float, clipping_norm: float) -> float:
 
 
 class PerUpdateGaussianMechanism:
-    def __init__(self, clipping_norm: float, delta: float, seed: int | None = None):
+    def __init__(self, clipping_norm: float, delta: float, seed: int | None = None) -> None:
         if clipping_norm <= 0:
             raise ValueError("clipping_norm must be positive")
         if delta <= 0 or delta >= 1:

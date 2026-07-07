@@ -1,6 +1,6 @@
 import warnings
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Sequence
 
 import matplotlib.axes
 import matplotlib.figure
@@ -19,7 +19,7 @@ PALETTE = "husl"
 
 def _resolve_labels(
     run_ids: Sequence[str],
-    labels: Optional[Sequence[str]],
+    labels: Sequence[str] | None,
 ) -> list[str]:
     if labels is not None:
         if len(labels) != len(run_ids):
@@ -48,8 +48,8 @@ def _setup_figure(
 
 def plot_comparison_convergence(
     run_ids: Sequence[str],
-    labels: Optional[Sequence[str]] = None,
-    save_path: Optional[Path] = None,
+    labels: Sequence[str] | None = None,
+    save_path: Path | None = None,
     dpi: int = 150,
 ) -> matplotlib.figure.Figure:
     resolved_labels = _resolve_labels(run_ids, labels)
@@ -87,7 +87,7 @@ def plot_comparison_convergence(
 
         if loss_rounds:
             ax_loss.plot(
-                loss_rounds, losses, color=color, linestyle=ls, linewidth=2, label=label
+                loss_rounds, losses, color=color, linestyle=ls, linewidth=2, label=label,
             )
 
         if acc_rounds:
@@ -120,8 +120,8 @@ def plot_comparison_convergence(
 
 def plot_comparison_privacy(
     run_ids: Sequence[str],
-    labels: Optional[Sequence[str]] = None,
-    save_path: Optional[Path] = None,
+    labels: Sequence[str] | None = None,
+    save_path: Path | None = None,
     dpi: int = 150,
 ) -> matplotlib.figure.Figure:
     resolved_labels = _resolve_labels(run_ids, labels)
@@ -132,7 +132,7 @@ def plot_comparison_privacy(
 
     has_data = False
     for i, (run_id, label) in enumerate(
-        zip(run_ids, resolved_labels, strict=True)
+        zip(run_ids, resolved_labels, strict=True),
     ):
         run = get_run_by_id(run_id)
         color = palette[i]
@@ -141,7 +141,7 @@ def plot_comparison_privacy(
         rounds, epsilons = extract_metrics_by_round(run, "epsilon")
         if rounds:
             ax.plot(
-                rounds, epsilons, color=color, linestyle=ls, linewidth=2, label=label
+                rounds, epsilons, color=color, linestyle=ls, linewidth=2, label=label,
             )
             has_data = True
 

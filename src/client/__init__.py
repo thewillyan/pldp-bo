@@ -10,7 +10,7 @@ from src.privacy.accountant import RDPAccountant
 
 
 def create_client(
-    cid: int,
+    cid: int,  # noqa: ARG001
     model: BaseModel,
     trainloader: DataLoader,
     valloader: DataLoader,

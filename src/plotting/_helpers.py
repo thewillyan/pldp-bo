@@ -18,7 +18,7 @@ def get_run_by_id(run_id: str) -> Run:
             if run.info.run_id.startswith(run_id):
                 return run
         raise ValueError(
-            f"Run '{run_id}' not found. Use 'list-runs' to see available runs."
+            f"Run '{run_id}' not found. Use 'list-runs' to see available runs.",
         ) from err
 
 
@@ -30,7 +30,7 @@ def get_run_name(run: Run) -> str:
 
 
 def extract_metrics_by_round(
-    run: Run, metric_name: str
+    run: Run, metric_name: str,
 ) -> tuple[list[int], list[float]]:
     rounds: dict[int, float] = {}
     prefix = "round_"

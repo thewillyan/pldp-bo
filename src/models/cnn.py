@@ -7,7 +7,7 @@ from src.models.base import BaseModel
 
 
 class CNN(nn.Module):
-    def __init__(self, num_classes: int = 10):
+    def __init__(self, num_classes: int = 10) -> None:
         super().__init__()
         self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
@@ -28,7 +28,7 @@ class CNN(nn.Module):
 
 
 class CNNModel(BaseModel):
-    def __init__(self, num_classes: int = 10):
+    def __init__(self, num_classes: int = 10) -> None:
         self._model = CNN(num_classes)
 
     def get_model(self) -> nn.Module:
