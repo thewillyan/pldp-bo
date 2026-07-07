@@ -5,6 +5,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import mlflow
 import seaborn as sns
 
 from src.plotting import get_run_name, get_run_params, list_runs
@@ -23,7 +24,7 @@ def _format_time(start_ms: int, end_ms: int | None) -> str:
     start_str = dt_start.strftime("%d/%m/%Y %H:%M:%S")
 
     if end_ms is None:
-        return f"{start_str} → —"
+        return f"{start_str} \u2192 \u2014"
 
     dt_end = datetime.fromtimestamp(end_ms / 1000)
     end_str = dt_end.strftime("%d/%m/%Y %H:%M:%S")
@@ -43,10 +44,16 @@ def _format_time(start_ms: int, end_ms: int | None) -> str:
     if seconds or not parts:
         parts.append(f"{seconds}s")
 
-    return f"{start_str} → {end_str} ({' '.join(parts)})"
+    return f"{start_str} \u2192 {end_str} ({' '.join(parts)})"
+
+
+def _set_tracking_uri(args: argparse.Namespace) -> None:
+    if args.tracking_uri is not None:
+        mlflow.set_tracking_uri(args.tracking_uri)
 
 
 def cmd_list_runs(args: argparse.Namespace) -> None:
+    _set_tracking_uri(args)
     runs = list_runs(experiment_name=args.experiment)
     if not runs:
         print("No runs found.")
@@ -74,6 +81,7 @@ def cmd_list_runs(args: argparse.Namespace) -> None:
 
 
 def cmd_single(args: argparse.Namespace) -> None:
+    _set_tracking_uri(args)
     import matplotlib.pyplot as plt
 
     save_dir = Path(args.save_dir)
@@ -93,6 +101,7 @@ def cmd_single(args: argparse.Namespace) -> None:
 
 
 def cmd_compare(args: argparse.Namespace) -> None:
+    _set_tracking_uri(args)
     import matplotlib.pyplot as plt
 
     save_dir = Path(args.save_dir)
@@ -126,13 +135,38 @@ def cmd_compare(args: argparse.Namespace) -> None:
         plt.close(fig)
 
 
+def cmd_get_run_id(args: argparse.Namespace) -> None:
+    _set_tracking_uri(args)
+    client = mlflow.tracking.MlflowClient()
+    experiment_ids = [exp.experiment_id for exp in client.search_experiments()]
+    runs = client.search_runs(
+        experiment_ids=experiment_ids,
+        filter_string=f"attributes.run_name = '{args.run_name}'",
+    )
+    if not runs:
+        print(f"Run '{args.run_name}' not found", file=sys.stderr)
+        sys.exit(1)
+    print(runs[0].info.run_id)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="PLDP-BO plot tools")
+    parser.add_argument(
+        "--tracking-uri", type=str, default=None,
+        help="MLflow tracking URI (overrides default)",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     list_parser = subparsers.add_parser("list-runs", help="List available runs")
     list_parser.add_argument(
         "--experiment", type=str, default=None, help="Filter by experiment name"
+    )
+
+    get_run_id_parser = subparsers.add_parser(
+        "get-run-id", help="Print run ID for a given run name"
+    )
+    get_run_id_parser.add_argument(
+        "--run-name", type=str, required=True, help="MLflow run name"
     )
 
     single_parser = subparsers.add_parser("plot", help="Plot a single run")
@@ -162,6 +196,8 @@ def main() -> None:
 
     if args.command == "list-runs":
         cmd_list_runs(args)
+    elif args.command == "get-run-id":
+        cmd_get_run_id(args)
     elif args.command == "plot":
         cmd_single(args)
     elif args.command == "compare":

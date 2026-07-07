@@ -19,7 +19,10 @@ app = ServerApp()
 @app.main()
 def main(grid: Grid, context: Context) -> None:
     config_path = str(context.run_config.get("config-path", "config/default.yaml"))
-    config = load_config(config_path)
+    overrides = {
+        k: v for k, v in context.run_config.items() if k != "config-path"
+    }
+    config = load_config(config_path, overrides=overrides)
 
     set_seed(config.seed, deterministic=config.deterministic)
 
