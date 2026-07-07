@@ -83,6 +83,14 @@ class BOConfig:
     gp_kernel: str = "matern52"
     observation_noise: float = 0.01
 
+    # Per-client bounds personalization
+    bounds_strategy: str = "global"
+    bounds_ratio_min: float = 0.1
+    bounds_ratio_max: float = 1.0
+    client_eps_min_map: dict = field(default_factory=dict)
+    client_eps_max_map: dict = field(default_factory=dict)
+    client_warmup_rounds_map: dict = field(default_factory=dict)
+
 
 @dataclass
 class LoggingConfig:

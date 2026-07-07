@@ -17,7 +17,7 @@ from src.privacy.epsilon_scheduler import (
     UniformRandomEpsilonScheduler,
 )
 from src.privacy.per_update_dp import enforce_epsilon_budget
-from src.privacy.personalization import assign_epsilon
+from src.privacy.personalization import assign_epsilon, assign_epsilon_bounds
 from src.utils import set_seed
 
 logger = logging.getLogger(__name__)
@@ -47,14 +47,20 @@ def _make_scheduler(
     train_dataset: object,
     config,
     _num_partitions: int,
+    eps_min: float | None = None,
+    eps_max: float | None = None,
+    warmup_rounds: int | None = None,
 ) -> EpsilonScheduler | None:
     if not config.privacy.enabled:
         return None
     if config.bo.enabled:
+        e_min = eps_min if eps_min is not None else config.bo.epsilon_min
+        e_max = eps_max if eps_max is not None else config.bo.epsilon_max
+        w_rounds = warmup_rounds if warmup_rounds is not None else config.bo.warmup_rounds
         return PLDPBOScheduler(
-            epsilon_min=config.bo.epsilon_min,
-            epsilon_max=config.bo.epsilon_max,
-            warmup_rounds=config.bo.warmup_rounds,
+            epsilon_min=e_min,
+            epsilon_max=e_max,
+            warmup_rounds=w_rounds,
             acquisition_penalty=config.bo.acquisition_penalty,
             grid_points=config.bo.grid_points,
             gp_kernel=config.bo.gp_kernel,
@@ -80,6 +86,9 @@ def _restore_or_create_scheduler(
     train_dataset: object,
     config,
     num_partitions: int,
+    eps_min: float | None = None,
+    eps_max: float | None = None,
+    warmup_rounds: int | None = None,
 ) -> EpsilonScheduler | None:
     if SCHEDULER_STATE_KEY in context.state:
         state = context.state[SCHEDULER_STATE_KEY]
@@ -91,7 +100,10 @@ def _restore_or_create_scheduler(
         elif stype == "pldp_bo":
             return PLDPBOScheduler.from_state(state)
         raise ValueError(f"Unknown scheduler type: {stype}")
-    return _make_scheduler(partition_id, train_dataset, config, num_partitions)
+    return _make_scheduler(
+        partition_id, train_dataset, config, num_partitions,
+        eps_min=eps_min, eps_max=eps_max, warmup_rounds=warmup_rounds,
+    )
 
 
 @app.train()
@@ -115,6 +127,18 @@ def train(msg: Message, context: Context) -> Message:
     accountant: RDPAccountant | None = None
     scheduler: EpsilonScheduler | None = None
 
+    eps_min_per_client: float | None = None
+    if config.bo.enabled and config.privacy.enabled:
+        bounds_min, bounds_max, warmup = assign_epsilon_bounds(
+            partition_id, train_dataset,
+            config.personalization, config.bo, config.data.num_clients,
+        )
+        eps_min_per_client = bounds_min
+    else:
+        bounds_min = config.bo.epsilon_min
+        bounds_max = config.bo.epsilon_max
+        warmup = config.bo.warmup_rounds
+
     if config.privacy.enabled:
         if ACCOUNTANT_STATE_KEY in context.state:
             state = context.state[ACCOUNTANT_STATE_KEY]
@@ -124,6 +148,7 @@ def train(msg: Message, context: Context) -> Message:
 
         scheduler = _restore_or_create_scheduler(
             context, partition_id, train_dataset, config, num_partitions,
+            eps_min=bounds_min, eps_max=bounds_max, warmup_rounds=warmup,
         )
         if scheduler is not None:
             logger.info(
@@ -138,7 +163,10 @@ def train(msg: Message, context: Context) -> Message:
     elif config.bo.enabled:
         total_budget = config.bo.epsilon_budget
 
-    epsilon = _resolve_epsilon(scheduler, accountant, config, total_budget)
+    epsilon = _resolve_epsilon(
+        scheduler, accountant, config, total_budget,
+        eps_min=eps_min_per_client,
+    )
     if epsilon < 0:
         logger.info(
             "Client %d privacy budget exhausted (epsilon=%.4f), ceasing participation",
@@ -196,6 +224,7 @@ def _resolve_epsilon(
     accountant: RDPAccountant | None,
     config,
     total_budget: float | None = None,
+    eps_min: float | None = None,
 ) -> float:
     if scheduler is not None:
         candidate = scheduler.get_epsilon()
@@ -207,9 +236,10 @@ def _resolve_epsilon(
     if accountant is not None and total_budget is not None:
         C = config.privacy.max_grad_norm
         delta = config.privacy.delta
+        lower_bound = eps_min if eps_min is not None else config.bo.epsilon_min
         candidate = enforce_epsilon_budget(
             candidate, accountant.rdp_per_alpha, total_budget,
-            config.bo.epsilon_min, C, delta,
+            lower_bound, C, delta,
         )
 
     return candidate

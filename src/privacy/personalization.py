@@ -7,7 +7,11 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, Subset
 
-from src.config.loader import PersonalizationConfig
+import logging
+
+from src.config.loader import BOConfig, PersonalizationConfig
+
+logger = logging.getLogger(__name__)
 
 
 def assign_epsilon(
@@ -93,3 +97,43 @@ def _get_targets(dataset: Union[Dataset, Subset]) -> np.ndarray:
 def _get_num_classes(dataset: Union[Dataset, Subset]) -> int:
     targets = _get_targets(dataset)
     return int(len(np.unique(targets)))
+
+
+def assign_epsilon_bounds(
+    partition_id: int,
+    train_dataset: Union[Dataset, Subset],
+    personalization_config: PersonalizationConfig,
+    bo_config: BOConfig,
+    num_clients: int = 1,
+) -> tuple[float, float, int]:
+    warmup = bo_config.client_warmup_rounds_map.get(partition_id, bo_config.warmup_rounds)
+
+    strategy = bo_config.bounds_strategy
+    if strategy == "global":
+        return bo_config.epsilon_min, bo_config.epsilon_max, warmup
+
+    if strategy == "custom_map":
+        eps_min = bo_config.client_eps_min_map.get(partition_id)
+        eps_max = bo_config.client_eps_max_map.get(partition_id)
+        if eps_min is None or eps_max is None:
+            raise ValueError(
+                f"partition_id {partition_id} not found in client_eps_min_map "
+                f"or client_eps_max_map. "
+                f"Available eps_min keys: {sorted(bo_config.client_eps_min_map.keys())}, "
+                f"eps_max keys: {sorted(bo_config.client_eps_max_map.keys())}"
+            )
+        return eps_min, eps_max, warmup
+
+    if strategy == "from_epsilon":
+        if not personalization_config.enabled:
+            raise ValueError(
+                "bounds_strategy='from_epsilon' requires personalization.enabled=True"
+            )
+        epsilon = assign_epsilon(
+            partition_id, train_dataset, personalization_config, num_clients,
+        )
+        eps_min = max(epsilon * bo_config.bounds_ratio_min, 1e-6)
+        eps_max = epsilon * bo_config.bounds_ratio_max
+        return eps_min, eps_max, warmup
+
+    raise ValueError(f"Unknown bounds_strategy: {strategy}")

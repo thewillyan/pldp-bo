@@ -9,7 +9,7 @@ model:
   num_classes: 100
 
 federated:
-  num_rounds: 50
+  num_rounds: 100
   fraction_fit: 0.5
   fraction_evaluate: 0.2
   local_epochs: 5
@@ -37,6 +37,7 @@ personalization:
 
 bo:
   enabled: true
+  epsilon_max: 5.0
   optimization_metric: nun
 
 logging:

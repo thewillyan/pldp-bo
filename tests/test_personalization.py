@@ -5,12 +5,13 @@ import pytest
 import torch
 from torch.utils.data import TensorDataset
 
-from src.config.loader import PersonalizationConfig
+from src.config.loader import BOConfig, PersonalizationConfig
 from src.privacy.personalization import (
     _compute_label_entropy,
     _get_num_classes,
     _get_targets,
     assign_epsilon,
+    assign_epsilon_bounds,
 )
 from src.privacy.accountant import RDPAccountant
 
@@ -182,3 +183,147 @@ def test_rdp_accountant_serialization_empty() -> None:
 
     assert restored.get_epsilon() == 0.0
     assert restored.total_steps() == 0
+
+
+def _make_bo_config(**kwargs) -> BOConfig:
+    defaults = dict(
+        enabled=True,
+        warmup_rounds=20,
+        epsilon_min=0.1,
+        epsilon_max=10.0,
+        epsilon_budget=10.0,
+        bounds_strategy="global",
+        bounds_ratio_min=0.1,
+        bounds_ratio_max=1.0,
+    )
+    defaults.update(kwargs)
+    return BOConfig(**defaults)
+
+
+def _make_personalization_config(**kwargs) -> PersonalizationConfig:
+    defaults = dict(
+        enabled=True,
+        strategy="custom",
+        client_epsilon_map={0: 5.0, 1: 2.0},
+        epsilon_min=0.1,
+        epsilon_max=10.0,
+    )
+    defaults.update(kwargs)
+    return PersonalizationConfig(**defaults)
+
+
+class TestAssignEpsilonBounds:
+    def test_global_strategy(self) -> None:
+        pc = _make_personalization_config(enabled=False)
+        bc = _make_bo_config(bounds_strategy="global", epsilon_min=0.5, epsilon_max=8.0)
+        dataset = _make_dataset([0, 1, 2])
+        eps_min, eps_max, warmup = assign_epsilon_bounds(0, dataset, pc, bc)
+        assert eps_min == 0.5
+        assert eps_max == 8.0
+        assert warmup == 20
+
+    def test_custom_map_strategy(self) -> None:
+        pc = _make_personalization_config(enabled=False)
+        bc = _make_bo_config(
+            bounds_strategy="custom_map",
+            client_eps_min_map={0: 0.5, 1: 1.0},
+            client_eps_max_map={0: 5.0, 1: 10.0},
+        )
+        dataset = _make_dataset([0, 1, 2])
+        eps_min_0, eps_max_0, _ = assign_epsilon_bounds(0, dataset, pc, bc)
+        eps_min_1, eps_max_1, _ = assign_epsilon_bounds(1, dataset, pc, bc)
+        assert eps_min_0 == 0.5
+        assert eps_max_0 == 5.0
+        assert eps_min_1 == 1.0
+        assert eps_max_1 == 10.0
+
+    def test_custom_map_missing_key(self) -> None:
+        pc = _make_personalization_config(enabled=False)
+        bc = _make_bo_config(
+            bounds_strategy="custom_map",
+            client_eps_min_map={0: 0.5},
+            client_eps_max_map={0: 5.0},
+        )
+        dataset = _make_dataset([0, 1, 2])
+        with pytest.raises(ValueError, match="not found in client_eps_min_map"):
+            assign_epsilon_bounds(5, dataset, pc, bc)
+
+    def test_from_epsilon_custom_strategy(self) -> None:
+        pc = _make_personalization_config(
+            strategy="custom",
+            client_epsilon_map={0: 10.0},
+        )
+        bc = _make_bo_config(
+            bounds_strategy="from_epsilon",
+            bounds_ratio_min=0.1,
+            bounds_ratio_max=1.0,
+        )
+        dataset = _make_dataset([0, 1, 2])
+        eps_min, eps_max, warmup = assign_epsilon_bounds(0, dataset, pc, bc)
+        assert eps_min == pytest.approx(1.0)
+        assert eps_max == pytest.approx(10.0)
+        assert warmup == 20
+
+    def test_from_epsilon_data_proportional(self) -> None:
+        pc = _make_personalization_config(
+            strategy="data_proportional",
+            epsilon_base=5.0,
+            epsilon_min=0.1,
+            epsilon_max=10.0,
+            client_epsilon_map={"__total_size": 100},
+        )
+        bc = _make_bo_config(
+            bounds_strategy="from_epsilon",
+            bounds_ratio_min=0.2,
+            bounds_ratio_max=2.0,
+        )
+        small = _make_dataset([0] * 10)
+        eps_min, eps_max, _ = assign_epsilon_bounds(0, small, pc, bc, num_clients=10)
+        # expected_eps = 5.0 * (10/10) = 5.0
+        assert eps_min == pytest.approx(1.0)
+        assert eps_max == pytest.approx(10.0)
+        assert 0 < eps_min <= eps_max
+
+    def test_from_epsilon_no_personalization_raises(self) -> None:
+        pc = _make_personalization_config(enabled=False)
+        bc = _make_bo_config(bounds_strategy="from_epsilon")
+        dataset = _make_dataset([0, 1, 2])
+        with pytest.raises(ValueError, match="personalization.enabled=True"):
+            assign_epsilon_bounds(0, dataset, pc, bc)
+
+    def test_warmup_per_client_override(self) -> None:
+        pc = _make_personalization_config(enabled=False)
+        bc = _make_bo_config(
+            bounds_strategy="global",
+            warmup_rounds=20,
+            client_warmup_rounds_map={0: 15, 5: 25},
+        )
+        dataset = _make_dataset([0, 1, 2])
+        _, _, w0 = assign_epsilon_bounds(0, dataset, pc, bc)
+        _, _, w1 = assign_epsilon_bounds(1, dataset, pc, bc)
+        _, _, w5 = assign_epsilon_bounds(5, dataset, pc, bc)
+        assert w0 == 15
+        assert w1 == 20
+        assert w5 == 25
+
+    def test_from_epsilon_ratio_not_budget(self) -> None:
+        pc = _make_personalization_config(
+            strategy="custom",
+            client_epsilon_map={0: 4.0},
+        )
+        bc = _make_bo_config(
+            bounds_strategy="from_epsilon",
+            bounds_ratio_min=0.25,
+            bounds_ratio_max=0.75,
+        )
+        dataset = _make_dataset([0, 1, 2])
+        eps_min, eps_max, _ = assign_epsilon_bounds(0, dataset, pc, bc)
+        assert eps_min == pytest.approx(1.0)
+        assert eps_max == pytest.approx(3.0)
+
+    def test_unknown_strategy_raises(self) -> None:
+        pc = _make_personalization_config(enabled=False)
+        bc = _make_bo_config(bounds_strategy="unknown")
+        dataset = _make_dataset([0, 1, 2])
+        with pytest.raises(ValueError, match="Unknown bounds_strategy"):
+            assign_epsilon_bounds(0, dataset, pc, bc)

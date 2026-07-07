@@ -10,7 +10,7 @@ model:
   num_classes: 10
 
 federated:
-  num_rounds: 50
+  num_rounds: 100
   fraction_fit: 0.5
   fraction_evaluate: 0.2
   local_epochs: 5

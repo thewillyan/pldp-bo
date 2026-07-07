@@ -14,7 +14,7 @@ federated:
   fraction_fit: 0.5
   fraction_evaluate: 0.2
   local_epochs: 5
-  strategy: fedavg
+  strategy: pldp_bo
   min_fit_clients: 2
   min_evaluate_clients: 2
   min_available_nodes: 10
@@ -36,16 +36,35 @@ privacy:
 
 personalization:
   enabled: true
-  strategy: uniform
-  epsilon_min: 0.1
-  epsilon_max: 10.0
-  client_epsilon_map: {}
-  track_cumulative: true
+  strategy: custom
+  client_epsilon_map:
+    0: 1.0
+    1: 2.0
+    2: 3.0
+    3: 4.0
+    4: 5.0
+    5: 6.0
+    6: 7.0
+    7: 8.0
+    8: 9.0
+    9: 10.0
+
+bo:
+  enabled: true
+  epsilon_budget: 10.0
+  optimization_metric: nun
+  bounds_strategy: from_epsilon
+  bounds_ratio_min: 0.1
+  bounds_ratio_max: 1.0
+  client_warmup_rounds_map:
+    0: 15
+    5: 25
+    9: 10
 
 logging:
   tracker: mlflow
   experiment_name: pldp-bo
-  run_name: mnist-noniid-uniform-dp
+  run_name: mnist-noniid-pldp-bo-personalized-bounds
   tracking_uri: sqlite:///./mlflow.db
 
 seed: 42
