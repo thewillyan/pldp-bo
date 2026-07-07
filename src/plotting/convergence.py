@@ -1,3 +1,4 @@
+import warnings
 from pathlib import Path
 from typing import Optional
 
@@ -20,6 +21,16 @@ def plot_convergence(
 
     if not rounds and not acc_rounds:
         raise ValueError(f"No round metrics found in experiment {experiment_id}")
+    if not rounds and acc_rounds:
+        warnings.warn(
+            f"No server_loss data for {experiment_id}; plotting accuracy only",
+            stacklevel=2,
+        )
+    if rounds and not acc_rounds:
+        warnings.warn(
+            f"No accuracy data for {experiment_id}; plotting loss only",
+            stacklevel=2,
+        )
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 

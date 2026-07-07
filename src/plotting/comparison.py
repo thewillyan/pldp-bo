@@ -57,23 +57,42 @@ def plot_comparison_convergence(
 
     fig, (ax_loss, ax_acc) = _setup_figure(2, len(run_ids))
 
-    for i, (run_id, label) in enumerate(
-        zip(run_ids, resolved_labels, strict=True)
-    ):
+    run_data: list[tuple[str, list[int], list[float], list[int], list[float]]] = []
+    for run_id, label in zip(run_ids, resolved_labels, strict=True):
         run = get_run_by_id(run_id)
+        loss_rounds, losses = extract_metrics_by_round(run, "server_loss")
+        acc_rounds, accuracies = extract_metrics_by_round(run, "accuracy")
+        run_data.append((label, loss_rounds, losses, acc_rounds, accuracies))
+
+    has_loss = any(rd[1] for rd in run_data)
+    has_acc = any(rd[3] for rd in run_data)
+
+    if not has_loss and not has_acc:
+        msg = "No convergence metrics (server_loss, accuracy) found in any run."
+        raise ValueError(msg)
+    if not has_loss:
+        warnings.warn(
+            "No server_loss data in any run; plotting accuracy only",
+            stacklevel=2,
+        )
+    if not has_acc:
+        warnings.warn(
+            "No accuracy data in any run; plotting loss only",
+            stacklevel=2,
+        )
+
+    for i, (label, loss_rounds, losses, acc_rounds, accuracies) in enumerate(run_data):
         color = palette[i]
         ls = LINE_STYLES[i % len(LINE_STYLES)]
 
-        rounds, losses = extract_metrics_by_round(run, "server_loss")
-        if rounds:
+        if loss_rounds:
             ax_loss.plot(
-                rounds, losses, color=color, linestyle=ls, linewidth=2, label=label
+                loss_rounds, losses, color=color, linestyle=ls, linewidth=2, label=label
             )
 
-        rounds, accuracies = extract_metrics_by_round(run, "accuracy")
-        if rounds:
+        if acc_rounds:
             ax_acc.plot(
-                rounds,
+                acc_rounds,
                 accuracies,
                 color=color,
                 linestyle=ls,
@@ -128,7 +147,7 @@ def plot_comparison_privacy(
 
     if not has_data:
         msg = "No epsilon metrics found in any of the specified runs."
-        warnings.warn(msg, stacklevel=2)
+        raise ValueError(msg)
 
     ax.set_xlabel("Round")
     ax.set_ylabel("Epsilon (ε)")
