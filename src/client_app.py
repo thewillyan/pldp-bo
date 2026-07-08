@@ -36,8 +36,6 @@ def _prepare_metric_record(metrics: dict) -> dict:
         for k, v in metrics.items()
     }
 
-
-
 SCHEDULER_STATE_KEY = "pldp_scheduler_state"
 
 _OPTIMIZATION_METRIC_KEY_MAP: dict[str, str] = {

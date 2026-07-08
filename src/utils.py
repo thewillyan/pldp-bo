@@ -16,7 +16,7 @@ def set_seed(seed: int, *, deterministic: bool = False) -> None:
                        (slower but fully reproducible on GPU).
     """
     random.seed(seed)
-    np.random.seed(seed)  # noqa: NPY002
+    np.random.seed(seed)  # noqa: NPY002 — RandomState required for RNG serialization (get_state/set_state)
     torch.manual_seed(seed)
 
     if torch.cuda.is_available():

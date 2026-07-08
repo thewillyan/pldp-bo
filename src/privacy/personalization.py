@@ -84,16 +84,15 @@ def _compute_label_entropy(dataset: Dataset | Subset) -> float:
 
 def _get_targets(dataset: Dataset | Subset) -> np.ndarray:
     if isinstance(dataset, Subset):
-        if hasattr(dataset.dataset, "targets"):
+        try:
             all_targets = np.array(dataset.dataset.targets)
             return all_targets[dataset.indices]
-        if hasattr(dataset.dataset, "tensors"):
+        except AttributeError:
             return dataset.dataset.tensors[1].numpy()[dataset.indices]
-    elif hasattr(dataset, "targets"):
+    try:
         return np.array(dataset.targets)
-    elif hasattr(dataset, "tensors"):
+    except AttributeError:
         return dataset.tensors[1].numpy()
-    raise ValueError("Cannot extract targets from dataset")
 
 
 def _get_num_classes(dataset: Dataset | Subset) -> int:
