@@ -205,7 +205,6 @@ def train(msg: Message, context: Context) -> Message:
         config=config,
         client_epsilon=epsilon,
         accountant=accountant,
-        total_budget=total_budget,
         seed=client_seed,
         mechanism_state=mechanism_state,
     )
@@ -337,7 +336,7 @@ def evaluate(msg: Message, context: Context) -> Message:
     )
 
     client_epsilon = None
-    if config.privacy.enabled and config.personalization.enabled and ACCOUNTANT_STATE_KEY in context.state:
+    if config.privacy.enabled and ACCOUNTANT_STATE_KEY in context.state:
             state = context.state[ACCOUNTANT_STATE_KEY]
             accountant = RDPAccountant.from_state(state)
             client_epsilon = accountant.get_epsilon()

@@ -107,6 +107,10 @@ class MedianRobustAggregation(FedAvg):
         if not valid_replies:
             return None, None
 
+        active_replies = [r for r in valid_replies if not _is_budget_exhausted(r)]
+        if not active_replies:
+            return None, None
+
         global_arrays = self._current_arrays
         if global_arrays is None:
             return None, None
@@ -118,7 +122,7 @@ class MedianRobustAggregation(FedAvg):
         norms: list[float] = []
         reply_contents: list[RecordDict] = []
 
-        for msg in valid_replies:
+        for msg in active_replies:
             content = msg.content
             client_arrays = content.array_records.get(self.arrayrecord_key)
             if client_arrays is None:

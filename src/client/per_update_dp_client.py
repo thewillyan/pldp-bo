@@ -29,14 +29,12 @@ class PerUpdateDPClient(FlowerClient):
         config: ExperimentConfig,
         client_epsilon: float | None = None,
         accountant: RDPAccountant | None = None,
-        total_budget: float | None = None,
         seed: int | None = None,
         mechanism_state: dict | None = None,
     ) -> None:
         super().__init__(model, trainloader, valloader, config)
         self._client_epsilon = client_epsilon
         self._accountant = accountant
-        self._total_budget = total_budget
         if mechanism_state:
             self._mechanism = PerUpdateGaussianMechanism.from_state(
                 mechanism_state,

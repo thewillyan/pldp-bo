@@ -17,7 +17,6 @@ def create_client(
     config: ExperimentConfig,
     client_epsilon: float | None = None,
     accountant: RDPAccountant | None = None,
-    total_budget: float | None = None,
     seed: int | None = None,
     mechanism_state: dict | None = None,
 ) -> FlowerClient:
@@ -29,7 +28,6 @@ def create_client(
             config,
             client_epsilon=client_epsilon,
             accountant=accountant,
-            total_budget=total_budget,
             seed=seed,
             mechanism_state=mechanism_state,
         )

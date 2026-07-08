@@ -137,7 +137,6 @@ optimizer:
 privacy:
   enabled: false
   mechanism: gaussian
-  noise_multiplier: 1.0
   max_grad_norm: 1.0
   delta: 1e-5
 

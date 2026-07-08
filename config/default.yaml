@@ -28,7 +28,6 @@ optimizer:
 privacy:
   enabled: false
   mechanism: gaussian
-  noise_multiplier: 1.0
   update_clip_norm: 1.0
   delta: 1e-5
   accountant: rdp

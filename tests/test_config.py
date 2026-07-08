@@ -17,7 +17,6 @@ def test_load_default_config() -> None:
 def test_load_experiment_config() -> None:
     config = load_config("config/dp_example.yaml")
     assert config.privacy.enabled is True
-    assert config.privacy.noise_multiplier == 1.0
 
 
 def test_config_override() -> None:
