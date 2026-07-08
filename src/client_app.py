@@ -178,15 +178,15 @@ def train(msg: Message, context: Context) -> Message:
     elif config.bo.enabled:
         total_budget = config.bo.epsilon_budget
 
-    if scheduler is not None and accountant is not None and total_budget is not None:
-        remaining = max(0.0, total_budget - accountant.get_epsilon())
-        if hasattr(scheduler, "set_remaining_budget"):
-            scheduler.set_remaining_budget(remaining)
-
     # Server-assigned per-client budget overrides the config-derived value
     server_budget = (msg.content.config_records.get("config") or ConfigRecord()).get("per_client_budget")
     if server_budget is not None:
         total_budget = float(server_budget)
+
+    if scheduler is not None and accountant is not None and total_budget is not None:
+        remaining = max(0.0, total_budget - accountant.get_epsilon())
+        if hasattr(scheduler, "set_remaining_budget"):
+            scheduler.set_remaining_budget(remaining)
 
     epsilon = _resolve_epsilon(
         scheduler, accountant, config, total_budget,
@@ -278,8 +278,8 @@ def _resolve_epsilon(
                 lower_bound = config.personalization.epsilon_min
             else:
                 lower_bound = config.bo.epsilon_min
-        elif config.personalization.enabled:
-            lower_bound = max(lower_bound, config.personalization.epsilon_min)
+        # eps_min from assign_epsilon_bounds already incorporates personalization floor;
+        # no additional clamp needed here.
         candidate = enforce_epsilon_budget(
             candidate, accountant.rdp_per_alpha, total_budget,
             lower_bound, c, delta,
@@ -343,10 +343,14 @@ def evaluate(msg: Message, context: Context) -> Message:
     )
 
     client_epsilon = None
+    accountant = None
+    mechanism_state = None
     if config.privacy.enabled and ACCOUNTANT_STATE_KEY in context.state:
             state = context.state[ACCOUNTANT_STATE_KEY]
             accountant = RDPAccountant.from_state(state)
             client_epsilon = accountant.get_epsilon()
+    if config.privacy.enabled and MECHANISM_STATE_KEY in context.state:
+            mechanism_state = context.state[MECHANISM_STATE_KEY]
 
     client_model = create_model(config.model, dataset_name=config.data.name)
     client = create_client(
@@ -355,6 +359,9 @@ def evaluate(msg: Message, context: Context) -> Message:
         trainloader=trainloader,
         valloader=valloader,
         config=config,
+        client_epsilon=client_epsilon,
+        accountant=accountant,
+        mechanism_state=mechanism_state,
     )
 
     arrays_raw = msg.content.get("arrays")

@@ -68,22 +68,24 @@ def extract_metrics_by_round(
     return list(rds), list(vals)
 
 
+_ROUND_METRIC_RE = re.compile(r"^round_(\d+)_(?!client_\d+_)(.+)$")
+
 def extract_all_round_metrics(
     run: Run,
 ) -> dict[str, tuple[list[int], list[float]]]:
-    metric_names: set[str] = set()
-    for key in run.data.metrics:
-        if key.startswith("round_") and "_" in key:
-            parts = key.split("_")
-            if len(parts) >= 3:
-                metric_name = "_".join(parts[2:])
-                metric_names.add(metric_name)
+    pairs: dict[str, dict[int, float]] = {}
+    for key, value in run.data.metrics.items():
+        m = _ROUND_METRIC_RE.match(key)
+        if m:
+            round_num = int(m.group(1))
+            metric_name = m.group(2)
+            pairs.setdefault(metric_name, {})[round_num] = float(value)
 
     result: dict[str, tuple[list[int], list[float]]] = {}
-    for name in sorted(metric_names):
-        rds, vals = extract_metrics_by_round(run, name)
-        if rds:
-            result[name] = (rds, vals)
+    for name in sorted(pairs):
+        sorted_items = sorted(pairs[name].items())
+        rds, vals = zip(*sorted_items, strict=True)
+        result[name] = (list(rds), list(vals))
     return result
 
 

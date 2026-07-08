@@ -81,6 +81,7 @@ class PLDPBOScheduler(EpsilonScheduler):
         self._gp: GaussianProcessRegressor | None = None
         self._f_best: float = float("inf")
         self._remaining_budget: float | None = None
+        self._warm_start_kernel: Kernel | None = None
 
     def set_remaining_budget(self, remaining: float | None) -> None:
         self._remaining_budget = remaining
@@ -108,7 +109,12 @@ class PLDPBOScheduler(EpsilonScheduler):
         x = np.array([[eps] for eps, _ in self._observations])
         y = np.array([m for _, m in self._observations])
         kernel = _build_kernel(self._gp_kernel_name, self._observation_noise)
-        if self._gp is not None:
+        if self._warm_start_kernel is not None:
+            # use kernel hyperparameters restored from serialized state,
+            # carrying forward learned length-scales and noise levels
+            kernel = self._warm_start_kernel
+            self._warm_start_kernel = None
+        elif self._gp is not None:
             # carry forward kernel hyperparameters (length-scale, noise-level)
             # learned from previous fits, providing warm-start continuity
             # across sequential BO rounds
@@ -143,6 +149,11 @@ class PLDPBOScheduler(EpsilonScheduler):
         return float(grid[np.argmax(alpha)])
 
     def get_state(self) -> dict:
+        gp_kernel_params = None
+        if self._warm_start_kernel is not None:
+            gp_kernel_params = self._warm_start_kernel.get_params(deep=True)
+        elif self._gp is not None:
+            gp_kernel_params = self._gp.kernel_.get_params(deep=True)
         return {
             "type": "pldp_bo",
             "epsilon_min": self._epsilon_min,
@@ -158,6 +169,7 @@ class PLDPBOScheduler(EpsilonScheduler):
             "f_best": self._f_best,
             "rng_state": serialize_rng(self._rng),
             "remaining_budget": self._remaining_budget,
+            "gp_kernel_params": gp_kernel_params,
         }
 
     @classmethod
@@ -179,6 +191,10 @@ class PLDPBOScheduler(EpsilonScheduler):
             scheduler._rng.set_state(deserialize_rng(state["rng_state"]))
         if "remaining_budget" in state:
             scheduler._remaining_budget = state["remaining_budget"]
+        if state.get("gp_kernel_params") is not None:
+            k = _build_kernel(state["gp_kernel"], state["observation_noise"])
+            k.set_params(**state["gp_kernel_params"])
+            scheduler._warm_start_kernel = k
         if scheduler._phase == "bo":
             scheduler._fit_gp()
         return scheduler
