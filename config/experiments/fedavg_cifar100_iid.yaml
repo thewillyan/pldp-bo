@@ -38,7 +38,7 @@ personalization:
   strategy: data_proportional
   epsilon_min: 0.1
   epsilon_max: 10.0
-  epsilon_base: 5.0
+  epsilon_base: 0.5
   client_epsilon_map: {}
   track_cumulative: true
 

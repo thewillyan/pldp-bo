@@ -178,6 +178,11 @@ def train(msg: Message, context: Context) -> Message:
     elif config.bo.enabled:
         total_budget = config.bo.epsilon_budget
 
+    # Server-assigned per-client budget overrides the config-derived value
+    server_budget = (msg.content.config_records.get("config") or ConfigRecord()).get("per_client_budget")
+    if server_budget is not None:
+        total_budget = float(server_budget)
+
     epsilon = _resolve_epsilon(
         scheduler, accountant, config, total_budget,
         eps_min=eps_min_per_client,
@@ -270,6 +275,41 @@ def _resolve_epsilon(
         )
 
     return candidate
+
+
+@app.query()
+def query(msg: Message, context: Context) -> Message:
+    config_path = str(context.run_config.get("config-path", "config/default.yaml"))
+    overrides = {
+        k: v for k, v in context.run_config.items() if k != "config-path"
+    }
+    config = load_config(config_path, overrides=overrides)
+
+    task = (msg.content.config_records.get("config") or ConfigRecord()).get("task")
+    if task == "personalization_metadata":
+        partition_id = int(context.node_config["partition-id"])
+        num_partitions = int(context.node_config["num-partitions"])
+        _, _, client_subset, total_train_size = create_client_dataloader(
+            config.data, partition_id, num_partitions, config.seed,
+        )
+
+        epsilon = assign_epsilon(
+            partition_id, client_subset, config.personalization,
+            num_clients=config.data.num_clients,
+            total_train_size=total_train_size,
+            rng=np.random.RandomState(config.seed + partition_id),
+        )
+
+        return Message(
+            content=RecordDict({
+                "config": ConfigRecord({
+                    "personalization_epsilon": epsilon,
+                }),
+            }),
+            reply_to=msg,
+        )
+
+    raise ValueError(f"Unknown query task: {task}")
 
 
 @app.evaluate()

@@ -1,18 +1,44 @@
 from __future__ import annotations
 
-import logging
 from collections.abc import Iterable
 
 import numpy as np
 from flwr.app import Array, ArrayRecord, ConfigRecord, MetricRecord, RecordDict
 from flwr.common import Message
 from flwr.serverapp.grid.grid import Grid
-from flwr.serverapp.strategy import FedAvg
+from flwr.serverapp.strategy import FedAvg, FedProx
 
 from src.tracking.tracker import ExperimentTracker
 
 _EPS = 1e-12
 _MIN_VALUES_FOR_STATS = 3
+
+
+def _add_budgets_to_messages(
+    messages: Iterable[Message],
+    budgets: dict[int, float] | None,
+    configrecord_key: str,
+) -> Iterable[Message]:
+    if budgets is None:
+        yield from messages
+        return
+    for msg in messages:
+        dst = msg.metadata.dst_node_id
+        budget = budgets.get(dst)
+        if budget is not None:
+            yield Message(
+                content=RecordDict({
+                    configrecord_key: ConfigRecord({
+                        **msg.content.config_records[configrecord_key],
+                        "per_client_budget": budget,
+                    }),
+                    "arrays": msg.content.array_records["arrays"],
+                }),
+                message_type=msg.metadata.message_type,
+                dst_node_id=dst,
+            )
+        else:
+            yield msg
 
 
 class MedianRobustAggregation(FedAvg):
@@ -30,6 +56,7 @@ class MedianRobustAggregation(FedAvg):
         train_metrics_aggr_fn = None,
         evaluate_metrics_aggr_fn = None,
         tracker: ExperimentTracker | None = None,
+        per_client_budgets: dict[int, float] | None = None,
     ) -> None:
         super().__init__(
             fraction_train=fraction_train,
@@ -46,12 +73,17 @@ class MedianRobustAggregation(FedAvg):
         self._server_learning_rate = server_learning_rate
         self._current_arrays: ArrayRecord | None = None
         self._tracker = tracker
+        self._per_client_budgets = per_client_budgets
 
     def configure_train(
         self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid,
     ) -> Iterable[Message]:
         self._current_arrays = arrays
-        return super().configure_train(server_round, arrays, config, grid)
+        return _add_budgets_to_messages(
+            super().configure_train(server_round, arrays, config, grid),
+            self._per_client_budgets,
+            self.configrecord_key,
+        )
 
     def aggregate_train(
         self,
@@ -196,3 +228,70 @@ class MedianRobustAggregation(FedAvg):
         self._log_metric_stats("update_norm", update_norms, server_round)
         self._log_metric_stats("utility_loss", utility_losses, server_round)
         self._log_metric_stats("cumulative_epsilon", cumulative_epsilons, server_round)
+
+
+def _is_budget_exhausted(reply: Message) -> bool:
+    metrics = reply.content.metric_records.get("metrics", {})
+    if metrics is None:
+        return False
+    return bool(metrics.get("budget_exhausted", 0))
+
+
+class SafeFedAvg(FedAvg):
+    def __init__(
+        self,
+        *args,
+        per_client_budgets: dict[int, float] | None = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._per_client_budgets = per_client_budgets
+
+    def configure_train(
+        self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid,
+    ) -> Iterable[Message]:
+        return _add_budgets_to_messages(
+            super().configure_train(server_round, arrays, config, grid),
+            self._per_client_budgets,
+            self.configrecord_key,
+        )
+
+    def aggregate_train(
+        self,
+        server_round: int,
+        replies: Iterable[Message],
+    ) -> tuple[ArrayRecord | None, MetricRecord | None]:
+        valid_replies = [r for r in replies if not _is_budget_exhausted(r)]
+        if not valid_replies:
+            return None, None
+        return super().aggregate_train(server_round, valid_replies)
+
+
+class SafeFedProx(FedProx):
+    def __init__(
+        self,
+        *args,
+        per_client_budgets: dict[int, float] | None = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._per_client_budgets = per_client_budgets
+
+    def configure_train(
+        self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid,
+    ) -> Iterable[Message]:
+        return _add_budgets_to_messages(
+            super().configure_train(server_round, arrays, config, grid),
+            self._per_client_budgets,
+            self.configrecord_key,
+        )
+
+    def aggregate_train(
+        self,
+        server_round: int,
+        replies: Iterable[Message],
+    ) -> tuple[ArrayRecord | None, MetricRecord | None]:
+        valid_replies = [r for r in replies if not _is_budget_exhausted(r)]
+        if not valid_replies:
+            return None, None
+        return super().aggregate_train(server_round, valid_replies)

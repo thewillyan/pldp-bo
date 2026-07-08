@@ -59,7 +59,7 @@ class PrivacyConfig:
     delta: float = 1e-5
     target_epsilon: float | None = None
     accountant: str = "rdp"
-    total_budget: float | None = None
+    total_budget: float | None = None  # total epsilon budget across ALL clients (divided per-client)
 
 
 @dataclass
