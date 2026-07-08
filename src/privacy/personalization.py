@@ -17,6 +17,7 @@ def assign_epsilon(
     config: PersonalizationConfig,
     num_clients: int = 1,
     total_train_size: int | None = None,
+    rng: np.random.RandomState | None = None,
 ) -> float:
     strategy = config.strategy
     if strategy == "custom":
@@ -26,12 +27,17 @@ def assign_epsilon(
     if strategy == "heterogeneity":
         return _assign_heterogeneity(train_dataset, config)
     if strategy == "uniform":
-        return _assign_uniform(config)
+        return _assign_uniform(config, rng=rng)
     raise ValueError(f"Unknown personalization strategy: {strategy}")
 
 
-def _assign_uniform(config: PersonalizationConfig) -> float:
-    return float(np.random.uniform(config.epsilon_min, config.epsilon_max))  # noqa: NPY002
+def _assign_uniform(
+    config: PersonalizationConfig,
+    rng: np.random.RandomState | None = None,
+) -> float:
+    if rng is None:
+        rng = np.random.RandomState()
+    return float(rng.uniform(config.epsilon_min, config.epsilon_max))
 
 
 def _assign_custom(partition_id: int, config: PersonalizationConfig) -> float:

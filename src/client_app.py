@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+import numpy as np
 from flwr.app import ArrayRecord, ConfigRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
 
@@ -75,6 +76,7 @@ def _make_scheduler(
             config.personalization,
             num_clients=config.data.num_clients,
             total_train_size=total_train_size,
+            rng=np.random.RandomState(config.seed),
         )
         return FixedEpsilonScheduler(epsilon)
     if config.privacy.target_epsilon is not None:
@@ -237,8 +239,14 @@ def _resolve_epsilon(
         candidate = scheduler.get_epsilon()
     elif config.privacy.target_epsilon is not None:
         candidate = config.privacy.target_epsilon
+    elif config.privacy.enabled:
+        raise ValueError(
+            "Privacy enabled but no epsilon source available. "
+            "Set privacy.target_epsilon, enable a scheduler (bo/personalization), "
+            "or disable privacy."
+        )
     else:
-        return config.privacy.noise_multiplier
+        return 0.0
 
     if accountant is not None and total_budget is not None:
         c = config.privacy.max_grad_norm

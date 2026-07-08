@@ -5,6 +5,8 @@ import math
 
 import numpy as np
 
+from src.privacy.constants import RDP_ALPHAS
+
 
 def calibrate_sigma(epsilon: float, clipping_norm: float, delta: float) -> float:
     if epsilon <= 0:
@@ -84,8 +86,6 @@ class PerUpdateGaussianMechanism:
         return self._delta
 
 
-_RDP_ALPHAS: np.ndarray = np.arange(2, 65, dtype=np.float64)
-
 
 def _hypothetical_epsilon(
     current_rdp: np.ndarray,
@@ -93,15 +93,14 @@ def _hypothetical_epsilon(
     clipping_norm: float,
     delta: float,
 ) -> float:
-    alphas = _RDP_ALPHAS
     cost = np.array(
-        [compute_rdp_cost(float(a), sigma, clipping_norm) for a in alphas],
+        [compute_rdp_cost(float(a), sigma, clipping_norm) for a in RDP_ALPHAS],
         dtype=np.float64,
     )
     total_rdp = current_rdp + cost
     log_one_over_delta = math.log(1.0 / delta)
     with np.errstate(divide="ignore", invalid="ignore"):
-        epsilons = total_rdp + log_one_over_delta / (alphas - 1.0)
+        epsilons = total_rdp + log_one_over_delta / (RDP_ALPHAS - 1.0)
     valid = np.isfinite(epsilons)
     if not valid.any():
         return 0.0

@@ -5,20 +5,19 @@ import math
 
 import numpy as np
 
+from src.privacy.constants import RDP_ALPHAS
 from src.privacy.per_update_dp import compute_rdp_cost
-
-_RDP_ALPHAS: np.ndarray = np.arange(2, 65, dtype=np.float64)
 
 
 class RDPAccountant:
     def __init__(self, delta: float = 1e-5) -> None:
         self._delta = delta
-        self._rdp_per_alpha: np.ndarray = np.zeros_like(_RDP_ALPHAS)
+        self._rdp_per_alpha: np.ndarray = np.zeros_like(RDP_ALPHAS)
         self._steps: list[dict] = []
 
     def step(self, *, sigma: float, clipping_norm: float, num_steps: int = 1) -> None:
         cost = np.array(
-            [compute_rdp_cost(float(a), sigma, clipping_norm) for a in _RDP_ALPHAS],
+            [compute_rdp_cost(float(a), sigma, clipping_norm) for a in RDP_ALPHAS],
             dtype=np.float64,
         )
         self._rdp_per_alpha += cost * num_steps
@@ -34,7 +33,7 @@ class RDPAccountant:
         delta_val = delta if delta is not None else self._delta
         log_one_over_delta = math.log(1.0 / delta_val)
         with np.errstate(divide="ignore", invalid="ignore"):
-            epsilons = self._rdp_per_alpha + log_one_over_delta / (_RDP_ALPHAS - 1.0)
+            epsilons = self._rdp_per_alpha + log_one_over_delta / (RDP_ALPHAS - 1.0)
         valid = np.isfinite(epsilons)
         if not valid.any():
             return 0.0
@@ -52,7 +51,7 @@ class RDPAccountant:
         return self._rdp_per_alpha.copy()
 
     def reset(self) -> None:
-        self._rdp_per_alpha = np.zeros_like(_RDP_ALPHAS)
+        self._rdp_per_alpha = np.zeros_like(RDP_ALPHAS)
         self._steps = []
 
     def get_state(self) -> dict:
@@ -67,8 +66,8 @@ class RDPAccountant:
         accountant = cls(delta=state["delta"])
         rdp_data = state.get("rdp_per_alpha", [])
         accountant._rdp_per_alpha = np.array(rdp_data, dtype=np.float64)
-        if accountant._rdp_per_alpha.shape != _RDP_ALPHAS.shape:
-            accountant._rdp_per_alpha = np.zeros_like(_RDP_ALPHAS)
+        if accountant._rdp_per_alpha.shape != RDP_ALPHAS.shape:
+            accountant._rdp_per_alpha = np.zeros_like(RDP_ALPHAS)
         steps_raw = state.get("steps", "[]")
         steps_data = json.loads(steps_raw) if isinstance(steps_raw, str) else steps_raw
         for step_info in steps_data:
