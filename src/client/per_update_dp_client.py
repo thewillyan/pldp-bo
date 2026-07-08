@@ -51,22 +51,12 @@ class PerUpdateDPClient(FlowerClient):
             )
 
     def _check_budget(self) -> bool:
-        if self._accountant is not None:
-            if self._total_budget is not None:
-                cumulative = self._accountant.get_epsilon()
-                if cumulative >= self._total_budget:
-                    logger.warning(
-                        "Client budget exhausted: cumulative ε=%.4f >= total budget ε=%.4f",
-                        cumulative,
-                        self._total_budget,
-                    )
-                    return True
-            if self._client_epsilon is not None and self._client_epsilon <= 0:
-                logger.warning(
-                    "Client budget exhausted: epsilon=%.4f (≤ 0)",
-                    self._client_epsilon,
-                )
-                return True
+        if self._client_epsilon is not None and self._client_epsilon <= 0:
+            logger.warning(
+                "Client budget exhausted: epsilon=%.4f (≤ 0)",
+                self._client_epsilon,
+            )
+            return True
         return False
 
     def fit(

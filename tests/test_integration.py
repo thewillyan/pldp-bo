@@ -227,7 +227,9 @@ class TestFullRoundLifecycle:
                 break
 
         cum_eps = accountant.get_epsilon()
-        assert cum_eps <= self.BUDGET * 1.05 or cum_eps > 0
+        assert cum_eps <= self.BUDGET * 1.05, (
+            f"Cumulative epsilon {cum_eps:.4f} exceeds budget {self.BUDGET:.4f}"
+        )
 
     def test_fixed_scheduler_lifecycle(self) -> None:
         accountant = RDPAccountant(delta=self.DELTA)

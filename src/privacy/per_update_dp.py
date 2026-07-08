@@ -95,7 +95,7 @@ def _hypothetical_epsilon(
         epsilons = total_rdp + log_one_over_delta / (RDP_ALPHAS - 1.0)
     valid = np.isfinite(epsilons)
     if not valid.any():
-        return 0.0
+        return float("inf")
     return float(np.min(epsilons[valid]))
 
 
@@ -124,9 +124,12 @@ def enforce_epsilon_budget(
     Returns -1.0 if even *epsilon_min* would exceed the remaining budget,
     signalling that the client's privacy budget is exhausted.
     """
+    if candidate_epsilon <= 0:
+        return -1.0
+
     if candidate_epsilon <= epsilon_min:
-        if _is_epsilon_within_budget(epsilon_min, current_rdp, epsilon_budget,
-                                     clipping_norm, delta):
+        if _is_epsilon_within_budget(candidate_epsilon, current_rdp,
+                                     epsilon_budget, clipping_norm, delta):
             return candidate_epsilon
         return -1.0
 

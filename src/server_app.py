@@ -25,22 +25,29 @@ app = ServerApp()
 def _compute_per_client_budgets(
     grid: Grid,
     config: ExperimentConfig,
-) -> dict[int, float] | None:
+) -> tuple[dict[int, float] | None, dict[int, int] | None]:
+    """Compute per-client budgets and a mapping from node_id to partition_id.
+
+    Returns (budgets, node_to_partition) where budgets is keyed by partition_id.
+    """
     total_budget = config.privacy.total_budget
     if total_budget is None:
-        return None
+        return None, None
 
     num_clients = max(config.data.num_clients, 1)
 
     # custom strategy: proportional from config map, no setup needed
+    # Keys in client_epsilon_map are partition_ids, used as-is.
     if config.personalization.enabled and config.personalization.strategy == "custom":
         eps_map = {int(k): v for k, v in config.personalization.client_epsilon_map.items()}
         total_weight = sum(eps_map.values())
         if total_weight <= 0:
             logger.warning("client_epsilon_map sums to 0; falling back to equal division")
             per_client = total_budget / num_clients
-            return {cid: per_client for cid in range(num_clients)}
-        return {cid: total_budget * eps / total_weight for cid, eps in eps_map.items()}
+            budgets = {cid: per_client for cid in range(num_clients)}
+            return budgets, None
+        budgets = {cid: total_budget * eps / total_weight for cid, eps in eps_map.items()}
+        return budgets, None
 
     # Other personalization strategies: discover metadata via QUERY
     if config.personalization.enabled:
@@ -60,25 +67,33 @@ def _compute_per_client_budgets(
             replies = list(grid.send_and_receive(query_msgs, timeout=30.0))
 
             client_epsilons: dict[int, float] = {}
+            node_to_partition: dict[int, int] = {}
             for reply in replies:
                 meta = reply.content.config_records.get("config", ConfigRecord())
-                cid = reply.metadata.src_node_id
+                node_id = reply.metadata.src_node_id
                 eps = meta.get("personalization_epsilon")
+                p_id = meta.get("partition_id", node_id)
+                node_to_partition[node_id] = int(p_id)
                 if eps is not None:
-                    client_epsilons[cid] = float(eps)
+                    client_epsilons[int(p_id)] = float(eps)
 
             if client_epsilons:
                 total_weight = sum(client_epsilons.values())
-                return {cid: total_budget * eps / total_weight for cid, eps in client_epsilons.items()}
+                budgets = {
+                    cid: total_budget * eps / total_weight
+                    for cid, eps in client_epsilons.items()
+                }
+                return budgets, node_to_partition
             logger.warning(
                 "No clients returned personalization metadata; falling back to equal division",
             )
         else:
             logger.warning("No nodes available for setup; falling back to equal division")
 
-    # Equal division
+    # Equal division — partition_id assumed to equal node_id.
     per_client = total_budget / num_clients
-    return {cid: per_client for cid in range(num_clients)}
+    budgets = {cid: per_client for cid in range(num_clients)}
+    return budgets, None
 
 
 def _run_global_evaluate(
@@ -137,7 +152,7 @@ def main(grid: Grid, context: Context) -> None:
     global_model = create_model(config.model, dataset_name=config.data.name)
     arrays = ArrayRecord(global_model.get_model().state_dict())
 
-    per_client_budgets = _compute_per_client_budgets(grid, config)
+    per_client_budgets, node_to_partition = _compute_per_client_budgets(grid, config)
     if per_client_budgets is not None:
         logger.info(
             "Computed per-client budgets from total_budget=%.2f across %d clients",
@@ -156,6 +171,7 @@ def main(grid: Grid, context: Context) -> None:
             min_available_nodes=config.federated.min_available_nodes,
             tracker=tracker,
             per_client_budgets=per_client_budgets,
+            node_to_partition=node_to_partition,
         )
     elif config.federated.strategy == "fedprox":
         strategy = SafeFedProx(
@@ -166,6 +182,7 @@ def main(grid: Grid, context: Context) -> None:
             min_available_nodes=config.federated.min_available_nodes,
             proximal_mu=config.federated.proximal_mu,
             per_client_budgets=per_client_budgets,
+            node_to_partition=node_to_partition,
         )
     else:
         strategy = SafeFedAvg(
@@ -175,6 +192,7 @@ def main(grid: Grid, context: Context) -> None:
             min_evaluate_nodes=config.federated.min_evaluate_clients,
             min_available_nodes=config.federated.min_available_nodes,
             per_client_budgets=per_client_budgets,
+            node_to_partition=node_to_partition,
         )
 
     if config.federated.server_learning_rate != 1.0 and config.federated.strategy != "pldp_bo":

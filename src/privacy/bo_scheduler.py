@@ -104,6 +104,8 @@ class PLDPBOScheduler(EpsilonScheduler):
         x = np.array([[eps] for eps, _ in self._observations])
         y = np.array([m for _, m in self._observations])
         kernel = _build_kernel(self._gp_kernel_name, self._observation_noise)
+        if self._gp is not None:
+            kernel = self._gp.kernel_
         self._gp = GaussianProcessRegressor(
             kernel=kernel,
             n_restarts_optimizer=3,

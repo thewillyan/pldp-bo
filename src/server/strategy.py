@@ -18,22 +18,31 @@ def _add_budgets_to_messages(
     messages: Iterable[Message],
     budgets: dict[int, float] | None,
     configrecord_key: str,
+    node_to_partition: dict[int, int] | None = None,
 ) -> Iterable[Message]:
     if budgets is None:
         yield from messages
         return
     for msg in messages:
         dst = msg.metadata.dst_node_id
-        budget = budgets.get(dst)
+        partition_id = (node_to_partition or {}).get(dst, dst)
+        budget = budgets.get(partition_id)
         if budget is not None:
-            yield Message(
-                content=RecordDict({
-                    configrecord_key: ConfigRecord({
-                        **msg.content.config_records[configrecord_key],
+            content = RecordDict()
+            for key, rec in msg.content.config_records.items():
+                if key == configrecord_key:
+                    content[key] = ConfigRecord({
+                        **rec,
                         "per_client_budget": budget,
-                    }),
-                    "arrays": msg.content.array_records["arrays"],
-                }),
+                    })
+                else:
+                    content[key] = rec
+            for key, rec in msg.content.array_records.items():
+                content[key] = rec
+            for key, rec in msg.content.metric_records.items():
+                content[key] = rec
+            yield Message(
+                content=content,
                 message_type=msg.metadata.message_type,
                 dst_node_id=dst,
             )
@@ -57,6 +66,7 @@ class MedianRobustAggregation(FedAvg):
         evaluate_metrics_aggr_fn = None,
         tracker: ExperimentTracker | None = None,
         per_client_budgets: dict[int, float] | None = None,
+        node_to_partition: dict[int, int] | None = None,
     ) -> None:
         super().__init__(
             fraction_train=fraction_train,
@@ -74,6 +84,7 @@ class MedianRobustAggregation(FedAvg):
         self._current_arrays: ArrayRecord | None = None
         self._tracker = tracker
         self._per_client_budgets = per_client_budgets
+        self._node_to_partition = node_to_partition or {}
 
     def configure_train(
         self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid,
@@ -83,6 +94,7 @@ class MedianRobustAggregation(FedAvg):
             super().configure_train(server_round, arrays, config, grid),
             self._per_client_budgets,
             self.configrecord_key,
+            node_to_partition=self._node_to_partition,
         )
 
     def aggregate_train(
@@ -242,10 +254,12 @@ class SafeFedAvg(FedAvg):
         self,
         *args,
         per_client_budgets: dict[int, float] | None = None,
+        node_to_partition: dict[int, int] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._per_client_budgets = per_client_budgets
+        self._node_to_partition = node_to_partition or {}
 
     def configure_train(
         self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid,
@@ -254,6 +268,7 @@ class SafeFedAvg(FedAvg):
             super().configure_train(server_round, arrays, config, grid),
             self._per_client_budgets,
             self.configrecord_key,
+            node_to_partition=self._node_to_partition,
         )
 
     def aggregate_train(
@@ -272,10 +287,12 @@ class SafeFedProx(FedProx):
         self,
         *args,
         per_client_budgets: dict[int, float] | None = None,
+        node_to_partition: dict[int, int] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._per_client_budgets = per_client_budgets
+        self._node_to_partition = node_to_partition or {}
 
     def configure_train(
         self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid,
@@ -284,6 +301,7 @@ class SafeFedProx(FedProx):
             super().configure_train(server_round, arrays, config, grid),
             self._per_client_budgets,
             self.configrecord_key,
+            node_to_partition=self._node_to_partition,
         )
 
     def aggregate_train(

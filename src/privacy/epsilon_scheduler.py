@@ -53,6 +53,7 @@ class UniformRandomEpsilonScheduler(EpsilonScheduler):
             raise ValueError("epsilon_max must be greater than epsilon_min")
         self._epsilon_min = epsilon_min
         self._epsilon_max = epsilon_max
+        self._seed = seed
         self._rng = np.random.RandomState(seed)
 
     def get_epsilon(self) -> float:
@@ -65,6 +66,7 @@ class UniformRandomEpsilonScheduler(EpsilonScheduler):
             "type": "uniform_random",
             "epsilon_min": self._epsilon_min,
             "epsilon_max": self._epsilon_max,
+            "seed": self._seed,
             "rng_state": serialize_rng(self._rng),
         }
 
@@ -73,8 +75,10 @@ class UniformRandomEpsilonScheduler(EpsilonScheduler):
         scheduler = cls(
             epsilon_min=state["epsilon_min"],
             epsilon_max=state["epsilon_max"],
+            seed=state.get("seed"),
         )
-        scheduler._rng.set_state(deserialize_rng(state["rng_state"]))
+        if "rng_state" in state:
+            scheduler._rng.set_state(deserialize_rng(state["rng_state"]))
         return scheduler
 
     def __repr__(self) -> str:

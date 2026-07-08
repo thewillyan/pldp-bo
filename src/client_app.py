@@ -268,7 +268,12 @@ def _resolve_epsilon(
     if accountant is not None and total_budget is not None:
         c = config.privacy.update_clip_norm
         delta = config.privacy.delta
-        lower_bound = eps_min if eps_min is not None else config.bo.epsilon_min
+        lower_bound = eps_min
+        if lower_bound is None:
+            if config.personalization.enabled:
+                lower_bound = config.personalization.epsilon_min
+            else:
+                lower_bound = config.bo.epsilon_min
         candidate = enforce_epsilon_budget(
             candidate, accountant.rdp_per_alpha, total_budget,
             lower_bound, c, delta,
@@ -303,6 +308,7 @@ def query(msg: Message, context: Context) -> Message:
         return Message(
             content=RecordDict({
                 "config": ConfigRecord({
+                    "partition_id": partition_id,
                     "personalization_epsilon": epsilon,
                 }),
             }),
