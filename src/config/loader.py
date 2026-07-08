@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import typing
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -144,6 +147,8 @@ def _merge_dict_into_dataclass(dc_instance: object, override: dict) -> None:
                 _merge_dict_into_dataclass(getattr(dc_instance, key), value)
             else:
                 setattr(dc_instance, key, value)
+        else:
+            logger.warning("Unknown config override key: '%s'", key)
 
 
 def load_config(config_path: str, overrides: dict | None = None) -> ExperimentConfig:

@@ -6,7 +6,11 @@ NUM_CLIENTS="${2:-10}"
 shift 2 || true
 
 for override in "$@"; do
-  export "${override?}"
+  if [[ "$override" =~ ^[A-Z_][A-Za-z0-9_]*= ]]; then
+    export "${override?}"
+  else
+    echo "Warning: ignoring invalid override '$override' (must be KEY=value)" >&2
+  fi
 done
 
 flwr run . --stream \

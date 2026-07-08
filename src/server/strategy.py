@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 
-import mlflow
 import numpy as np
 from flwr.app import Array, ArrayRecord, ConfigRecord, MetricRecord, RecordDict
 from flwr.common import Message
@@ -141,8 +140,6 @@ class MedianRobustAggregation(FedAvg):
     def _log_metric(self, key: str, value: float, step: int) -> None:
         if self._tracker is not None:
             self._tracker.log_metrics({key: value}, step=step)
-        else:
-            mlflow.log_metric(key, value, step=step)
 
     def _log_metric_stats(self, prefix: str, values: list[float], server_round: int) -> None:
         if not values:

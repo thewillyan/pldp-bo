@@ -13,10 +13,16 @@ def get_run_by_id(run_id: str) -> Run:
     try:
         return client.get_run(run_id)
     except mlflow.exceptions.MlflowException as err:
-        all_runs = client.search_runs(experiment_ids=["0", "1", "2"])
-        for run in all_runs:
-            if run.info.run_id.startswith(run_id):
-                return run
+        experiment_ids = [exp.experiment_id for exp in client.search_experiments()]
+        all_runs = client.search_runs(experiment_ids=experiment_ids)
+        matches = [run for run in all_runs if run.info.run_id.startswith(run_id)]
+        if len(matches) > 1:
+            raise ValueError(
+                f"Multiple runs match prefix '{run_id}': "
+                f"{[m.info.run_id for m in matches]}. Use full run ID.",
+            )
+        if matches:
+            return matches[0]
         raise ValueError(
             f"Run '{run_id}' not found. Use 'list-runs' to see available runs.",
         ) from err

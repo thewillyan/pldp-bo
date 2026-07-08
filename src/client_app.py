@@ -27,7 +27,9 @@ app = ClientApp()
 
 ACCOUNTANT_STATE_KEY = "pldp_accountant_state"
 
-def _sanitize_metrics(metrics: dict) -> dict:
+def _prepare_metric_record(metrics: dict) -> dict:
+    # Flower's MetricRecord does not accept native Python bools,
+    # so they are converted to int (0/1).
     return {
         k: (int(v) if isinstance(v, bool) else v)
         for k, v in metrics.items()
@@ -134,19 +136,20 @@ def train(msg: Message, context: Context) -> Message:
     scheduler: EpsilonScheduler | None = None
 
     eps_min_per_client: float | None = None
-    if config.bo.enabled and config.privacy.enabled:
-        bounds_min, bounds_max, warmup = assign_epsilon_bounds(
-            partition_id, client_subset,
-            config.personalization, config.bo, config.data.num_clients,
-            total_train_size=total_train_size,
-        )
-        eps_min_per_client = bounds_min
-    else:
-        bounds_min = config.bo.epsilon_min
-        bounds_max = config.bo.epsilon_max
-        warmup = config.bo.warmup_rounds
 
     if config.privacy.enabled:
+        if config.bo.enabled:
+            bounds_min, bounds_max, warmup = assign_epsilon_bounds(
+                partition_id, client_subset,
+                config.personalization, config.bo, config.data.num_clients,
+                total_train_size=total_train_size,
+            )
+            eps_min_per_client = bounds_min
+        else:
+            bounds_min = config.bo.epsilon_min
+            bounds_max = config.bo.epsilon_max
+            warmup = config.bo.warmup_rounds
+
         if ACCOUNTANT_STATE_KEY in context.state:
             state = context.state[ACCOUNTANT_STATE_KEY]
             accountant = RDPAccountant.from_state(state)
@@ -223,7 +226,7 @@ def train(msg: Message, context: Context) -> Message:
         "client-id": partition_id,
         **fit_metrics,
     }
-    metric_record = MetricRecord(_sanitize_metrics(metrics))
+    metric_record = MetricRecord(_prepare_metric_record(metrics))
     content = RecordDict({"arrays": model_record, "metrics": metric_record})
     return Message(content=content, reply_to=msg)
 
@@ -307,6 +310,6 @@ def evaluate(msg: Message, context: Context) -> Message:
         **eval_metrics,
     }
     metrics["cumulative_epsilon"] = client_epsilon if client_epsilon is not None else 0.0
-    metric_record = MetricRecord(_sanitize_metrics(metrics))
+    metric_record = MetricRecord(_prepare_metric_record(metrics))
     content = RecordDict({"metrics": metric_record})
     return Message(content=content, reply_to=msg)
