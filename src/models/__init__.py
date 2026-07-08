@@ -22,5 +22,5 @@ def create_model(config: ModelConfig, dataset_name: str | None = None) -> BaseMo
     if config.name == "cnn":
         return CNNModel(config.num_classes)
     if config.name == "mlp":
-        return MLPModel(config.num_classes)
+        return MLPModel(config.num_classes, dataset_name=dataset_name)
     raise ValueError(f"Unknown model: {config.name}")

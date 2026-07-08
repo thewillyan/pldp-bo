@@ -6,10 +6,17 @@ from torch import nn
 from src.models.base import BaseModel
 
 
+_INPUT_SIZE_MAP: dict[str, int] = {
+    "mnist": 28 * 28,
+    "cifar10": 3 * 32 * 32,
+    "cifar100": 3 * 32 * 32,
+}
+
+
 class MLP(nn.Module):
-    def __init__(self, num_classes: int = 10) -> None:
+    def __init__(self, num_classes: int = 10, input_size: int = 28 * 28) -> None:
         super().__init__()
-        self.fc1 = nn.Linear(28 * 28, 200)
+        self.fc1 = nn.Linear(input_size, 200)
         self.fc2 = nn.Linear(200, 200)
         self.fc3 = nn.Linear(200, num_classes)
         self.relu = nn.ReLU()
@@ -22,8 +29,9 @@ class MLP(nn.Module):
 
 
 class MLPModel(BaseModel):
-    def __init__(self, num_classes: int = 10) -> None:
-        self._model = MLP(num_classes)
+    def __init__(self, num_classes: int = 10, dataset_name: str | None = None) -> None:
+        input_size = _INPUT_SIZE_MAP.get(dataset_name or "mnist", 28 * 28)
+        self._model = MLP(num_classes, input_size=input_size)
 
     def get_model(self) -> nn.Module:
         return self._model
