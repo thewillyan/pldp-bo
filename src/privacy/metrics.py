@@ -12,6 +12,13 @@ def compute_utility_loss(
     valloader: DataLoader,
     criterion: nn.Module | None = None,
 ) -> float:
+    """Compute average validation loss.
+
+    Parameters
+    ----------
+        criterion: Loss function that returns a scalar tensor when called
+            with (output, target). Defaults to CrossEntropyLoss.
+    """
     if criterion is None:
         criterion = nn.CrossEntropyLoss()
     model.eval()

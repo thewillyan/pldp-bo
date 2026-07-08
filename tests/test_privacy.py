@@ -167,6 +167,32 @@ def test_rdp_accountant_reset() -> None:
     assert accountant.total_steps() == 0
 
 
+def test_rdp_accountant_get_epsilon_infinite_when_no_valid() -> None:
+    accountant = RDPAccountant(delta=1e-5)
+    accountant._rdp_per_alpha = np.full_like(accountant._rdp_per_alpha, float("inf"))
+    accountant._steps.append({"sigma": 1.0, "clipping_norm": 1.0, "num_steps": 1})
+    eps = accountant.get_epsilon()
+    assert eps == float("inf")
+    eps_diag, alpha_diag = accountant.get_epsilon_with_diagnostics()
+    assert eps_diag == float("inf")
+    assert alpha_diag == 0.0
+
+
+def test_rdp_accountant_get_epsilon_with_diagnostics() -> None:
+    accountant = RDPAccountant(delta=1e-5)
+    accountant.step(sigma=1.0, clipping_norm=1.0, num_steps=10)
+    eps, best_alpha = accountant.get_epsilon_with_diagnostics()
+    assert eps > 0
+    assert 2.0 <= best_alpha <= 100.0
+
+
+def test_rdp_accountant_diagnostics_empty() -> None:
+    accountant = RDPAccountant(delta=1e-5)
+    eps, best_alpha = accountant.get_epsilon_with_diagnostics()
+    assert eps == 0.0
+    assert best_alpha == 0.0
+
+
 class TestEnforceEpsilonBudget:
     def test_valid_epsilon_unchanged(self) -> None:
         accountant = RDPAccountant(delta=1e-5)

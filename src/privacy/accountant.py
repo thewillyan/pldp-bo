@@ -36,8 +36,21 @@ class RDPAccountant:
             epsilons = self._rdp_per_alpha + log_one_over_delta / (RDP_ALPHAS - 1.0)
         valid = np.isfinite(epsilons)
         if not valid.any():
-            return 0.0
+            return float("inf")
         return float(np.min(epsilons[valid]))
+
+    def get_epsilon_with_diagnostics(self, delta: float | None = None) -> tuple[float, float]:
+        if not self._steps:
+            return 0.0, 0.0
+        delta_val = delta if delta is not None else self._delta
+        log_one_over_delta = math.log(1.0 / delta_val)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            epsilons = self._rdp_per_alpha + log_one_over_delta / (RDP_ALPHAS - 1.0)
+        valid = np.isfinite(epsilons)
+        if not valid.any():
+            return float("inf"), 0.0
+        idx = int(np.argmin(epsilons))
+        return float(epsilons[idx]), float(RDP_ALPHAS[idx])
 
     def get_privacy_spent(self, delta: float | None = None) -> dict[str, float]:
         eps = self.get_epsilon(delta)

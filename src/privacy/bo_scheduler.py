@@ -109,6 +109,9 @@ class PLDPBOScheduler(EpsilonScheduler):
         y = np.array([m for _, m in self._observations])
         kernel = _build_kernel(self._gp_kernel_name, self._observation_noise)
         if self._gp is not None:
+            # carry forward kernel hyperparameters (length-scale, noise-level)
+            # learned from previous fits, providing warm-start continuity
+            # across sequential BO rounds
             kernel = self._gp.kernel_
         self._gp = GaussianProcessRegressor(
             kernel=kernel,
