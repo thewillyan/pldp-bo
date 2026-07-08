@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import mlflow
 from mlflow.entities import Run
 
@@ -30,9 +32,15 @@ def get_run_by_id(run_id: str) -> Run:
 
 def get_run_name(run: Run) -> str:
     name: str = str(run.info.run_name or "")
-    if name and not name.startswith("calm-") and not name.startswith("youthful-"):
+    if name and not _is_mlflow_auto_name(name):
         return name
     return str(run.info.run_id[:8])
+
+
+_AUTO_NAME_RE = re.compile(r"^[a-z]+-[a-z]+(?:-\d+)?$")
+
+def _is_mlflow_auto_name(name: str) -> bool:
+    return bool(_AUTO_NAME_RE.match(name))
 
 
 def extract_metrics_by_round(
@@ -156,7 +164,10 @@ def list_runs(experiment_name: str | None = None) -> list[Run]:
         return client.search_runs(
             experiment_ids=[str(experiment.experiment_id)],
         )
-    return client.search_runs(experiment_ids=["0", "1", "2"])
+    experiments = client.search_experiments()
+    return client.search_runs(
+        experiment_ids=[str(e.experiment_id) for e in experiments],
+    )
 
 
 def get_run_params(run: Run) -> dict[str, str]:

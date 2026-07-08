@@ -30,16 +30,25 @@ class PerUpdateDPClient(FlowerClient):
         client_epsilon: float | None = None,
         accountant: RDPAccountant | None = None,
         total_budget: float | None = None,
+        seed: int | None = None,
+        mechanism_state: dict | None = None,
     ) -> None:
         super().__init__(model, trainloader, valloader, config)
         self._client_epsilon = client_epsilon
         self._accountant = accountant
         self._total_budget = total_budget
-        self._mechanism = PerUpdateGaussianMechanism(
-            clipping_norm=config.privacy.max_grad_norm,
-            delta=config.privacy.delta,
-            seed=config.seed,
-        )
+        if mechanism_state:
+            self._mechanism = PerUpdateGaussianMechanism.from_state(
+                mechanism_state,
+                clipping_norm=config.privacy.max_grad_norm,
+                delta=config.privacy.delta,
+            )
+        else:
+            self._mechanism = PerUpdateGaussianMechanism(
+                clipping_norm=config.privacy.max_grad_norm,
+                delta=config.privacy.delta,
+                seed=seed or config.seed,
+            )
 
     def _check_budget(self) -> bool:
         if self._accountant is not None:
@@ -61,7 +70,7 @@ class PerUpdateDPClient(FlowerClient):
         return False
 
     def fit(
-        self, parameters: list[Any], config: dict[str, Any],  # noqa: ARG002
+        self, parameters: list[Any], config: dict[str, Any],
     ) -> tuple[list[Any], int, dict[str, Any]]:
         if self._check_budget():
             metrics = {
@@ -80,7 +89,7 @@ class PerUpdateDPClient(FlowerClient):
         net = self.model.get_model().to(get_device())
         net.train()
 
-        proximal_mu = self.config.federated.proximal_mu
+        proximal_mu = config.get("proximal-mu", self.config.federated.proximal_mu)
         global_params = copy.deepcopy(list(net.parameters())) if proximal_mu > 0 else []
 
         optimizer = _get_optimizer(net, self.config)
@@ -158,3 +167,6 @@ class PerUpdateDPClient(FlowerClient):
         }
 
         return noisy_weights, len(self.trainloader.dataset), metrics
+
+    def get_mechanism_state(self) -> dict:
+        return self._mechanism.get_state()

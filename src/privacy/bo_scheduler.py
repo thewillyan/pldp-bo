@@ -5,9 +5,10 @@ import json
 import numpy as np
 from scipy.stats import norm
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import Kernel, RBF, Matern, WhiteKernel
+from sklearn.gaussian_process.kernels import RBF, Kernel, Matern, WhiteKernel
 
 from src.privacy.epsilon_scheduler import EpsilonScheduler
+from src.utils import deserialize_rng, serialize_rng  # noqa: I001
 
 
 def expected_improvement(
@@ -129,7 +130,6 @@ class PLDPBOScheduler(EpsilonScheduler):
         return float(grid[np.argmax(alpha)])
 
     def get_state(self) -> dict:
-        rng_state = self._rng.get_state()
         return {
             "type": "pldp_bo",
             "epsilon_min": self._epsilon_min,
@@ -143,9 +143,7 @@ class PLDPBOScheduler(EpsilonScheduler):
             "round": self._round,
             "observations": json.dumps(self._observations),
             "f_best": self._f_best,
-            "rng_state": json.dumps([
-                x.tolist() if isinstance(x, np.ndarray) else x for x in rng_state
-            ]),
+            "rng_state": serialize_rng(self._rng),
         }
 
     @classmethod
@@ -164,10 +162,7 @@ class PLDPBOScheduler(EpsilonScheduler):
         scheduler._observations = [tuple(obs) for obs in json.loads(state["observations"])]
         scheduler._f_best = state["f_best"]
         if "rng_state" in state:
-            rng = json.loads(state["rng_state"])
-            scheduler._rng.set_state(tuple(
-                np.array(x, dtype=np.uint32) if isinstance(x, list) else x for x in rng
-            ))
+            scheduler._rng.set_state(deserialize_rng(state["rng_state"]))
         if scheduler._phase == "bo":
             scheduler._fit_gp()
         return scheduler

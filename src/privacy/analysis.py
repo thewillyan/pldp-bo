@@ -39,6 +39,19 @@ def find_noise_for_target_epsilon(
         return acc.get_epsilon()
 
     lo, hi = 0.1, 100.0
+
+    eps_at_hi = _compute_eps(hi)
+    if eps_at_hi > target_epsilon:
+        raise ValueError(
+            f"Cannot achieve target epsilon {target_epsilon} "
+            f"with sigma ≤ {hi}. eps({hi}) = {eps_at_hi:.4f}. "
+            "Increase max sigma or reduce target epsilon."
+        )
+
+    eps_at_lo = _compute_eps(lo)
+    if eps_at_lo < target_epsilon:
+        return lo
+
     for _ in range(50):
         mid = (lo + hi) / 2.0
         eps = _compute_eps(mid)

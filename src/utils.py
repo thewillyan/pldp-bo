@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import random
 
 import numpy as np
@@ -28,3 +29,17 @@ def set_seed(seed: int, *, deterministic: bool = False) -> None:
     else:
         torch.backends.cudnn.deterministic = False
         torch.backends.cudnn.benchmark = True
+
+
+def serialize_rng(rng: np.random.RandomState) -> str:
+    state = rng.get_state()
+    return json.dumps([
+        x.tolist() if isinstance(x, np.ndarray) else x for x in state
+    ])
+
+
+def deserialize_rng(data: str) -> tuple:
+    return tuple(
+        np.array(x, dtype=np.uint32) if isinstance(x, list) else x
+        for x in json.loads(data)
+    )

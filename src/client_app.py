@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 app = ClientApp()
 
 ACCOUNTANT_STATE_KEY = "pldp_accountant_state"
+MECHANISM_STATE_KEY = "pldp_mechanism_state"
 
 def _prepare_metric_record(metrics: dict) -> dict:
     # Flower's MetricRecord does not accept native Python bools,
@@ -69,7 +70,7 @@ def _make_scheduler(
             grid_points=config.bo.grid_points,
             gp_kernel=config.bo.gp_kernel,
             observation_noise=config.bo.observation_noise,
-            seed=config.seed,
+            seed=config.seed + partition_id,
         )
     if config.personalization.enabled:
         epsilon = assign_epsilon(
@@ -78,7 +79,7 @@ def _make_scheduler(
             config.personalization,
             num_clients=config.data.num_clients,
             total_train_size=total_train_size,
-            rng=np.random.RandomState(config.seed),
+            rng=np.random.RandomState(config.seed + partition_id),
         )
         return FixedEpsilonScheduler(epsilon)
     if config.privacy.target_epsilon is not None:
@@ -127,6 +128,7 @@ def train(msg: Message, context: Context) -> Message:
 
     partition_id = int(context.node_config["partition-id"])
     num_partitions = int(context.node_config["num-partitions"])
+    client_seed = config.seed + partition_id
 
     trainloader, valloader, client_subset, total_train_size = create_client_dataloader(
         config.data, partition_id, num_partitions, config.seed,
@@ -134,6 +136,7 @@ def train(msg: Message, context: Context) -> Message:
 
     accountant: RDPAccountant | None = None
     scheduler: EpsilonScheduler | None = None
+    mechanism_state: dict | None = None
 
     eps_min_per_client: float | None = None
 
@@ -168,6 +171,9 @@ def train(msg: Message, context: Context) -> Message:
                 scheduler,
             )
 
+        if MECHANISM_STATE_KEY in context.state:
+            mechanism_state = context.state[MECHANISM_STATE_KEY]
+
     total_budget: float | None = None
     if config.privacy.total_budget is not None:
         total_budget = config.privacy.total_budget
@@ -197,6 +203,8 @@ def train(msg: Message, context: Context) -> Message:
         client_epsilon=epsilon,
         accountant=accountant,
         total_budget=total_budget,
+        seed=client_seed,
+        mechanism_state=mechanism_state,
     )
 
     arrays_raw = msg.content.get("arrays")
@@ -219,6 +227,9 @@ def train(msg: Message, context: Context) -> Message:
 
     if scheduler is not None and config.privacy.enabled:
         context.state[SCHEDULER_STATE_KEY] = ConfigRecord(scheduler.get_state())
+
+    if config.privacy.enabled:
+        context.state[MECHANISM_STATE_KEY] = ConfigRecord(client.get_mechanism_state())  # type: ignore[union-attr]
 
     model_record = ArrayRecord(client_model.get_model().state_dict())
     metrics = {

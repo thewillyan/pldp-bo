@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import json
 from abc import ABC, abstractmethod
 
 import numpy as np
+
+from src.utils import deserialize_rng, serialize_rng
 
 
 class EpsilonScheduler(ABC):
@@ -60,14 +61,11 @@ class UniformRandomEpsilonScheduler(EpsilonScheduler):
         )
 
     def get_state(self) -> dict:
-        rng_state = self._rng.get_state()
         return {
             "type": "uniform_random",
             "epsilon_min": self._epsilon_min,
             "epsilon_max": self._epsilon_max,
-            "rng_state": json.dumps([
-                x.tolist() if isinstance(x, np.ndarray) else x for x in rng_state
-            ]),
+            "rng_state": serialize_rng(self._rng),
         }
 
     @classmethod
@@ -76,10 +74,7 @@ class UniformRandomEpsilonScheduler(EpsilonScheduler):
             epsilon_min=state["epsilon_min"],
             epsilon_max=state["epsilon_max"],
         )
-        rng = json.loads(state["rng_state"])
-        scheduler._rng.set_state(tuple(
-            np.array(x, dtype=np.uint32) if isinstance(x, list) else x for x in rng
-        ))
+        scheduler._rng.set_state(deserialize_rng(state["rng_state"]))
         return scheduler
 
     def __repr__(self) -> str:

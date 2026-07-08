@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import json
 import math
 
 import numpy as np
 
 from src.privacy.constants import RDP_ALPHAS
+from src.utils import deserialize_rng, serialize_rng
 
 
 def calibrate_sigma(epsilon: float, clipping_norm: float, delta: float) -> float:
@@ -60,22 +60,14 @@ class PerUpdateGaussianMechanism:
         return noisy, sigma
 
     def get_state(self) -> dict:
-        rng_state = self._rng.get_state()
-        return {
-            "rng_state": json.dumps([
-                x.tolist() if isinstance(x, np.ndarray) else x for x in rng_state
-            ]),
-        }
+        return {"rng_state": serialize_rng(self._rng)}
 
     @classmethod
     def from_state(
         cls, state: dict, clipping_norm: float, delta: float,
     ) -> PerUpdateGaussianMechanism:
         mechanism = cls(clipping_norm=clipping_norm, delta=delta)
-        rng_data = json.loads(state["rng_state"])
-        mechanism._rng.set_state(tuple(
-            np.array(x, dtype=np.uint32) if isinstance(x, list) else x for x in rng_data  # type: ignore[arg-type]
-        ))
+        mechanism._rng.set_state(deserialize_rng(state["rng_state"]))
         return mechanism
 
     @property
