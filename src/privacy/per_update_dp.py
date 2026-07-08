@@ -15,7 +15,8 @@ def calibrate_sigma(epsilon: float, clipping_norm: float, delta: float) -> float
         raise ValueError("delta must be in (0, 1)")
     if clipping_norm <= 0:
         raise ValueError("clipping_norm must be positive")
-    return clipping_norm * math.sqrt(2.0 * math.log(1.25 / delta)) / epsilon
+    sigma = clipping_norm * math.sqrt(2.0 * math.log(1.25 / delta)) / epsilon
+    return max(sigma, clipping_norm)
 
 
 def clip_update(delta: np.ndarray, clipping_norm: float) -> np.ndarray:

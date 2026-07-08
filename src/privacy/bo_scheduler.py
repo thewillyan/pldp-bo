@@ -80,6 +80,10 @@ class PLDPBOScheduler(EpsilonScheduler):
         self._observations: list[tuple[float, float]] = []
         self._gp: GaussianProcessRegressor | None = None
         self._f_best: float = float("inf")
+        self._remaining_budget: float | None = None
+
+    def set_remaining_budget(self, remaining: float | None) -> None:
+        self._remaining_budget = remaining
 
     def get_epsilon(self) -> float:
         if self._phase == "warmup":
@@ -127,6 +131,10 @@ class PLDPBOScheduler(EpsilonScheduler):
         penalty = (grid - self._epsilon_min) / (self._epsilon_max - self._epsilon_min)
         alpha = ei_norm - self._acquisition_penalty * penalty
 
+        # Mask grid points that would exceed the remaining privacy budget
+        if self._remaining_budget is not None:
+            alpha[grid > self._remaining_budget] = -np.inf
+
         # Degenerate case (all ei_norm equal → all zeros): alpha = -λ · penalty,
         # which automatically selects epsilon_min as argmax.
         return float(grid[np.argmax(alpha)])
@@ -146,6 +154,7 @@ class PLDPBOScheduler(EpsilonScheduler):
             "observations": json.dumps(self._observations),
             "f_best": self._f_best,
             "rng_state": serialize_rng(self._rng),
+            "remaining_budget": self._remaining_budget,
         }
 
     @classmethod
@@ -165,6 +174,8 @@ class PLDPBOScheduler(EpsilonScheduler):
         scheduler._f_best = state["f_best"]
         if "rng_state" in state:
             scheduler._rng.set_state(deserialize_rng(state["rng_state"]))
+        if "remaining_budget" in state:
+            scheduler._remaining_budget = state["remaining_budget"]
         if scheduler._phase == "bo":
             scheduler._fit_gp()
         return scheduler

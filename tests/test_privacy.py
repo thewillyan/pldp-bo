@@ -3,6 +3,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from unittest.mock import MagicMock
+
+from src.config.loader import ExperimentConfig
 from src.privacy import RDPAccountant, simulate_epsilon
 from src.privacy.per_update_dp import (
     PerUpdateGaussianMechanism,
@@ -58,6 +61,14 @@ def test_calibrate_sigma_larger_epsilon_gives_smaller_sigma() -> None:
     sigma_low = calibrate_sigma(epsilon=0.5, clipping_norm=1.0, delta=1e-5)
     sigma_high = calibrate_sigma(epsilon=2.0, clipping_norm=1.0, delta=1e-5)
     assert sigma_low > sigma_high
+
+
+def test_calibrate_sigma_minimum_is_clipping_norm() -> None:
+    sigma = calibrate_sigma(epsilon=100.0, clipping_norm=1.0, delta=1e-5)
+    assert sigma >= 1.0
+    assert sigma == pytest.approx(1.0)
+    sigma_large = calibrate_sigma(epsilon=1e9, clipping_norm=5.0, delta=1e-5)
+    assert sigma_large == pytest.approx(5.0)
 
 
 def test_calibrate_sigma_invalid_epsilon() -> None:
@@ -219,3 +230,59 @@ class TestEnforceEpsilonBudget:
             delta=1e-5,
         )
         assert result == pytest.approx(-1.0)
+
+
+class TestResolveEpsilon:
+    """Tests for _resolve_epsilon in client_app.py."""
+
+    def _make_config(self, personalization_enabled: bool = True,
+                     personalization_eps_min: float = 1.0,
+                     bo_eps_min: float = 0.1) -> ExperimentConfig:
+        cfg = ExperimentConfig()
+        cfg.privacy.enabled = True
+        cfg.privacy.update_clip_norm = 1.0
+        cfg.privacy.delta = 1e-5
+        cfg.privacy.target_epsilon = 5.0
+        cfg.personalization.enabled = personalization_enabled
+        cfg.personalization.epsilon_min = personalization_eps_min
+        cfg.bo.epsilon_min = bo_eps_min
+        return cfg
+
+    def test_lower_bound_clamped_to_personalization_min(self) -> None:
+        from src.client_app import _resolve_epsilon
+        config = self._make_config(personalization_eps_min=1.0)
+        accountant = RDPAccountant(delta=1e-5)
+        result = _resolve_epsilon(
+            scheduler=None,
+            accountant=accountant,
+            config=config,
+            total_budget=100.0,
+            eps_min=0.1,
+        )
+        assert result >= 1.0 or result == -1.0
+
+    def test_lower_bound_above_personalization_unchanged(self) -> None:
+        from src.client_app import _resolve_epsilon
+        config = self._make_config(personalization_eps_min=0.5)
+        accountant = RDPAccountant(delta=1e-5)
+        result = _resolve_epsilon(
+            scheduler=None,
+            accountant=accountant,
+            config=config,
+            total_budget=100.0,
+            eps_min=2.0,
+        )
+        assert result >= 2.0 or result == -1.0
+
+    def test_no_personalization_uses_bo_min(self) -> None:
+        from src.client_app import _resolve_epsilon
+        config = self._make_config(personalization_enabled=False, bo_eps_min=0.3)
+        accountant = RDPAccountant(delta=1e-5)
+        result = _resolve_epsilon(
+            scheduler=None,
+            accountant=accountant,
+            config=config,
+            total_budget=100.0,
+            eps_min=None,
+        )
+        assert result >= 0.3 or result == -1.0

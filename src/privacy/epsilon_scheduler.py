@@ -15,6 +15,9 @@ class EpsilonScheduler(ABC):
     def step(self, epsilon: float, metric: float) -> None:  # noqa: B027
         pass
 
+    def set_remaining_budget(self, remaining: float | None) -> None:
+        pass
+
     @abstractmethod
     def get_state(self) -> dict:
         ...

@@ -178,6 +178,11 @@ def train(msg: Message, context: Context) -> Message:
     elif config.bo.enabled:
         total_budget = config.bo.epsilon_budget
 
+    if scheduler is not None and accountant is not None and total_budget is not None:
+        remaining = max(0.0, total_budget - accountant.get_epsilon())
+        if hasattr(scheduler, "set_remaining_budget"):
+            scheduler.set_remaining_budget(remaining)
+
     # Server-assigned per-client budget overrides the config-derived value
     server_budget = (msg.content.config_records.get("config") or ConfigRecord()).get("per_client_budget")
     if server_budget is not None:
@@ -273,6 +278,8 @@ def _resolve_epsilon(
                 lower_bound = config.personalization.epsilon_min
             else:
                 lower_bound = config.bo.epsilon_min
+        elif config.personalization.enabled:
+            lower_bound = max(lower_bound, config.personalization.epsilon_min)
         candidate = enforce_epsilon_budget(
             candidate, accountant.rdp_per_alpha, total_budget,
             lower_bound, c, delta,

@@ -290,6 +290,27 @@ class TestPLDPBOScheduler:
         with pytest.raises(ValueError, match="grid_points must be at least 10"):
             PLDPBOScheduler(epsilon_min=0.1, epsilon_max=5.0, grid_points=5)
 
+    # --- Budget-aware selection ---
+
+    def test_bo_respects_remaining_budget(self) -> None:
+        scheduler = self.make_scheduler(acquisition_penalty=0.0, warmup_rounds=5)
+        for _ in range(5):
+            eps = scheduler.get_epsilon()
+            scheduler.step(eps, 0.5)
+        scheduler.set_remaining_budget(1.0)
+        eps = scheduler.get_epsilon()
+        assert eps <= 1.0
+
+    def test_bo_remaining_budget_serialization(self) -> None:
+        scheduler = self.make_scheduler(acquisition_penalty=0.0, warmup_rounds=5)
+        for _ in range(5):
+            eps = scheduler.get_epsilon()
+            scheduler.step(eps, 0.5)
+        scheduler.set_remaining_budget(2.0)
+        state = scheduler.get_state()
+        restored = PLDPBOScheduler.from_state(state)
+        assert restored._remaining_budget == 2.0
+
     # --- Config integration ---
 
     def test_config_integration(self) -> None:
