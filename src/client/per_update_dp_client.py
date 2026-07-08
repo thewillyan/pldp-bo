@@ -40,12 +40,12 @@ class PerUpdateDPClient(FlowerClient):
         if mechanism_state:
             self._mechanism = PerUpdateGaussianMechanism.from_state(
                 mechanism_state,
-                clipping_norm=config.privacy.max_grad_norm,
+                clipping_norm=config.privacy.update_clip_norm,
                 delta=config.privacy.delta,
             )
         else:
             self._mechanism = PerUpdateGaussianMechanism(
-                clipping_norm=config.privacy.max_grad_norm,
+                clipping_norm=config.privacy.update_clip_norm,
                 delta=config.privacy.delta,
                 seed=seed or config.seed,
             )

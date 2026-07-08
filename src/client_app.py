@@ -263,7 +263,7 @@ def _resolve_epsilon(
         return 0.0
 
     if accountant is not None and total_budget is not None:
-        c = config.privacy.max_grad_norm
+        c = config.privacy.update_clip_norm
         delta = config.privacy.delta
         lower_bound = eps_min if eps_min is not None else config.bo.epsilon_min
         candidate = enforce_epsilon_budget(

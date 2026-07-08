@@ -55,7 +55,7 @@ class PrivacyConfig:
     enabled: bool = False
     mechanism: str = "gaussian"
     noise_multiplier: float = 1.0
-    max_grad_norm: float = 1.0
+    update_clip_norm: float = 1.0
     delta: float = 1e-5
     target_epsilon: float | None = None
     accountant: str = "rdp"

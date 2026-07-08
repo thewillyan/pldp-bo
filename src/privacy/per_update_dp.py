@@ -139,6 +139,10 @@ def enforce_epsilon_budget(
     if hypothetical <= epsilon_budget:
         return candidate_epsilon
 
+    if not _is_epsilon_within_budget(epsilon_min, current_rdp, epsilon_budget,
+                                     clipping_norm, delta):
+        return -1.0
+
     lo, hi = epsilon_min, candidate_epsilon
     for _ in range(30):
         mid = (lo + hi) / 2.0
@@ -151,7 +155,4 @@ def enforce_epsilon_budget(
         else:
             hi = mid
 
-    if _is_epsilon_within_budget(lo, current_rdp, epsilon_budget,
-                                 clipping_norm, delta):
-        return lo
-    return -1.0
+    return lo
