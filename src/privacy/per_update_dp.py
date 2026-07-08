@@ -29,10 +29,9 @@ def add_gaussian_noise(
     clipped_delta: np.ndarray,
     sigma: float,
     rng: np.random.RandomState | None = None,
-    seed: int | None = None,
 ) -> np.ndarray:
     if rng is None:
-        rng = np.random.RandomState(seed)
+        rng = np.random.RandomState()
     noise = rng.normal(0, sigma, size=clipped_delta.shape).astype(clipped_delta.dtype)
     return clipped_delta + noise
 

@@ -147,9 +147,9 @@ def train(msg: Message, context: Context) -> Message:
             )
             eps_min_per_client = bounds_min
         else:
-            bounds_min = config.bo.epsilon_min
-            bounds_max = config.bo.epsilon_max
-            warmup = config.bo.warmup_rounds
+            bounds_min = None
+            bounds_max = None
+            warmup = None
 
         if ACCOUNTANT_STATE_KEY in context.state:
             state = context.state[ACCOUNTANT_STATE_KEY]

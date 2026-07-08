@@ -78,7 +78,7 @@ def main(grid: Grid, context: Context) -> None:
     global_model = create_model(config.model, dataset_name=config.data.name)
     arrays = ArrayRecord(global_model.get_model().state_dict())
 
-    strategy: FedAvg
+    strategy: FedAvg | FedProx | MedianRobustAggregation
     if config.federated.strategy == "pldp_bo":
         strategy = MedianRobustAggregation(
             server_learning_rate=config.federated.server_learning_rate,
