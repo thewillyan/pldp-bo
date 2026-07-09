@@ -50,7 +50,71 @@ def _add_budgets_to_messages(
             yield msg
 
 
-class MedianRobustAggregation(FedAvg):
+class MetricLoggingMixin:
+    _tracker: ExperimentTracker | None
+
+    def _log_metric(self, key: str, value: float, step: int) -> None:
+        if self._tracker is not None:
+            self._tracker.log_metrics({key: value}, step=step)
+
+    def _log_metric_stats(self, prefix: str, values: list[float], server_round: int) -> None:
+        if not values:
+            return
+        arr = np.array(values)
+        self._log_metric(f"round_{server_round}_{prefix}_mean", float(arr.mean()), step=server_round)
+        self._log_metric(f"round_{server_round}_{prefix}_std", float(arr.std()), step=server_round)
+        if len(values) >= _MIN_VALUES_FOR_STATS:
+            self._log_metric(f"round_{server_round}_{prefix}_min", float(arr.min()), step=server_round)
+            self._log_metric(f"round_{server_round}_{prefix}_max", float(arr.max()), step=server_round)
+            self._log_metric(f"round_{server_round}_{prefix}_median", float(np.median(arr)), step=server_round)
+
+    def _log_client_metrics(
+        self,
+        server_round: int,
+        reply_contents: list[RecordDict],
+    ) -> None:
+        epsilons: list[float] = []
+        update_norms: list[float] = []
+        utility_losses: list[float] = []
+        cumulative_epsilons: list[float] = []
+
+        for content in reply_contents:
+            m = content.metric_records.get("metrics")
+            if m is None:
+                continue
+            client_id = m.get("client-id")
+            if client_id is None:
+                continue
+
+            cid = int(client_id)
+
+            epsilon = m.get("epsilon")
+            if epsilon is not None:
+                epsilons.append(float(epsilon))
+                self._log_metric(f"round_{server_round}_client_{cid}_epsilon", float(epsilon), step=server_round)
+
+            update_norm = m.get("update_norm")
+            if update_norm is not None:
+                update_norms.append(float(update_norm))
+                self._log_metric(f"round_{server_round}_client_{cid}_update_norm", float(update_norm), step=server_round)
+
+            utility_loss = m.get("utility_loss")
+            if utility_loss is not None:
+                utility_losses.append(float(utility_loss))
+                self._log_metric(f"round_{server_round}_client_{cid}_utility_loss", float(utility_loss), step=server_round)
+
+            cum_eps = m.get("cumulative_epsilon")
+            if cum_eps is not None:
+                cumulative_epsilons.append(float(cum_eps))
+                self._log_metric(f"round_{server_round}_client_{cid}_cumulative_epsilon", float(cum_eps), step=server_round)
+
+        self._log_metric_stats("epsilon", epsilons, server_round)
+        self._log_metric_stats("update_norm", update_norms, server_round)
+        self._log_metric_stats("utility_loss", utility_losses, server_round)
+        self._log_metric_stats("cumulative_epsilon", cumulative_epsilons, server_round)
+
+
+class MedianRobustAggregation(MetricLoggingMixin, FedAvg):
     def __init__(
         self,
         server_learning_rate: float = 1.0,
@@ -185,66 +249,6 @@ class MedianRobustAggregation(FedAvg):
 
         return aggregated, metrics
 
-    def _log_metric(self, key: str, value: float, step: int) -> None:
-        if self._tracker is not None:
-            self._tracker.log_metrics({key: value}, step=step)
-
-    def _log_metric_stats(self, prefix: str, values: list[float], server_round: int) -> None:
-        if not values:
-            return
-        arr = np.array(values)
-        self._log_metric(f"round_{server_round}_{prefix}_mean", float(arr.mean()), step=server_round)
-        self._log_metric(f"round_{server_round}_{prefix}_std", float(arr.std()), step=server_round)
-        if len(values) >= _MIN_VALUES_FOR_STATS:
-            self._log_metric(f"round_{server_round}_{prefix}_min", float(arr.min()), step=server_round)
-            self._log_metric(f"round_{server_round}_{prefix}_max", float(arr.max()), step=server_round)
-            self._log_metric(f"round_{server_round}_{prefix}_median", float(np.median(arr)), step=server_round)
-
-    def _log_client_metrics(
-        self,
-        server_round: int,
-        reply_contents: list[RecordDict],
-    ) -> None:
-        epsilons: list[float] = []
-        update_norms: list[float] = []
-        utility_losses: list[float] = []
-        cumulative_epsilons: list[float] = []
-
-        for content in reply_contents:
-            m = content.metric_records.get("metrics")
-            if m is None:
-                continue
-            client_id = m.get("client-id")
-            if client_id is None:
-                continue
-
-            cid = int(client_id)
-
-            epsilon = m.get("epsilon")
-            if epsilon is not None:
-                epsilons.append(float(epsilon))
-                self._log_metric(f"round_{server_round}_client_{cid}_epsilon", float(epsilon), step=server_round)
-
-            update_norm = m.get("update_norm")
-            if update_norm is not None:
-                update_norms.append(float(update_norm))
-                self._log_metric(f"round_{server_round}_client_{cid}_update_norm", float(update_norm), step=server_round)
-
-            utility_loss = m.get("utility_loss")
-            if utility_loss is not None:
-                utility_losses.append(float(utility_loss))
-                self._log_metric(f"round_{server_round}_client_{cid}_utility_loss", float(utility_loss), step=server_round)
-
-            cum_eps = m.get("cumulative_epsilon")
-            if cum_eps is not None:
-                cumulative_epsilons.append(float(cum_eps))
-                self._log_metric(f"round_{server_round}_client_{cid}_cumulative_epsilon", float(cum_eps), step=server_round)
-
-        self._log_metric_stats("epsilon", epsilons, server_round)
-        self._log_metric_stats("update_norm", update_norms, server_round)
-        self._log_metric_stats("utility_loss", utility_losses, server_round)
-        self._log_metric_stats("cumulative_epsilon", cumulative_epsilons, server_round)
-
 
 def _is_budget_exhausted(reply: Message) -> bool:
     metrics = reply.content.metric_records.get("metrics", {})
@@ -253,15 +257,17 @@ def _is_budget_exhausted(reply: Message) -> bool:
     return bool(metrics.get("budget_exhausted", 0))
 
 
-class SafeFedAvg(FedAvg):
+class SafeFedAvg(MetricLoggingMixin, FedAvg):
     def __init__(
         self,
         *args,
+        tracker: ExperimentTracker | None = None,
         per_client_budgets: dict[int, float] | None = None,
         node_to_partition: dict[int, int] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
+        self._tracker = tracker
         self._per_client_budgets = per_client_budgets
         self._node_to_partition = node_to_partition or {}
 
@@ -283,18 +289,22 @@ class SafeFedAvg(FedAvg):
         valid_replies = [r for r in replies if not _is_budget_exhausted(r)]
         if not valid_replies:
             return None, None
+        reply_contents = [r.content for r in valid_replies]
+        self._log_client_metrics(server_round, reply_contents)
         return super().aggregate_train(server_round, valid_replies)
 
 
-class SafeFedProx(FedProx):
+class SafeFedProx(MetricLoggingMixin, FedProx):
     def __init__(
         self,
         *args,
+        tracker: ExperimentTracker | None = None,
         per_client_budgets: dict[int, float] | None = None,
         node_to_partition: dict[int, int] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
+        self._tracker = tracker
         self._per_client_budgets = per_client_budgets
         self._node_to_partition = node_to_partition or {}
 
@@ -316,4 +326,6 @@ class SafeFedProx(FedProx):
         valid_replies = [r for r in replies if not _is_budget_exhausted(r)]
         if not valid_replies:
             return None, None
+        reply_contents = [r.content for r in valid_replies]
+        self._log_client_metrics(server_round, reply_contents)
         return super().aggregate_train(server_round, valid_replies)

@@ -181,6 +181,7 @@ def main(grid: Grid, context: Context) -> None:
             min_evaluate_nodes=config.federated.min_evaluate_clients,
             min_available_nodes=config.federated.min_available_nodes,
             proximal_mu=config.federated.proximal_mu,
+            tracker=tracker,
             per_client_budgets=per_client_budgets,
             node_to_partition=node_to_partition,
         )
@@ -191,6 +192,7 @@ def main(grid: Grid, context: Context) -> None:
             min_train_nodes=config.federated.min_fit_clients,
             min_evaluate_nodes=config.federated.min_evaluate_clients,
             min_available_nodes=config.federated.min_available_nodes,
+            tracker=tracker,
             per_client_budgets=per_client_budgets,
             node_to_partition=node_to_partition,
         )

@@ -95,9 +95,12 @@ def cmd_single(args: argparse.Namespace) -> None:
 
     if args.type in ("privacy", "all"):
         path = save_dir / "privacy_budget.png"
-        fig = plot_privacy_budget(args.run_id, save_path=path)
-        print(f"Saved privacy plot to {path}")
-        plt.close(fig)
+        try:
+            fig = plot_privacy_budget(args.run_id, save_path=path)
+            print(f"Saved privacy plot to {path}")
+            plt.close(fig)
+        except ValueError as e:
+            print(f"Warning: {e}", file=sys.stderr)
 
 
 def cmd_compare(args: argparse.Namespace) -> None:
@@ -128,11 +131,14 @@ def cmd_compare(args: argparse.Namespace) -> None:
 
     if args.type in ("privacy", "all"):
         path = save_dir / "privacy_budget.png"
-        fig = plot_comparison_privacy(
-            run_ids, labels=labels, save_path=path
-        )
-        print(f"Saved comparison privacy plot to {path}")
-        plt.close(fig)
+        try:
+            fig = plot_comparison_privacy(
+                run_ids, labels=labels, save_path=path
+            )
+            print(f"Saved comparison privacy plot to {path}")
+            plt.close(fig)
+        except ValueError as e:
+            print(f"Warning: {e}", file=sys.stderr)
 
 
 def cmd_get_run_id(args: argparse.Namespace) -> None:
@@ -142,6 +148,7 @@ def cmd_get_run_id(args: argparse.Namespace) -> None:
     runs = client.search_runs(
         experiment_ids=experiment_ids,
         filter_string=f"attributes.run_name = '{args.run_name}'",
+        order_by=["start_time DESC"],
     )
     if not runs:
         print(f"Run '{args.run_name}' not found", file=sys.stderr)

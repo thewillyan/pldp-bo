@@ -51,14 +51,17 @@ def extract_metrics_by_round(
     suffix = f"_{metric_name}"
 
     for key, value in run.data.metrics.items():
-        if key.startswith(prefix) and key.endswith(suffix):
-            parts = key.split("_")
-            if len(parts) >= 3:
-                try:
-                    round_num = int(parts[1])
-                    rounds[round_num] = float(value)
-                except (ValueError, IndexError):
-                    continue
+        if not key.startswith(prefix) or not key.endswith(suffix):
+            continue
+        if "_client_" in key:
+            continue
+        parts = key.split("_")
+        if len(parts) >= 3:
+            try:
+                round_num = int(parts[1])
+                rounds[round_num] = float(value)
+            except (ValueError, IndexError):
+                continue
 
     if not rounds:
         return [], []
