@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -23,9 +25,8 @@ def _get_tracking_uri(config_path: pathlib.Path) -> str:
     return cfg.get("logging", {}).get("tracking_uri", "./mlruns")
 
 
-def _resolve_run_id(config_path: pathlib.Path, run_name: str) -> str | None:
-    uri = _get_tracking_uri(config_path)
-    mlflow.set_tracking_uri(uri)
+def _resolve_run_id(tracking_uri: str, run_name: str) -> str | None:
+    mlflow.set_tracking_uri(tracking_uri)
     client = mlflow.tracking.MlflowClient()
     experiment_ids = [exp.experiment_id for exp in client.search_experiments()]
     safe_name = run_name.replace('"', '\\"')
@@ -48,6 +49,39 @@ def _needs_quoting(val: str) -> bool:
         return True
 
 
+_SQLITE_URI_RE = re.compile(r"^sqlite:///(.+)")
+
+
+def _json_save_dir(tracking_uri: str) -> pathlib.Path:
+    m = _SQLITE_URI_RE.match(tracking_uri)
+    if m:
+        db_path = pathlib.Path(m.group(1))
+        return db_path.parent / "json"
+    return pathlib.Path("json")
+
+
+def _parse_json_from_stream(
+    line: str, buffer: list[str], depth: int
+) -> tuple[dict[str, object] | None, int]:
+    stripped = line.rstrip("\n").rstrip("\r")
+    for ch in stripped:
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+    if buffer or depth > 0 or "{" in stripped:
+        buffer.append(stripped)
+    if depth == 0 and buffer:
+        try:
+            data = json.loads("\n".join(buffer))
+            if isinstance(data, dict):
+                return data, 0
+        except json.JSONDecodeError:
+            pass
+        buffer.clear()
+    return None, depth
+
+
 def cmd_single(config_path: str, num_clients: str, overrides: list[str]) -> str | None:
     path = pathlib.Path(config_path)
     if not path.exists():
@@ -56,6 +90,14 @@ def cmd_single(config_path: str, num_clients: str, overrides: list[str]) -> str 
     if not num_clients.isdigit() or int(num_clients) < 2:
         print("Error: num_clients must be an integer >= 2", file=sys.stderr)
         return None
+
+    env_uri = os.environ.get("MLFLOW_TRACKING_URI")
+    if env_uri:
+        tracking_uri = env_uri
+    else:
+        single_dir = pathlib.Path(f"mlruns/single/{path.stem}")
+        single_dir.mkdir(parents=True, exist_ok=True)
+        tracking_uri = f"sqlite:///{single_dir}/mlflow.db"
 
     run_config_parts = [f"config-path='{config_path}'"]
     for ov in overrides:
@@ -76,8 +118,37 @@ def cmd_single(config_path: str, num_clients: str, overrides: list[str]) -> str 
         "--federation-config", f"num-supernodes={num_clients}",
     ]
 
-    result = subprocess.run(cmd)
-    if result.returncode != 0:
+    process = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1,
+    )
+    assert process.stdout is not None
+    assert process.stderr is not None
+
+    flwr_json = None
+    json_buffer: list[str] = []
+    json_depth = 0
+    for line in process.stdout:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+        if flwr_json is None:
+            parsed, json_depth = _parse_json_from_stream(line, json_buffer, json_depth)
+            if parsed is not None:
+                flwr_json = parsed
+
+    for line in process.stderr:
+        sys.stderr.write(line)
+        sys.stderr.flush()
+
+    process.wait()
+
+    if flwr_json:
+        json_dir = _json_save_dir(tracking_uri)
+        json_dir.mkdir(parents=True, exist_ok=True)
+        stem = path.stem
+        fname = f"{stem}-{flwr_json.get('run-id', 'unknown')}.json"
+        (json_dir / fname).write_text(json.dumps(flwr_json, indent=2))
+
+    if process.returncode != 0:
         return None
 
     with open(path) as f:
@@ -86,7 +157,7 @@ def cmd_single(config_path: str, num_clients: str, overrides: list[str]) -> str 
     if not run_name:
         return None
 
-    run_id = _resolve_run_id(path, run_name)
+    run_id = _resolve_run_id(tracking_uri, run_name)
     return run_id
 
 
@@ -108,7 +179,7 @@ def cmd_group(group_name: str, num_clients: str, overrides: list[str]) -> None:
         )
         sys.exit(1)
 
-    group_dir = pathlib.Path(f"mlruns/{group_name}")
+    group_dir = pathlib.Path(f"mlruns/group/{group_name}")
     plots_dir = group_dir / "plots"
     tracking_uri = f"sqlite:///{group_dir}/mlflow.db"
     plots_dir.mkdir(parents=True, exist_ok=True)

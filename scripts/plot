@@ -55,11 +55,11 @@ def _set_tracking_uri(args: argparse.Namespace) -> None:
     if args.tracking_uri:
         mlflow.set_tracking_uri(args.tracking_uri)
     elif args.group:
-        mlflow.set_tracking_uri(f"sqlite:///mlruns/{args.group}/mlflow.db")
+        mlflow.set_tracking_uri(f"sqlite:///mlruns/group/{args.group}/mlflow.db")
 
 
 def _resolve_group_runs(group: str) -> list[str]:
-    uri = f"sqlite:///mlruns/{group}/mlflow.db"
+    uri = f"sqlite:///mlruns/group/{group}/mlflow.db"
     mlflow.set_tracking_uri(uri)
     runs = list_runs()
     return [r.info.run_id for r in runs]
