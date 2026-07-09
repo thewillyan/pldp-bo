@@ -16,7 +16,7 @@ from src.privacy.per_update_dp import (
     calibrate_sigma,
     enforce_epsilon_budget,
 )
-from src.privacy.personalization import assign_epsilon
+from src.privacy.personalization import assign_epsilon_bounds, compute_budget_weight
 
 __all__ = [
     "EpsilonScheduler",
@@ -25,8 +25,9 @@ __all__ = [
     "PerUpdateGaussianMechanism",
     "RDPAccountant",
     "UniformRandomEpsilonScheduler",
-    "assign_epsilon",
+    "assign_epsilon_bounds",
     "calibrate_sigma",
+    "compute_budget_weight",
     "compute_utility_loss",
     "enforce_epsilon_budget",
     "expected_improvement",

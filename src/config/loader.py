@@ -67,7 +67,6 @@ class PersonalizationConfig:
     strategy: str = "uniform"
     epsilon_min: float = 0.1
     epsilon_max: float = 10.0
-    epsilon_base: float = 1.0
     client_epsilon_map: dict = field(default_factory=dict)
     track_cumulative: bool = True
 

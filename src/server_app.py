@@ -36,20 +36,20 @@ def _compute_per_client_budgets(
 
     num_clients = max(config.data.num_clients, 1)
 
-    # custom strategy: proportional from config map, no setup needed
+    # custom strategy: weights from config map, no setup needed
     # Keys in client_epsilon_map are partition_ids, used as-is.
     if config.personalization.enabled and config.personalization.strategy == "custom":
-        eps_map = {int(k): v for k, v in config.personalization.client_epsilon_map.items()}
-        total_weight = sum(eps_map.values())
+        weight_map = {int(k): v for k, v in config.personalization.client_epsilon_map.items()}
+        total_weight = sum(weight_map.values())
         if total_weight <= 0:
             logger.warning("client_epsilon_map sums to 0; falling back to equal division")
             per_client = total_budget / num_clients
             budgets = {cid: per_client for cid in range(num_clients)}
             return budgets, None
-        budgets = {cid: total_budget * eps / total_weight for cid, eps in eps_map.items()}
+        budgets = {cid: total_budget * w / total_weight for cid, w in weight_map.items()}
         return budgets, None
 
-    # Other personalization strategies: discover metadata via QUERY
+    # Other personalization strategies: discover budget weights via QUERY
     if config.personalization.enabled:
         node_ids = list(grid.get_node_ids())
         if node_ids:
@@ -66,26 +66,26 @@ def _compute_per_client_budgets(
             ]
             replies = list(grid.send_and_receive(query_msgs, timeout=30.0))
 
-            client_epsilons: dict[int, float] = {}
+            client_weights: dict[int, float] = {}
             node_to_partition: dict[int, int] = {}
             for reply in replies:
                 meta = reply.content.config_records.get("config", ConfigRecord())
                 node_id = reply.metadata.src_node_id
-                eps = meta.get("personalization_epsilon")
+                weight = meta.get("budget_weight")
                 p_id = meta.get("partition_id", node_id)
                 node_to_partition[node_id] = int(p_id)
-                if eps is not None:
-                    client_epsilons[int(p_id)] = float(eps)
+                if weight is not None:
+                    client_weights[int(p_id)] = float(weight)
 
-            if client_epsilons:
-                total_weight = sum(client_epsilons.values())
+            if client_weights:
+                total_weight = sum(client_weights.values())
                 budgets = {
-                    cid: total_budget * eps / total_weight
-                    for cid, eps in client_epsilons.items()
+                    cid: total_budget * w / total_weight
+                    for cid, w in client_weights.items()
                 }
                 return budgets, node_to_partition
             logger.warning(
-                "No clients returned personalization metadata; falling back to equal division",
+                "No clients returned budget weights; falling back to equal division",
             )
         else:
             logger.warning("No nodes available for setup; falling back to equal division")

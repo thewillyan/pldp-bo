@@ -11,8 +11,8 @@ from src.privacy.personalization import (
     _compute_label_entropy,
     _get_num_classes,
     _get_targets,
-    assign_epsilon,
     assign_epsilon_bounds,
+    compute_budget_weight,
 )
 
 
@@ -23,7 +23,7 @@ def _make_dataset(labels: list[int]) -> TensorDataset:
     return TensorDataset(features, targets)
 
 
-def test_assign_custom_strategy() -> None:
+def test_weight_custom_strategy() -> None:
     config = PersonalizationConfig(
         enabled=True,
         strategy="custom",
@@ -31,12 +31,12 @@ def test_assign_custom_strategy() -> None:
     )
     dataset = _make_dataset([0, 1, 2, 0, 1, 2, 0, 1, 2, 0])
 
-    assert assign_epsilon(0, dataset, config) == 1.0
-    assert assign_epsilon(1, dataset, config) == 2.5
-    assert assign_epsilon(2, dataset, config) == 5.0
+    assert compute_budget_weight(0, dataset, config) == 1.0
+    assert compute_budget_weight(1, dataset, config) == 2.5
+    assert compute_budget_weight(2, dataset, config) == 5.0
 
 
-def test_assign_custom_missing_key() -> None:
+def test_weight_custom_missing_key() -> None:
     config = PersonalizationConfig(
         enabled=True,
         strategy="custom",
@@ -45,94 +45,51 @@ def test_assign_custom_missing_key() -> None:
     dataset = _make_dataset([0, 1, 2])
 
     with pytest.raises(ValueError, match="not found in client_epsilon_map"):
-        assign_epsilon(5, dataset, config)
+        compute_budget_weight(5, dataset, config)
 
 
-def test_assign_uniform_strategy() -> None:
+def test_weight_uniform_strategy() -> None:
     config = PersonalizationConfig(
         enabled=True,
         strategy="uniform",
-        epsilon_min=1.0,
-        epsilon_max=10.0,
     )
     dataset = _make_dataset([0, 1, 2])
 
-    epsilons = [assign_epsilon(0, dataset, config) for _ in range(100)]
+    weights = [compute_budget_weight(0, dataset, config) for _ in range(100)]
 
-    assert all(1.0 <= e <= 10.0 for e in epsilons)
-    assert len(set(epsilons)) > 1
+    assert all(0.0 <= w <= 1.0 for w in weights)
+    assert len(set(weights)) > 1
 
 
-def test_assign_data_proportional_strategy() -> None:
+def test_weight_data_proportional_strategy() -> None:
     total_size = 10 + 100  # small + large
     config = PersonalizationConfig(
         enabled=True,
         strategy="data_proportional",
-        epsilon_base=5.0,
-        epsilon_min=0.1,
-        epsilon_max=10.0,
     )
 
     small_dataset = _make_dataset([0, 1] * 5)
     large_dataset = _make_dataset([0, 1] * 50)
 
-    small_eps = assign_epsilon(0, small_dataset, config, num_clients=2, total_train_size=total_size)
-    large_eps = assign_epsilon(0, large_dataset, config, num_clients=2, total_train_size=total_size)
+    small_weight = compute_budget_weight(0, small_dataset, config, num_clients=2, total_train_size=total_size)
+    large_weight = compute_budget_weight(0, large_dataset, config, num_clients=2, total_train_size=total_size)
 
-    assert small_eps > large_eps
-
-
-def test_data_proportional_respects_bounds() -> None:
-    config = PersonalizationConfig(
-        enabled=True,
-        strategy="data_proportional",
-        epsilon_base=5.0,
-        epsilon_min=1.0,
-        epsilon_max=8.0,
-    )
-
-    tiny_dataset = _make_dataset([0])
-    huge_dataset = _make_dataset([0] * 10000)
-
-    tiny_eps = assign_epsilon(0, tiny_dataset, config, num_clients=100, total_train_size=10100)
-    huge_eps = assign_epsilon(0, huge_dataset, config, num_clients=100, total_train_size=10100)
-
-    assert tiny_eps >= 1.0
-    assert tiny_eps <= 8.0
-    assert huge_eps >= 1.0
-    assert huge_eps <= 8.0
+    assert small_weight > large_weight
 
 
-def test_assign_heterogeneity_strategy() -> None:
+def test_weight_heterogeneity_strategy() -> None:
     config = PersonalizationConfig(
         enabled=True,
         strategy="heterogeneity",
-        epsilon_min=0.5,
-        epsilon_max=10.0,
     )
 
     uniform_dataset = _make_dataset([0, 1, 2, 3] * 25)
     single_class_dataset = _make_dataset([0] * 100)
 
-    uniform_eps = assign_epsilon(0, uniform_dataset, config)
-    single_class_eps = assign_epsilon(0, single_class_dataset, config)
+    uniform_weight = compute_budget_weight(0, uniform_dataset, config)
+    single_class_weight = compute_budget_weight(0, single_class_dataset, config)
 
-    assert uniform_eps != single_class_eps
-
-
-def test_heterogeneity_respects_bounds() -> None:
-    config = PersonalizationConfig(
-        enabled=True,
-        strategy="heterogeneity",
-        epsilon_min=2.0,
-        epsilon_max=7.0,
-    )
-
-    dataset = _make_dataset([0, 1, 2, 3, 4, 5, 6, 7, 8, 9] * 10)
-    eps = assign_epsilon(0, dataset, config)
-
-    assert eps >= 2.0
-    assert eps <= 7.0
+    assert uniform_weight < single_class_weight
 
 
 def test_compute_label_entropy_uniform() -> None:
@@ -295,10 +252,8 @@ class TestAssignEpsilonBounds:
     def test_from_epsilon_data_proportional(self) -> None:
         pc = _make_personalization_config(
             strategy="data_proportional",
-            epsilon_base=5.0,
             epsilon_min=0.1,
             epsilon_max=10.0,
-            client_epsilon_map={"__total_size": 100},
         )
         bc = _make_bo_config(
             bounds_strategy="from_epsilon",
@@ -307,10 +262,11 @@ class TestAssignEpsilonBounds:
         )
         small = _make_dataset([0] * 10)
         eps_min, eps_max, _ = assign_epsilon_bounds(0, small, pc, bc, num_clients=10)
-        # expected_eps = 5.0 * (10/10) = 5.0
-        assert eps_min == pytest.approx(1.0)
-        assert eps_max == pytest.approx(10.0)
-        assert 0 < eps_min <= eps_max
+        # weight = expected_per_client / client_size = (10*10/10) / 10 = 1.0
+        # eps_min = max(1.0 * 0.2, 1e-6) = 0.2
+        # eps_max = 1.0 * 2.0 = 2.0
+        assert eps_min == pytest.approx(0.2)
+        assert eps_max == pytest.approx(2.0)
 
     def test_from_epsilon_no_personalization_raises(self) -> None:
         pc = _make_personalization_config(enabled=False)

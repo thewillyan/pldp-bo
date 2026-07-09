@@ -11,7 +11,7 @@ from src.config.loader import BOConfig, PersonalizationConfig
 logger = logging.getLogger(__name__)
 
 
-def assign_epsilon(
+def compute_budget_weight(
     partition_id: int,
     train_dataset: Dataset | Subset,
     config: PersonalizationConfig,
@@ -21,56 +21,56 @@ def assign_epsilon(
 ) -> float:
     strategy = config.strategy
     if strategy == "custom":
-        return _assign_custom(partition_id, config)
+        return _weight_custom(partition_id, config)
     if strategy == "data_proportional":
-        return _assign_data_proportional(train_dataset, config, num_clients, total_train_size=total_train_size)
+        return _weight_data_proportional(train_dataset, num_clients, total_train_size=total_train_size)
     if strategy == "heterogeneity":
-        return _assign_heterogeneity(train_dataset, config)
+        return _weight_heterogeneity(train_dataset)
     if strategy == "uniform":
-        return _assign_uniform(config, rng=rng)
+        return _weight_uniform(rng=rng)
     raise ValueError(f"Unknown personalization strategy: {strategy}")
 
 
-def _assign_uniform(
-    config: PersonalizationConfig,
+def _weight_uniform(
     rng: np.random.RandomState | None = None,
 ) -> float:
     if rng is None:
         rng = np.random.RandomState()
-    return float(rng.uniform(config.epsilon_min, config.epsilon_max))
+    return float(rng.uniform(0, 1))
 
 
-def _assign_custom(partition_id: int, config: PersonalizationConfig) -> float:
-    epsilon_map = {int(k): v for k, v in config.client_epsilon_map.items()}
-    if partition_id not in epsilon_map:
+def _weight_custom(partition_id: int, config: PersonalizationConfig) -> float:
+    weight_map = {int(k): v for k, v in config.client_epsilon_map.items()}
+    if partition_id not in weight_map:
         raise ValueError(
             f"partition_id {partition_id} not found in client_epsilon_map. "
-            f"Available: {sorted(epsilon_map.keys())}",
+            f"Available: {sorted(weight_map.keys())}",
         )
-    return float(epsilon_map[partition_id])
+    return float(weight_map[partition_id])
 
 
-def _assign_data_proportional(
-    dataset: Dataset | Subset, config: PersonalizationConfig, num_clients: int,
+def _weight_data_proportional(
+    dataset: Dataset | Subset, num_clients: int,
     total_train_size: int | None = None,
 ) -> float:
+    """Budget weight proportional to inverse data size.
+
+    Unlike the old assign_epsilon, this weight is unbounded — extreme
+    data imbalances produce extreme weights. Per-round epsilon is
+    clamped to [epsilon_min, epsilon_max] in _resolve_epsilon.
+    """
     client_size = len(dataset)
     total_size = total_train_size if total_train_size is not None else client_size * num_clients
     expected_per_client = total_size / num_clients
-
-    epsilon = config.epsilon_base * (expected_per_client / client_size)
-    return float(np.clip(epsilon, config.epsilon_min, config.epsilon_max))
+    return expected_per_client / client_size
 
 
-def _assign_heterogeneity(
-    dataset: Dataset | Subset, config: PersonalizationConfig,
+def _weight_heterogeneity(
+    dataset: Dataset | Subset,
 ) -> float:
     entropy = _compute_label_entropy(dataset)
     normalized_entropy = entropy / math.log(_get_num_classes(dataset)) if entropy > 0 else 0.0
-
-    range_span = config.epsilon_max - config.epsilon_min
-    epsilon = config.epsilon_min + range_span * (1.0 - normalized_entropy)
-    return float(np.clip(epsilon, config.epsilon_min, config.epsilon_max))
+    return 1.0 - normalized_entropy
 
 
 def _compute_label_entropy(dataset: Dataset | Subset) -> float:
@@ -134,12 +134,12 @@ def assign_epsilon_bounds(
             raise ValueError(
                 "bounds_strategy='from_epsilon' requires personalization.enabled=True",
             )
-        epsilon = assign_epsilon(
+        weight = compute_budget_weight(
             partition_id, train_dataset, personalization_config, num_clients,
             total_train_size=total_train_size,
         )
-        eps_min = max(epsilon * bo_config.bounds_ratio_min, 1e-6)
-        eps_max = epsilon * bo_config.bounds_ratio_max
+        eps_min = max(weight * bo_config.bounds_ratio_min, 1e-6)
+        eps_max = weight * bo_config.bounds_ratio_max
         return eps_min, eps_max, warmup
 
     raise ValueError(f"Unknown bounds_strategy: {strategy}")

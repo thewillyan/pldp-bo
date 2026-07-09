@@ -18,7 +18,7 @@ from src.privacy.epsilon_scheduler import (
     UniformRandomEpsilonScheduler,
 )
 from src.privacy.per_update_dp import enforce_epsilon_budget
-from src.privacy.personalization import assign_epsilon, assign_epsilon_bounds
+from src.privacy.personalization import assign_epsilon_bounds, compute_budget_weight
 from src.utils import set_seed
 
 logger = logging.getLogger(__name__)
@@ -71,15 +71,7 @@ def _make_scheduler(
             seed=config.seed + partition_id,
         )
     if config.personalization.enabled:
-        epsilon = assign_epsilon(
-            partition_id,
-            train_dataset,
-            config.personalization,
-            num_clients=config.data.num_clients,
-            total_train_size=total_train_size,
-            rng=np.random.RandomState(config.seed + partition_id),
-        )
-        return FixedEpsilonScheduler(epsilon)
+        return None
     if config.privacy.target_epsilon is not None:
         return FixedEpsilonScheduler(config.privacy.target_epsilon)
     return None
@@ -258,6 +250,19 @@ def _resolve_epsilon(
 ) -> float:
     if scheduler is not None:
         candidate = scheduler.get_epsilon()
+    elif config.personalization.enabled:
+        # Per-round epsilon = per_client_budget / total_rounds.
+        # Without a per-client budget (total_budget is None or 0) the client
+        # cannot derive a meaningful epsilon and drops out. This is intentional:
+        # the old assign_epsilon fallback (fixed epsilon with no budget cap) is
+        # removed — personalization without total_budget is a misconfiguration.
+        if total_budget is not None and total_budget > 0:
+            candidate = total_budget / config.federated.num_rounds
+            eps_min_val = eps_min if eps_min is not None else config.personalization.epsilon_min
+            candidate = max(candidate, eps_min_val)
+            candidate = min(candidate, config.personalization.epsilon_max)
+        else:
+            return 0.0
     elif config.privacy.target_epsilon is not None:
         candidate = config.privacy.target_epsilon
     elif config.privacy.enabled:
@@ -278,8 +283,6 @@ def _resolve_epsilon(
                 lower_bound = config.personalization.epsilon_min
             else:
                 lower_bound = config.bo.epsilon_min
-        # eps_min from assign_epsilon_bounds already incorporates personalization floor;
-        # no additional clamp needed here.
         candidate = enforce_epsilon_budget(
             candidate, accountant.rdp_per_alpha, total_budget,
             lower_bound, c, delta,
@@ -304,7 +307,7 @@ def query(msg: Message, context: Context) -> Message:
             config.data, partition_id, num_partitions, config.seed,
         )
 
-        epsilon = assign_epsilon(
+        weight = compute_budget_weight(
             partition_id, client_subset, config.personalization,
             num_clients=config.data.num_clients,
             total_train_size=total_train_size,
@@ -315,7 +318,7 @@ def query(msg: Message, context: Context) -> Message:
             content=RecordDict({
                 "config": ConfigRecord({
                     "partition_id": partition_id,
-                    "personalization_epsilon": epsilon,
+                    "budget_weight": weight,
                 }),
             }),
             reply_to=msg,
