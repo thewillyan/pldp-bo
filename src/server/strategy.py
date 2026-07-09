@@ -74,6 +74,7 @@ class MetricLoggingMixin:
         reply_contents: list[RecordDict],
     ) -> None:
         epsilons: list[float] = []
+        client_epsilons: list[float] = []
         update_norms: list[float] = []
         utility_losses: list[float] = []
         cumulative_epsilons: list[float] = []
@@ -108,7 +109,13 @@ class MetricLoggingMixin:
                 cumulative_epsilons.append(float(cum_eps))
                 self._log_metric(f"round_{server_round}_client_{cid}_cumulative_epsilon", float(cum_eps), step=server_round)
 
+            client_eps = m.get("client_epsilon")
+            if client_eps is not None:
+                client_epsilons.append(float(client_eps))
+                self._log_metric(f"round_{server_round}_client_{cid}_client_epsilon", float(client_eps), step=server_round)
+
         self._log_metric_stats("epsilon", epsilons, server_round)
+        self._log_metric_stats("client_epsilon", client_epsilons, server_round)
         self._log_metric_stats("update_norm", update_norms, server_round)
         self._log_metric_stats("utility_loss", utility_losses, server_round)
         self._log_metric_stats("cumulative_epsilon", cumulative_epsilons, server_round)
