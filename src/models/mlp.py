@@ -30,6 +30,7 @@ class MLP(nn.Module):
 
 class MLPModel(BaseModel):
     def __init__(self, num_classes: int = 10, dataset_name: str | None = None) -> None:
+        super().__init__()
         input_size = _INPUT_SIZE_MAP.get(dataset_name or "mnist", 28 * 28)
         self._model = MLP(num_classes, input_size=input_size)
 

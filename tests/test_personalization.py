@@ -114,6 +114,16 @@ def test_get_targets_from_subset() -> None:
     np.testing.assert_array_equal(targets, [0, 2, 4])
 
 
+def test_get_targets_from_nested_subset() -> None:
+    from torch.utils.data import Subset
+
+    dataset = _make_dataset([0, 1, 2, 3, 4, 5, 6, 7])
+    inner = Subset(dataset, [0, 2, 4, 6])
+    outer = Subset(inner, [0, 2])
+    targets = _get_targets(outer)
+    np.testing.assert_array_equal(targets, [0, 4])
+
+
 def test_get_num_classes() -> None:
     dataset = _make_dataset([0, 1, 2, 0, 1, 2])
     assert _get_num_classes(dataset) == 3

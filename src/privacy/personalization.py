@@ -83,16 +83,22 @@ def _compute_label_entropy(dataset: Dataset | Subset) -> float:
 
 
 def _get_targets(dataset: Dataset | Subset) -> np.ndarray:
-    if isinstance(dataset, Subset):
-        try:
-            all_targets = np.array(dataset.dataset.targets)
-            return all_targets[dataset.indices]
-        except AttributeError:
-            return dataset.dataset.tensors[1].numpy()[dataset.indices]
+    # Collect indices through nested Subset layers (e.g. Subset(Subset(dataset)))
+    # to reach the underlying raw dataset and apply the index chain.
+    indices = None
+    while isinstance(dataset, Subset):
+        if indices is None:
+            indices = dataset.indices
+        else:
+            indices = [dataset.indices[i] for i in indices]
+        dataset = dataset.dataset
     try:
-        return np.array(dataset.targets)
+        targets = np.array(dataset.targets)
     except AttributeError:
-        return dataset.tensors[1].numpy()
+        targets = dataset.tensors[1].numpy()
+    if indices is not None:
+        targets = targets[indices]
+    return targets
 
 
 def _get_num_classes(dataset: Dataset | Subset) -> int:

@@ -144,7 +144,7 @@ def main(grid: Grid, context: Context) -> None:
 
     set_seed(config.seed, deterministic=config.deterministic)
 
-    valloader = create_validation_loader(config.data)
+    valloader = create_validation_loader(config.data, seed=config.seed)
 
     tracker = ExperimentTracker(config)
     tracker.start_run()

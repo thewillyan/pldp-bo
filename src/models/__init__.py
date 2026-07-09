@@ -20,7 +20,7 @@ def create_model(config: ModelConfig, dataset_name: str | None = None) -> BaseMo
                 f"Compatible datasets: {allowed}",
             )
     if config.name == "cnn":
-        return CNNModel(config.num_classes)
+        return CNNModel(config.num_classes, dataset_name=dataset_name)
     if config.name == "mlp":
         return MLPModel(config.num_classes, dataset_name=dataset_name)
     raise ValueError(f"Unknown model: {config.name}")

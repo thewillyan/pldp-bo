@@ -19,6 +19,11 @@ class BaseModel(ABC):
 
     def set_weights(self, weights: list[np.ndarray]) -> None:
         state_dict = self.get_model().state_dict()
+        if len(weights) != len(state_dict):
+            raise ValueError(
+                f"Expected {len(state_dict)} weight arrays, got {len(weights)}. "
+                f"State dict keys: {list(state_dict.keys())}",
+            )
         device = get_device()
         new_state = {
             k: torch.tensor(w, dtype=state_dict[k].dtype, device=device)
