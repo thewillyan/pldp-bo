@@ -11,7 +11,6 @@ import mlflow
 import yaml
 
 CONFIG_DIR = pathlib.Path("config/experiments")
-_RUN_SCRIPT = str(pathlib.Path(__file__).resolve())
 _PLOT_SCRIPT = str(pathlib.Path(__file__).resolve().parent / "plot")
 
 
@@ -39,14 +38,24 @@ def _resolve_run_id(config_path: pathlib.Path, run_name: str) -> str | None:
     return runs[0].info.run_id if runs else None
 
 
-def cmd_single(config_path: str, num_clients: str, overrides: list[str]) -> None:
+def _needs_quoting(val: str) -> bool:
+    if val.lower() in ("true", "false", "nan", "inf"):
+        return False
+    try:
+        float(val)
+        return False
+    except ValueError:
+        return True
+
+
+def cmd_single(config_path: str, num_clients: str, overrides: list[str]) -> str | None:
     path = pathlib.Path(config_path)
     if not path.exists():
         print(f"Error: config '{config_path}' not found", file=sys.stderr)
-        sys.exit(1)
+        return None
     if not num_clients.isdigit() or int(num_clients) < 2:
         print("Error: num_clients must be an integer >= 2", file=sys.stderr)
-        sys.exit(1)
+        return None
 
     run_config_parts = [f"config-path='{config_path}'"]
     for ov in overrides:
@@ -54,31 +63,34 @@ def cmd_single(config_path: str, num_clients: str, overrides: list[str]) -> None
             print(f"Warning: ignoring invalid override '{ov}'", file=sys.stderr)
             continue
         key, val = ov.split("=", 1)
-        run_config_parts.append(f"{key}='{val}'")
+        if _needs_quoting(val):
+            run_config_parts.append(f"{key}='{val}'")
+        else:
+            run_config_parts.append(f"{key}={val}")
 
     cmd = [
         "flwr", "run", ".",
         "--stream",
+        "--format", "json",
         "--run-config", " ".join(run_config_parts),
         "--federation-config", f"num-supernodes={num_clients}",
     ]
 
     result = subprocess.run(cmd)
     if result.returncode != 0:
-        sys.exit(result.returncode)
+        return None
 
     with open(path) as f:
         cfg = yaml.safe_load(f)
     run_name = cfg.get("logging", {}).get("run_name", "")
     if not run_name:
-        return
+        return None
 
     run_id = _resolve_run_id(path, run_name)
-    if run_id:
-        print(run_id)
+    return run_id
 
 
-def cmd_group(group_name: str, num_clients: str) -> None:
+def cmd_group(group_name: str, num_clients: str, overrides: list[str]) -> None:
     if not num_clients.isdigit() or int(num_clients) < 2:
         print("Error: num_clients must be an integer >= 2", file=sys.stderr)
         sys.exit(1)
@@ -105,7 +117,8 @@ def cmd_group(group_name: str, num_clients: str) -> None:
     run_labels: list[str] = []
     failed: list[str] = []
 
-    plug = sys.executable
+    saved_tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
+    os.environ["MLFLOW_TRACKING_URI"] = tracking_uri
 
     for config_path in configs:
         config_name = config_path.stem
@@ -114,27 +127,10 @@ def cmd_group(group_name: str, num_clients: str) -> None:
 
         print(f"\n--- {config_name} ---")
 
-        env = {**os.environ, "MLFLOW_TRACKING_URI": tracking_uri}
-        proc = subprocess.run(
-            [plug, _RUN_SCRIPT, "single", str(config_path), num_clients],
-            env=env,
-            capture_output=True,
-            text=True,
-        )
-        if proc.stdout:
-            print(proc.stdout, end="")
-        if proc.stderr:
-            print(proc.stderr, end="", file=sys.stderr)
-
-        if proc.returncode != 0:
+        run_id = cmd_single(str(config_path), num_clients, overrides)
+        if run_id is None:
             print("  ERROR: Experiment failed.", file=sys.stderr)
             failed.append(config_name)
-            continue
-
-        lines = [ln for ln in proc.stdout.strip().split("\n") if ln.strip()]
-        run_id = lines[-1] if lines else ""
-        if not run_id:
-            print("  WARNING: Could not determine run_id", file=sys.stderr)
             continue
 
         run_ids.append(run_id)
@@ -142,7 +138,7 @@ def cmd_group(group_name: str, num_clients: str) -> None:
 
         plot_proc = subprocess.run(
             [
-                plug, _PLOT_SCRIPT,
+                sys.executable, _PLOT_SCRIPT,
                 "--tracking-uri", tracking_uri,
                 "plot", run_id,
                 "--type", "all",
@@ -157,13 +153,18 @@ def cmd_group(group_name: str, num_clients: str) -> None:
         if plot_proc.returncode != 0:
             print("  WARNING: Plot generation failed", file=sys.stderr)
 
+    if saved_tracking_uri is not None:
+        os.environ["MLFLOW_TRACKING_URI"] = saved_tracking_uri
+    else:
+        os.environ.pop("MLFLOW_TRACKING_URI", None)
+
     if len(run_ids) > 1:
         comp_dir = plots_dir / "comparison"
         comp_dir.mkdir(parents=True, exist_ok=True)
 
         plot_proc = subprocess.run(
             [
-                plug, _PLOT_SCRIPT,
+                sys.executable, _PLOT_SCRIPT,
                 "--tracking-uri", tracking_uri,
                 "compare",
                 "--runs", *run_ids,
@@ -227,6 +228,7 @@ def main() -> None:
     p_group = sub.add_parser("group", help="Run all experiments in a group")
     p_group.add_argument("group_name", type=str)
     p_group.add_argument("num_clients", type=str)
+    p_group.add_argument("overrides", nargs="*", help="KEY=VALUE overrides")
 
     p_list = sub.add_parser("list", help="List available groups and configs")
     p_list.add_argument("--groups", action="store_true", help="Show only group names")
@@ -235,9 +237,11 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "single":
-        cmd_single(args.config_path, args.num_clients, args.overrides)
+        run_id = cmd_single(args.config_path, args.num_clients, args.overrides)
+        if run_id:
+            print(run_id)
     elif args.command == "group":
-        cmd_group(args.group_name, args.num_clients)
+        cmd_group(args.group_name, args.num_clients, args.overrides)
     elif args.command == "list":
         cmd_list(groups_only=args.groups, configs_only=args.configs)
 
