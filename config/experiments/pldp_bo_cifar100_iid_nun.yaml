@@ -53,6 +53,7 @@ logging:
   experiment_name: pldp-bo
   run_name: pldp-bo-cifar100-iid-nun
   tracking_uri: sqlite:///./mlflow.db
+  group: cifar100_iid
 
 seed: 42
 deterministic: false

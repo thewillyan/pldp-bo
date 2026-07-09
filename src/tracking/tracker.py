@@ -20,6 +20,8 @@ class ExperimentTracker:
         run_name = self._config.logging.run_name
         mlflow.start_run(run_name=run_name)
         self._log_config()
+        if self._config.logging.group:
+            mlflow.set_tag("group", self._config.logging.group)
 
     def end_run(self) -> None:
         mlflow.end_run()
@@ -68,6 +70,10 @@ class ExperimentTracker:
 
     def log_artifact(self, local_path: str) -> None:
         mlflow.log_artifact(local_path)
+
+    @staticmethod
+    def set_tag(key: str, value: str) -> None:
+        mlflow.set_tag(key, value)
 
     @staticmethod
     def get_run_id() -> str | None:

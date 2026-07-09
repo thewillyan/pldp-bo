@@ -99,6 +99,7 @@ class LoggingConfig:
     experiment_name: str = "pldp-bo"
     run_name: str | None = None
     tracking_uri: str = "./mlruns"
+    group: str | None = None
 
 
 @dataclass

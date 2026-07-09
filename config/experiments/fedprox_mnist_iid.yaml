@@ -46,6 +46,7 @@ logging:
   experiment_name: pldp-bo
   run_name: fedprox-mnist-iid-dp
   tracking_uri: sqlite:///./mlflow.db
+  group: mnist_iid
 
 seed: 42
 deterministic: false

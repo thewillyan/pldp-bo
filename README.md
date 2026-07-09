@@ -37,7 +37,7 @@ source .venv/bin/activate
 ### 1. Run the smoke test
 
 ```bash
-./scripts/run.sh config/experiments/smoke_test.yaml 5
+./scripts/run single config/experiments/smoke_test.yaml 5
 ```
 
 This runs 2 rounds with 5 MNIST clients (no privacy) to verify everything is wired correctly.
@@ -54,13 +54,16 @@ Open `http://localhost:5000` in your browser.
 
 ```bash
 # PLDP-BO with NUN metric, MNIST IID, 10 clients, 50 rounds
-./scripts/run.sh config/experiments/pldp_bo_mnist_iid_nun.yaml 10
+./scripts/run single config/experiments/pldp_bo_mnist_iid_nun.yaml 10
 
 # FedAvg + DP baseline
-./scripts/run.sh config/experiments/fedavg_mnist_iid.yaml 10
+./scripts/run single config/experiments/fedavg_mnist_iid.yaml 10
 
-# Batch all experiments
-./scripts/run_experiments.sh 10 fedavg pldp_bo
+# Run all experiments in a group (e.g. cifar100_iid)
+./scripts/run group cifar100_iid 10
+
+# List available groups
+./scripts/run list
 ```
 
 ---
@@ -224,8 +227,8 @@ pldp-bo/
     PLDP-BO.md                       # Algorithm specification
   plots/                             # Output directory for generated plots
   scripts/
-    run.sh                           # Single experiment: ./scripts/run.sh <config> <num_clients>
-    run_experiments.sh               # Batch runner: ./scripts/run_experiments.sh <num_clients> <strategies...>
+    run                              # Experiment runner: ./scripts/run single|group|list
+    plot                             # Plot tool: ./scripts/plot [--group <name>] plot|compare|list-runs
   src/
     client/
       __init__.py                    # Client factory (FlowerClient or PerUpdateDPClient)

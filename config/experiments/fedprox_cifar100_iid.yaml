@@ -46,6 +46,7 @@ logging:
   experiment_name: pldp-bo
   run_name: fedprox-cifar100-iid-dp
   tracking_uri: sqlite:///./mlflow.db
+  group: cifar100_iid
 
 seed: 42
 deterministic: false

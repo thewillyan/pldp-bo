@@ -54,6 +54,7 @@ logging:
   experiment_name: pldp-bo
   run_name: pldp-bo-cifar100-noniid-nun
   tracking_uri: sqlite:///./mlflow.db
+  group: cifar100_noniid
 
 seed: 42
 deterministic: false

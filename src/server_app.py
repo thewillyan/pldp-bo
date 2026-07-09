@@ -149,6 +149,9 @@ def main(grid: Grid, context: Context) -> None:
     tracker = ExperimentTracker(config)
     tracker.start_run()
 
+    if context.series_id:
+        tracker.set_tag("flower_series_id", str(context.series_id))
+
     global_model = create_model(config.model, dataset_name=config.data.name)
     arrays = ArrayRecord(global_model.get_model().state_dict())
 
