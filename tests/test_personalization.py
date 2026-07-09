@@ -74,7 +74,7 @@ def test_weight_data_proportional_strategy() -> None:
     small_weight = compute_budget_weight(0, small_dataset, config, num_clients=2, total_train_size=total_size)
     large_weight = compute_budget_weight(0, large_dataset, config, num_clients=2, total_train_size=total_size)
 
-    assert small_weight > large_weight
+    assert small_weight < large_weight
 
 
 def test_weight_heterogeneity_strategy() -> None:

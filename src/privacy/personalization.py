@@ -53,16 +53,16 @@ def _weight_data_proportional(
     dataset: Dataset | Subset, num_clients: int,
     total_train_size: int | None = None,
 ) -> float:
-    """Budget weight proportional to inverse data size.
+    """Budget weight proportional to data size.
 
-    Unlike the old assign_epsilon, this weight is unbounded — extreme
-    data imbalances produce extreme weights. Per-round epsilon is
-    clamped to [epsilon_min, epsilon_max] in _resolve_epsilon.
+    Clients with more data receive a larger budget weight (weaker
+    privacy / less noise), while clients with fewer data receive a
+    smaller weight (stronger privacy / more noise).
     """
     client_size = len(dataset)
     total_size = total_train_size if total_train_size is not None else client_size * num_clients
     expected_per_client = total_size / num_clients
-    return expected_per_client / client_size
+    return client_size / expected_per_client
 
 
 def _weight_heterogeneity(
