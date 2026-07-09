@@ -8,6 +8,11 @@ from pathlib import Path
 import mlflow
 import seaborn as sns
 
+try:
+    import matplotlib.pyplot as plt
+except ImportError:
+    plt = None
+
 from src.plotting import get_run_name, get_run_params, list_runs
 from src.plotting.comparison import (
     plot_comparison_convergence,
@@ -15,8 +20,6 @@ from src.plotting.comparison import (
 )
 from src.plotting.convergence import plot_convergence
 from src.plotting.privacy import plot_privacy_budget
-
-sns.set_theme(style="whitegrid", font_scale=1.1)
 
 
 def _format_time(start_ms: int, end_ms: int | None) -> str:
@@ -82,7 +85,10 @@ def cmd_list_runs(args: argparse.Namespace) -> None:
 
 def cmd_single(args: argparse.Namespace) -> None:
     _set_tracking_uri(args)
-    import matplotlib.pyplot as plt
+    if plt is None:
+        print("Error: matplotlib is required for plotting", file=sys.stderr)
+        sys.exit(1)
+    _set_plot_theme()
 
     save_dir = Path(args.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -105,7 +111,10 @@ def cmd_single(args: argparse.Namespace) -> None:
 
 def cmd_compare(args: argparse.Namespace) -> None:
     _set_tracking_uri(args)
-    import matplotlib.pyplot as plt
+    if plt is None:
+        print("Error: matplotlib is required for plotting", file=sys.stderr)
+        sys.exit(1)
+    _set_plot_theme()
 
     save_dir = Path(args.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -145,15 +154,20 @@ def cmd_get_run_id(args: argparse.Namespace) -> None:
     _set_tracking_uri(args)
     client = mlflow.tracking.MlflowClient()
     experiment_ids = [exp.experiment_id for exp in client.search_experiments()]
+    safe_name = args.run_name.replace("'", "\\'")
     runs = client.search_runs(
         experiment_ids=experiment_ids,
-        filter_string=f"attributes.run_name = '{args.run_name}'",
+        filter_string=f"attributes.run_name = '{safe_name}'",
         order_by=["start_time DESC"],
     )
     if not runs:
         print(f"Run '{args.run_name}' not found", file=sys.stderr)
         sys.exit(1)
     print(runs[0].info.run_id)
+
+
+def _set_plot_theme() -> None:
+    sns.set_theme(style="whitegrid", font_scale=1.1)
 
 
 def main() -> None:

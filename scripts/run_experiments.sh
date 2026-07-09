@@ -5,7 +5,7 @@ CLEANUP_DONE=false
 CLEANUP_PIDS=()
 
 cleanup() {
-  $CLEANUP_DONE && return
+  [[ "$CLEANUP_DONE" == "true" ]] && return
   CLEANUP_DONE=true
   local exit_code=$?
   echo ""
@@ -14,7 +14,7 @@ cleanup() {
     echo "  Killing tracked child processes: ${CLEANUP_PIDS[*]}"
     kill "${CLEANUP_PIDS[@]}" 2>/dev/null || true
   fi
-  pkill -P $$ 2>/dev/null || true
+  command -v pkill &>/dev/null && pkill -P $$ 2>/dev/null || true
   echo "=== Shutdown complete (exit code: $exit_code) ==="
   exit "$exit_code"
 }
@@ -32,7 +32,10 @@ if [[ $# -eq 0 ]]; then
   exit 1
 fi
 
-VENV_PYTHON=".venv/bin/python"
+VENV_PYTHON="${VIRTUAL_ENV:-.venv}/bin/python"
+if [[ ! -x "$VENV_PYTHON" ]]; then
+    VENV_PYTHON="python3"
+fi
 PLOT_SCRIPT="scripts/plot_results.py"
 
 OVERALL_FAILED=()
@@ -78,15 +81,11 @@ print(cfg.get('logging', {}).get('run_name', '') or '')
 ")
     echo "  run_name: $run_name"
 
-    $VENV_PYTHON -m scripts.plot_results \
-      --tracking-uri "$tracking_uri" \
-      list-runs > /dev/null 2>&1 || true
-
     if ! MLFLOW_TRACKING_URI="$tracking_uri" \
          ./scripts/run.sh "$config" "$NUM_CLIENTS"; then
       echo "  ERROR: Experiment '$run_name' (config: $config_name) failed."
       OVERALL_FAILED+=("$pattern/$config_name")
-      pkill -P $$ 2>/dev/null || true
+      command -v pkill &>/dev/null && pkill -P $$ 2>/dev/null || true
       continue
     fi
     OVERALL_SUCCESS+=("$pattern/$config_name")
@@ -107,9 +106,10 @@ print(cfg.get('logging', {}).get('run_name', '') or '')
     run_names_list+=("$config_name")
 
     echo "  Generating plots..."
-    if ! $VENV_PYTHON -m scripts.plot_results \
+    $VENV_PYTHON -m scripts.plot_results \
          --tracking-uri "$tracking_uri" \
-         plot "$run_id" --type all --save-dir "$exp_plots" 2>&1 | sed 's/^/    /'; then
+         plot "$run_id" --type all --save-dir "$exp_plots" 2>&1 | sed 's/^/    /'
+    if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
       echo "  WARNING: Plot generation failed for run '$run_id'"
     fi
   done
@@ -121,13 +121,14 @@ print(cfg.get('logging', {}).get('run_name', '') or '')
     comp_dir="$plots_dir/comparison"
     mkdir -p "$comp_dir"
 
-    if ! $VENV_PYTHON -m scripts.plot_results \
+    $VENV_PYTHON -m scripts.plot_results \
          --tracking-uri "$tracking_uri" \
          compare \
          --runs "${run_ids[@]}" \
          --names "${run_names_list[@]}" \
          --type all \
-         --save-dir "$comp_dir" 2>&1 | sed 's/^/    /'; then
+         --save-dir "$comp_dir" 2>&1 | sed 's/^/    /'
+    if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
       echo "  WARNING: Comparison plot generation failed for pattern '$pattern'"
     fi
   elif [[ ${#run_ids[@]} -eq 1 ]]; then
