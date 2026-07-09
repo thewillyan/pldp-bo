@@ -49,8 +49,9 @@ class RDPAccountant:
         valid = np.isfinite(epsilons)
         if not valid.any():
             return float("inf"), 0.0
-        idx = int(np.argmin(epsilons))
-        return float(epsilons[idx]), float(RDP_ALPHAS[idx])
+        valid_indices = np.where(valid)[0]
+        best_idx = valid_indices[int(np.argmin(epsilons[valid]))]
+        return float(epsilons[best_idx]), float(RDP_ALPHAS[best_idx])
 
     def get_privacy_spent(self, delta: float | None = None) -> dict[str, float]:
         eps = self.get_epsilon(delta)

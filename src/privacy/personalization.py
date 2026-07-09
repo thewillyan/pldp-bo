@@ -108,21 +108,24 @@ def assign_epsilon_bounds(
     num_clients: int = 1,
     total_train_size: int | None = None,
 ) -> tuple[float, float, int]:
-    warmup = bo_config.client_warmup_rounds_map.get(partition_id, bo_config.warmup_rounds)
+    warmup_map = {int(k): v for k, v in bo_config.client_warmup_rounds_map.items()}
+    warmup = warmup_map.get(partition_id, bo_config.warmup_rounds)
 
     strategy = bo_config.bounds_strategy
     if strategy == "global":
         return bo_config.epsilon_min, bo_config.epsilon_max, warmup
 
     if strategy == "custom_map":
-        eps_min = bo_config.client_eps_min_map.get(partition_id)
-        eps_max = bo_config.client_eps_max_map.get(partition_id)
+        eps_min_map = {int(k): v for k, v in bo_config.client_eps_min_map.items()}
+        eps_max_map = {int(k): v for k, v in bo_config.client_eps_max_map.items()}
+        eps_min = eps_min_map.get(partition_id)
+        eps_max = eps_max_map.get(partition_id)
         if eps_min is None or eps_max is None:
             raise ValueError(
                 f"partition_id {partition_id} not found in client_eps_min_map "
                 f"or client_eps_max_map. "
-                f"Available eps_min keys: {sorted(bo_config.client_eps_min_map.keys())}, "
-                f"eps_max keys: {sorted(bo_config.client_eps_max_map.keys())}",
+                f"Available eps_min keys: {sorted(eps_min_map.keys())}, "
+                f"eps_max keys: {sorted(eps_max_map.keys())}",
             )
         return eps_min, eps_max, warmup
 

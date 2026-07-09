@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 from src.config.loader import ExperimentConfig
 from src.privacy import RDPAccountant, simulate_epsilon
+from src.privacy.constants import RDP_ALPHAS
 from src.privacy.per_update_dp import (
     PerUpdateGaussianMechanism,
     add_gaussian_noise,
@@ -123,6 +124,13 @@ def test_compute_rdp_cost() -> None:
     assert cost_double == pytest.approx(0.25)
 
 
+def test_compute_rdp_cost_invalid_clipping_norm() -> None:
+    with pytest.raises(ValueError, match="clipping_norm must be positive"):
+        compute_rdp_cost(alpha=2.0, sigma=1.0, clipping_norm=-1.0)
+    with pytest.raises(ValueError, match="clipping_norm must be positive"):
+        compute_rdp_cost(alpha=2.0, sigma=1.0, clipping_norm=0.0)
+
+
 def test_rdp_accountant_get_state() -> None:
     accountant = RDPAccountant(delta=1e-5)
     for _ in range(3):
@@ -184,6 +192,19 @@ def test_rdp_accountant_get_epsilon_with_diagnostics() -> None:
     eps, best_alpha = accountant.get_epsilon_with_diagnostics()
     assert eps > 0
     assert 2.0 <= best_alpha <= 100.0
+
+
+def test_diagnostics_skips_invalid_epsilons() -> None:
+    accountant = RDPAccountant(delta=1e-5)
+    accountant._rdp_per_alpha = np.where(
+        np.arange(len(RDP_ALPHAS)) % 2 == 0,
+        -float("inf"),
+        np.full_like(RDP_ALPHAS, 1.0),
+    )
+    accountant._steps.append({"sigma": 1.0, "clipping_norm": 1.0, "num_steps": 1})
+    eps, best_alpha = accountant.get_epsilon_with_diagnostics()
+    assert np.isfinite(eps)
+    assert best_alpha >= 2.0
 
 
 def test_rdp_accountant_diagnostics_empty() -> None:
@@ -274,7 +295,7 @@ class TestResolveEpsilon:
         cfg.bo.epsilon_min = bo_eps_min
         return cfg
 
-    def test_lower_bound_clamped_to_personalization_min(self) -> None:
+    def test_explicit_eps_min_respected_with_personalization(self) -> None:
         from src.client_app import _resolve_epsilon
         config = self._make_config(personalization_eps_min=1.0)
         accountant = RDPAccountant(delta=1e-5)

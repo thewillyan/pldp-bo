@@ -49,9 +49,9 @@ class PerUpdateDPClient(FlowerClient):
             )
 
     def _check_budget(self) -> bool:
-        if self._client_epsilon is not None and self._client_epsilon <= 0:
+        if self._client_epsilon is not None and self._client_epsilon == 0:
             logger.warning(
-                "Client budget exhausted: epsilon=%.4f (≤ 0)",
+                "Client budget exhausted: epsilon=%.4f",
                 self._client_epsilon,
             )
             return True

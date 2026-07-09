@@ -28,6 +28,16 @@ def test_partition_noniid_returns_correct_count() -> None:
     assert total == 200
 
 
+def test_partition_noniid_no_empty_clients() -> None:
+    x = torch.randn(50, 1, 8, 8)
+    y = torch.tensor([0] + [1] * 49)
+    dataset = TensorDataset(x, y)
+    subsets = partition_noniid_dirichlet(dataset, 50, alpha=0.1)
+    assert len(subsets) == 50
+    assert all(len(s) >= 1 for s in subsets)
+    assert sum(len(s) for s in subsets) == 50
+
+
 def test_partition_dataset_factory_iid() -> None:
     dataset = _make_toy_dataset(50)
     subsets = partition_dataset(dataset, 5, partition_type="iid")

@@ -40,7 +40,7 @@ The remainder of the algorithm is identical for both variants.
 | $\varepsilon_{\text{budget}}$ | Total $(\varepsilon,\delta)$-DP budget per client |
 | $\varepsilon_{\text{candidate}}$ | Candidate $\varepsilon$ before budget verification |
 | $\delta$ | Target delta parameter for DP |
-| $\alpha$ | RDP order; evaluated over $\alpha \in \{2, 3, \dots, 64\}$ |
+| $\alpha$ | RDP order; evaluated over $\alpha \in \{2, 3, \dots, 100\}$ |
 | $C$ | L2 clipping norm |
 | $L$ | Number of warm-up exploration rounds |
 | $G$ | Number of grid points for EI normalization |
@@ -124,7 +124,7 @@ This is a **per-update** privacy mechanism: the client clips the model delta onc
 
 ## 5. Privacy Accounting
 
-Each client maintains an independent Rényi Differential Privacy (RDP) accountant evaluated over a discrete set of RDP orders $\alpha \in \{2, 3, \dots, 64\}$.
+Each client maintains an independent Rényi Differential Privacy (RDP) accountant evaluated over a discrete set of RDP orders $\alpha \in \{2, 3, \dots, 100\}$.
 
 The total privacy budget is specified as a target $(\varepsilon_{\text{budget}}, \delta)$-DP guarantee. The accountant tracks whether the cumulative privacy loss remains within this bound.
 

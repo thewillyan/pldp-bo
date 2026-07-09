@@ -70,6 +70,7 @@ class PLDPBOScheduler(EpsilonScheduler):
         self._grid_points = grid_points
         self._gp_kernel_name = gp_kernel
         self._observation_noise = observation_noise
+        self._seed = seed
         self._rng = np.random.RandomState(seed)
 
         self._warmup_epsilons = np.linspace(
@@ -170,6 +171,7 @@ class PLDPBOScheduler(EpsilonScheduler):
             "rng_state": serialize_rng(self._rng),
             "remaining_budget": self._remaining_budget,
             "gp_kernel_params": gp_kernel_params,
+            "seed": self._seed,
         }
 
     @classmethod
@@ -182,6 +184,7 @@ class PLDPBOScheduler(EpsilonScheduler):
             grid_points=state["grid_points"],
             gp_kernel=state["gp_kernel"],
             observation_noise=state["observation_noise"],
+            seed=state.get("seed"),
         )
         scheduler._phase = state["phase"]
         scheduler._round = state["round"]

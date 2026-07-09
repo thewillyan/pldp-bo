@@ -184,6 +184,23 @@ class TestPLDPBOScheduler:
         restored = PLDPBOScheduler.from_state(state)
         assert restored.get_epsilon() == pytest.approx(scheduler.get_epsilon())
 
+    def test_serialization_preserves_kernel_params(self) -> None:
+        scheduler = self.make_scheduler(warmup_rounds=5)
+        for i in range(5):
+            eps = scheduler.get_epsilon()
+            scheduler.step(eps, float(i) / 5.0)
+        state = scheduler.get_state()
+        assert "gp_kernel_params" in state
+        assert state["gp_kernel_params"] is not None
+
+        restored = PLDPBOScheduler.from_state(state)
+        # _warm_start_kernel is consumed by _fit_gp during from_state;
+        # verify preservation by checking that GP predictions match
+        np.testing.assert_array_almost_equal(
+            restored._gp.predict(np.array([[0.5], [2.5]]), return_std=True)[0],
+            scheduler._gp.predict(np.array([[0.5], [2.5]]), return_std=True)[0],
+        )
+
     # --- RNG preservation ---
 
     def test_rng_preserved_after_serialization(self) -> None:

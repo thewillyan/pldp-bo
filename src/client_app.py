@@ -198,7 +198,7 @@ def train(msg: Message, context: Context) -> Message:
             partition_id,
             epsilon,
         )
-        epsilon = 0.0
+        epsilon = 0.0  # sentinel: PerUpdateDPClient._check_budget checks for == 0
     logger.debug("Client %d using epsilon=%.4f", partition_id, epsilon)
 
     client_model = create_model(config.model, dataset_name=config.data.name)

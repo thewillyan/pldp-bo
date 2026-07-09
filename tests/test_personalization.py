@@ -246,6 +246,36 @@ class TestAssignEpsilonBounds:
         with pytest.raises(ValueError, match="not found in client_eps_min_map"):
             assign_epsilon_bounds(5, dataset, pc, bc)
 
+    def test_custom_map_string_keys(self) -> None:
+        pc = _make_personalization_config(enabled=False)
+        bc = _make_bo_config(
+            bounds_strategy="custom_map",
+            client_eps_min_map={"0": 0.5, "1": 1.0},
+            client_eps_max_map={"0": 5.0, "1": 10.0},
+        )
+        dataset = _make_dataset([0, 1, 2])
+        eps_min_0, eps_max_0, _ = assign_epsilon_bounds(0, dataset, pc, bc)
+        eps_min_1, eps_max_1, _ = assign_epsilon_bounds(1, dataset, pc, bc)
+        assert eps_min_0 == 0.5
+        assert eps_max_0 == 5.0
+        assert eps_min_1 == 1.0
+        assert eps_max_1 == 10.0
+
+    def test_warmup_string_keys(self) -> None:
+        pc = _make_personalization_config(enabled=False)
+        bc = _make_bo_config(
+            bounds_strategy="global",
+            warmup_rounds=20,
+            client_warmup_rounds_map={"0": 15, "5": 25},
+        )
+        dataset = _make_dataset([0, 1, 2])
+        _, _, w0 = assign_epsilon_bounds(0, dataset, pc, bc)
+        _, _, w1 = assign_epsilon_bounds(1, dataset, pc, bc)
+        _, _, w5 = assign_epsilon_bounds(5, dataset, pc, bc)
+        assert w0 == 15
+        assert w1 == 20
+        assert w5 == 25
+
     def test_from_epsilon_custom_strategy(self) -> None:
         pc = _make_personalization_config(
             strategy="custom",

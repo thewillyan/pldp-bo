@@ -40,6 +40,8 @@ def add_gaussian_noise(
 def compute_rdp_cost(alpha: float, sigma: float, clipping_norm: float) -> float:
     if sigma <= 0:
         raise ValueError("sigma must be positive")
+    if clipping_norm <= 0:
+        raise ValueError("clipping_norm must be positive")
     return alpha * clipping_norm**2 / (2.0 * sigma**2)
 
 
