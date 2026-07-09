@@ -4,7 +4,7 @@ import functools
 import logging
 
 import torch
-from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord, RecordDict
+from flwr.app import ArrayRecord, ConfigRecord, Context, Message, MetricRecord, RecordDict
 from flwr.serverapp import Grid, ServerApp
 from flwr.serverapp.strategy import FedAvg, FedProx  # noqa: F401  # used in type annotation
 from torch.utils.data import DataLoader
@@ -54,7 +54,7 @@ def _compute_per_client_budgets(
         node_ids = list(grid.get_node_ids())
         if node_ids:
             query_msgs = [
-                grid.create_message(
+                Message(
                     content=RecordDict({
                         "config": ConfigRecord({"task": "personalization_metadata"}),
                     }),
