@@ -150,12 +150,7 @@ class PLDPBOScheduler(EpsilonScheduler):
         return float(grid[np.argmax(alpha)])
 
     def get_state(self) -> dict:
-        gp_kernel_params = None
-        if self._warm_start_kernel is not None:
-            gp_kernel_params = self._warm_start_kernel.get_params(deep=True)
-        elif self._gp is not None:
-            gp_kernel_params = self._gp.kernel_.get_params(deep=True)
-        return {
+        state = {
             "type": "pldp_bo",
             "epsilon_min": self._epsilon_min,
             "epsilon_max": self._epsilon_max,
@@ -169,10 +164,16 @@ class PLDPBOScheduler(EpsilonScheduler):
             "observations": json.dumps(self._observations),
             "f_best": self._f_best,
             "rng_state": serialize_rng(self._rng),
-            "remaining_budget": self._remaining_budget,
-            "gp_kernel_params": gp_kernel_params,
-            "seed": self._seed,
         }
+        if self._remaining_budget is not None:
+            state["remaining_budget"] = self._remaining_budget
+        if self._warm_start_kernel is not None:
+            state["gp_kernel_params"] = self._warm_start_kernel.get_params(deep=True)
+        elif self._gp is not None:
+            state["gp_kernel_params"] = self._gp.kernel_.get_params(deep=True)
+        if self._seed is not None:
+            state["seed"] = self._seed
+        return state
 
     @classmethod
     def from_state(cls, state: dict) -> PLDPBOScheduler:

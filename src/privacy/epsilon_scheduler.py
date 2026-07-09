@@ -65,13 +65,15 @@ class UniformRandomEpsilonScheduler(EpsilonScheduler):
         )
 
     def get_state(self) -> dict:
-        return {
+        state = {
             "type": "uniform_random",
             "epsilon_min": self._epsilon_min,
             "epsilon_max": self._epsilon_max,
-            "seed": self._seed,
             "rng_state": serialize_rng(self._rng),
         }
+        if self._seed is not None:
+            state["seed"] = self._seed
+        return state
 
     @classmethod
     def from_state(cls, state: dict) -> UniformRandomEpsilonScheduler:
