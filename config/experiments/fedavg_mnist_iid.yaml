@@ -43,7 +43,7 @@ personalization:
 logging:
   tracker: mlflow
   experiment_name: pldp-bo
-  run_name: mnist-iid-data-proportional-dp
+  run_name: fedavg-mnist-iid-dp
   tracking_uri: sqlite:///./mlflow.db
 
 seed: 42

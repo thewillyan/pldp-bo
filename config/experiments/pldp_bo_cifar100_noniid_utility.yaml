@@ -43,7 +43,6 @@ personalization:
 
 bo:
   enabled: true
-  epsilon_budget: 200.0
   optimization_metric: utility
   bounds_strategy: from_epsilon
   bounds_ratio_min: 0.01
@@ -53,7 +52,7 @@ bo:
 logging:
   tracker: mlflow
   experiment_name: pldp-bo
-  run_name: cifar100-noniid-pldp-bo-personalized-utility
+  run_name: pldp-bo-cifar100-noniid-utility
   tracking_uri: sqlite:///./mlflow.db
 
 seed: 42

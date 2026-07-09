@@ -45,7 +45,7 @@ personalization:
 logging:
   tracker: mlflow
   experiment_name: pldp-bo
-  run_name: fedprox-cifar100-noniid-data-proportional-dp
+  run_name: fedprox-cifar100-noniid-dp
   tracking_uri: sqlite:///./mlflow.db
 
 seed: 42
