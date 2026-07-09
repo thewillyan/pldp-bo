@@ -9,7 +9,7 @@ model:
   num_classes: 100
 
 federated:
-  num_rounds: 100
+  num_rounds: 50
   fraction_fit: 0.5
   fraction_evaluate: 0.2
   local_epochs: 5
@@ -31,7 +31,7 @@ privacy:
   update_clip_norm: 5.0
   delta: 1e-5
   accountant: rdp
-  total_budget: 200.0
+  total_budget: 500.0
 
 personalization:
   enabled: true
