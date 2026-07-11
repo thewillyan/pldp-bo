@@ -38,8 +38,6 @@ privacy:
 personalization:
   enabled: true
   strategy: data_proportional
-  epsilon_min: 0.5
-  epsilon_max: 10.0
   client_epsilon_map: {}
   track_cumulative: true
 

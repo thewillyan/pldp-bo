@@ -258,9 +258,6 @@ def _resolve_epsilon(
         # removed — personalization without total_budget is a misconfiguration.
         if total_budget is not None and total_budget > 0:
             candidate = total_budget / config.federated.num_rounds
-            eps_min_val = eps_min if eps_min is not None else config.personalization.epsilon_min
-            candidate = max(candidate, eps_min_val)
-            candidate = min(candidate, config.personalization.epsilon_max)
         else:
             return 0.0
     elif config.privacy.target_epsilon is not None:
@@ -277,12 +274,7 @@ def _resolve_epsilon(
     if accountant is not None and total_budget is not None:
         c = config.privacy.update_clip_norm
         delta = config.privacy.delta
-        lower_bound = eps_min
-        if lower_bound is None:
-            if config.personalization.enabled:
-                lower_bound = config.personalization.epsilon_min
-            else:
-                lower_bound = config.bo.epsilon_min
+        lower_bound = eps_min if eps_min is not None else 1e-6
         candidate = enforce_epsilon_budget(
             candidate, accountant.rdp_per_alpha, total_budget,
             lower_bound, c, delta,

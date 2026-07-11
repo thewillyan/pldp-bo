@@ -36,8 +36,6 @@ privacy:
 personalization:
   enabled: true
   strategy: custom
-  epsilon_min: 0.1
-  epsilon_max: 10.0
   client_epsilon_map:
     0: 1.0
     1: 2.0

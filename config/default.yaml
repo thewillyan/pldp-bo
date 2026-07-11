@@ -35,8 +35,6 @@ privacy:
 personalization:
   enabled: false
   strategy: uniform
-  epsilon_min: 0.1
-  epsilon_max: 10.0
   client_epsilon_map: {}
   track_cumulative: true
 
