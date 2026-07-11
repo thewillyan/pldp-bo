@@ -91,6 +91,11 @@ def cmd_single(config_path: str, num_clients: str, overrides: list[str]) -> str 
         print("Error: num_clients must be an integer >= 2", file=sys.stderr)
         return None
 
+    with open(path) as f:
+        cfg = yaml.safe_load(f)
+    run_name = cfg.get("logging", {}).get("run_name", "")
+    cfg_tracking_uri = cfg.get("logging", {}).get("tracking_uri")
+
     env_uri = os.environ.get("MLFLOW_TRACKING_URI")
     if env_uri:
         tracking_uri = env_uri
@@ -141,23 +146,21 @@ def cmd_single(config_path: str, num_clients: str, overrides: list[str]) -> str 
 
     process.wait()
 
+    run_id = None
+    if process.returncode == 0 and run_name:
+        run_id = _resolve_run_id(cfg_tracking_uri or tracking_uri, run_name)
+        if run_id is None and cfg_tracking_uri:
+            run_id = _resolve_run_id(tracking_uri, run_name)
+
     if flwr_json:
         json_dir = _json_save_dir(tracking_uri)
         json_dir.mkdir(parents=True, exist_ok=True)
         stem = path.stem
         fname = f"{stem}-{flwr_json.get('run-id', 'unknown')}.json"
+        if run_id:
+            flwr_json["mlflow-run-id"] = run_id
         (json_dir / fname).write_text(json.dumps(flwr_json, indent=2))
 
-    if process.returncode != 0:
-        return None
-
-    with open(path) as f:
-        cfg = yaml.safe_load(f)
-    run_name = cfg.get("logging", {}).get("run_name", "")
-    if not run_name:
-        return None
-
-    run_id = _resolve_run_id(tracking_uri, run_name)
     return run_id
 
 

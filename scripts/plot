@@ -56,6 +56,10 @@ def _set_tracking_uri(args: argparse.Namespace) -> None:
         mlflow.set_tracking_uri(args.tracking_uri)
     elif args.group:
         mlflow.set_tracking_uri(f"sqlite:///mlruns/group/{args.group}/mlflow.db")
+    else:
+        from src.config.loader import load_config
+        config = load_config("config/default.yaml")
+        mlflow.set_tracking_uri(config.logging.tracking_uri)
 
 
 def _resolve_group_runs(group: str) -> list[str]:
@@ -65,9 +69,50 @@ def _resolve_group_runs(group: str) -> list[str]:
     return [r.info.run_id for r in runs]
 
 
+def _list_runs_all_sources(
+    experiment_name: str | None = None,
+) -> list[mlflow.entities.Run]:
+    from src.config.loader import load_config
+
+    seen: set[str] = set()
+    runs: list[mlflow.entities.Run] = []
+    uris: set[str] = set()
+
+    config = load_config("config/default.yaml")
+    uris.add(config.logging.tracking_uri)
+
+    for pattern in ("mlruns/*/mlflow.db", "mlruns/group/*/mlflow.db", "mlruns/single/*/mlflow.db"):
+        for db_path in Path().glob(pattern):
+            uris.add(f"sqlite:///{db_path}")
+
+    for uri in sorted(uris):
+        mlflow.set_tracking_uri(uri)
+        client = mlflow.tracking.MlflowClient()
+        try:
+            if experiment_name:
+                experiment = client.get_experiment_by_name(experiment_name)
+                if experiment is None:
+                    continue
+                exp_ids = [str(experiment.experiment_id)]
+            else:
+                exp_ids = [str(e.experiment_id) for e in client.search_experiments()]
+            for run in client.search_runs(experiment_ids=exp_ids):
+                if run.info.run_id not in seen:
+                    seen.add(run.info.run_id)
+                    runs.append(run)
+        except Exception:
+            continue
+
+    return runs
+
+
 def cmd_list_runs(args: argparse.Namespace) -> None:
-    _set_tracking_uri(args)
-    runs = list_runs(experiment_name=args.experiment)
+    if args.tracking_uri or args.group:
+        _set_tracking_uri(args)
+        runs = list_runs(experiment_name=args.experiment)
+    else:
+        runs = _list_runs_all_sources(experiment_name=args.experiment)
+
     if not runs:
         print("No runs found.")
         return
