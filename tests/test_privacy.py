@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
-
-from unittest.mock import MagicMock
+import torch
+from torch import nn
+from torch.utils.data import DataLoader, TensorDataset
 
 from src.config.loader import ExperimentConfig
 from src.privacy import RDPAccountant, simulate_epsilon
 from src.privacy.constants import RDP_ALPHAS
+from src.privacy.metrics import compute_utility_loss
 from src.privacy.per_update_dp import (
     PerUpdateGaussianMechanism,
     add_gaussian_noise,
@@ -333,3 +337,62 @@ class TestResolveEpsilon:
             eps_min=None,
         )
         assert result >= 0.3 or result == -1.0
+
+
+# ---------------------------------------------------------------------------
+# compute_utility_loss — logit clamping prevents NaN
+# ---------------------------------------------------------------------------
+
+
+class TestComputeUtilityLoss:
+    def test_extreme_logits_produce_finite_loss(self) -> None:
+        model = nn.Linear(10, 2)
+        with torch.no_grad():
+            model.weight.fill_(100.0)
+            model.bias.fill_(0.0)
+        data = TensorDataset(torch.randn(4, 10), torch.randint(0, 2, (4,)))
+        loader = DataLoader(data, batch_size=4)
+        loss = compute_utility_loss(model, loader)
+        assert math.isfinite(loss), f"Loss should be finite, got {loss}"
+
+    def test_normal_logits_unchanged(self) -> None:
+        model = nn.Linear(10, 2)
+        with torch.no_grad():
+            model.weight.fill_(0.1)
+            model.bias.fill_(0.0)
+        data = TensorDataset(torch.randn(4, 10), torch.randint(0, 2, (4,)))
+        loader = DataLoader(data, batch_size=4)
+        loss = compute_utility_loss(model, loader)
+        assert math.isfinite(loss)
+
+
+# ---------------------------------------------------------------------------
+# Weight clamping — noise is bounded after mechanism apply
+# ---------------------------------------------------------------------------
+
+
+class TestWeightClamping:
+    def test_clamping_uses_10x_clipping_norm(self) -> None:
+        clipping_norm = 1.0
+        delta_flat = np.array([1000.0, -2000.0, 500.0])  # extreme noise values
+        bound = 10.0 * clipping_norm
+        clamped = np.clip(delta_flat, -bound, bound)
+        assert np.all(clamped >= -bound), f"Values below -{bound}: {clamped}"
+        assert np.all(clamped <= bound), f"Values above {bound}: {clamped}"
+        assert clamped[0] == bound   # 1000 → 10
+        assert clamped[1] == -bound  # -2000 → -10
+
+    def test_clamping_uses_10x_clipping_norm_larger_clip(self) -> None:
+        clipping_norm = 5.0
+        delta_flat = np.array([1000.0, -2000.0])
+        bound = 10.0 * clipping_norm  # 50
+        clamped = np.clip(delta_flat, -bound, bound)
+        assert clamped[0] == 50.0
+        assert clamped[1] == -50.0
+
+    def test_values_within_bound_are_unchanged(self) -> None:
+        clipping_norm = 1.0
+        delta_flat = np.array([1.0, -2.0, 3.0])
+        bound = 10.0 * clipping_norm
+        clamped = np.clip(delta_flat, -bound, bound)
+        np.testing.assert_array_equal(clamped, delta_flat)

@@ -7,7 +7,7 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.client import create_client
-from src.client.base_client import _get_optimizer, FlowerClient
+from src.client.base_client import FlowerClient, _get_optimizer
 from src.config.loader import ExperimentConfig
 from src.models.base import BaseModel
 

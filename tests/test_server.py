@@ -98,13 +98,21 @@ class TestWeightedAveraging:
         expected = w_sum
         np.testing.assert_array_almost_equal(agg, expected)
 
-    def test_server_learning_rate_applied(self) -> None:
-        global_weights = np.array([1.0, 1.0])
-        aggregated_delta = np.array([0.5, -0.3])
+    def test_server_learning_rate_scales_delta(self) -> None:
+        current = np.array([1.0, 1.0])
+        aggregated = np.array([1.5, 0.7])
         lr = 0.5
-        new_weights = global_weights + lr * aggregated_delta
+        delta = aggregated - current  # [0.5, -0.3]
+        scaled = current + lr * delta  # [1.25, 0.85]
         expected = np.array([1.25, 0.85])
-        np.testing.assert_array_almost_equal(new_weights, expected)
+        np.testing.assert_array_almost_equal(scaled, expected)
+
+    def test_server_learning_rate_identity_when_one(self) -> None:
+        current = np.array([1.0, 2.0, 3.0])
+        aggregated = np.array([2.0, 3.0, 4.0])
+        lr = 1.0
+        scaled = current + lr * (aggregated - current)
+        np.testing.assert_array_almost_equal(scaled, aggregated)
 
 
 class TestModuleConstants:

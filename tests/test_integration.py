@@ -30,7 +30,7 @@ class TestConfigLoading:
         assert config.bo.optimization_metric == "nun"
         assert config.personalization.enabled
         assert config.personalization.strategy == "data_proportional"
-        assert config.federated.server_learning_rate == 1.0
+        assert config.federated.server_learning_rate == 0.1
         assert config.data.name == "mnist"
         assert config.model.name == "mlp"
 

@@ -18,6 +18,7 @@ federated:
   min_fit_clients: 2
   min_evaluate_clients: 2
   min_available_nodes: 10
+  server_learning_rate: 0.1
 
 optimizer:
   name: sgd
@@ -36,7 +37,7 @@ privacy:
 personalization:
   enabled: true
   strategy: data_proportional
-  epsilon_min: 0.1
+  epsilon_min: 0.5
   epsilon_max: 10.0
   client_epsilon_map: {}
   track_cumulative: true

@@ -271,16 +271,20 @@ class SafeFedAvg(MetricLoggingMixin, FedAvg):
         tracker: ExperimentTracker | None = None,
         per_client_budgets: dict[int, float] | None = None,
         node_to_partition: dict[int, int] | None = None,
+        server_learning_rate: float = 1.0,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._tracker = tracker
         self._per_client_budgets = per_client_budgets
         self._node_to_partition = node_to_partition or {}
+        self._server_learning_rate = server_learning_rate
+        self._current_arrays: ArrayRecord | None = None
 
     def configure_train(
         self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid,
     ) -> Iterable[Message]:
+        self._current_arrays = arrays
         return _add_budgets_to_messages(
             super().configure_train(server_round, arrays, config, grid),
             self._per_client_budgets,
@@ -298,7 +302,17 @@ class SafeFedAvg(MetricLoggingMixin, FedAvg):
             return None, None
         reply_contents = [r.content for r in valid_replies]
         self._log_client_metrics(server_round, reply_contents)
-        return super().aggregate_train(server_round, valid_replies)
+        result_arrays, metrics = super().aggregate_train(server_round, valid_replies)
+
+        if self._server_learning_rate != 1.0 and result_arrays is not None and self._current_arrays is not None:
+            global_keys = list(self._current_arrays.keys())
+            scaled: dict[str, Array] = {}
+            for k in global_keys:
+                delta = result_arrays[k].numpy() - self._current_arrays[k].numpy()
+                scaled[k] = Array(self._current_arrays[k].numpy() + self._server_learning_rate * delta)
+            result_arrays = ArrayRecord(scaled)
+
+        return result_arrays, metrics
 
 
 class SafeFedProx(MetricLoggingMixin, FedProx):
@@ -308,16 +322,20 @@ class SafeFedProx(MetricLoggingMixin, FedProx):
         tracker: ExperimentTracker | None = None,
         per_client_budgets: dict[int, float] | None = None,
         node_to_partition: dict[int, int] | None = None,
+        server_learning_rate: float = 1.0,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._tracker = tracker
         self._per_client_budgets = per_client_budgets
         self._node_to_partition = node_to_partition or {}
+        self._server_learning_rate = server_learning_rate
+        self._current_arrays: ArrayRecord | None = None
 
     def configure_train(
         self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid,
     ) -> Iterable[Message]:
+        self._current_arrays = arrays
         return _add_budgets_to_messages(
             super().configure_train(server_round, arrays, config, grid),
             self._per_client_budgets,
@@ -335,4 +353,14 @@ class SafeFedProx(MetricLoggingMixin, FedProx):
             return None, None
         reply_contents = [r.content for r in valid_replies]
         self._log_client_metrics(server_round, reply_contents)
-        return super().aggregate_train(server_round, valid_replies)
+        result_arrays, metrics = super().aggregate_train(server_round, valid_replies)
+
+        if self._server_learning_rate != 1.0 and result_arrays is not None and self._current_arrays is not None:
+            global_keys = list(self._current_arrays.keys())
+            scaled: dict[str, Array] = {}
+            for k in global_keys:
+                delta = result_arrays[k].numpy() - self._current_arrays[k].numpy()
+                scaled[k] = Array(self._current_arrays[k].numpy() + self._server_learning_rate * delta)
+            result_arrays = ArrayRecord(scaled)
+
+        return result_arrays, metrics

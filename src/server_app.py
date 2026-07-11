@@ -184,6 +184,7 @@ def main(grid: Grid, context: Context) -> None:
             min_evaluate_nodes=config.federated.min_evaluate_clients,
             min_available_nodes=config.federated.min_available_nodes,
             proximal_mu=config.federated.proximal_mu,
+            server_learning_rate=config.federated.server_learning_rate,
             tracker=tracker,
             per_client_budgets=per_client_budgets,
             node_to_partition=node_to_partition,
@@ -195,17 +196,10 @@ def main(grid: Grid, context: Context) -> None:
             min_train_nodes=config.federated.min_fit_clients,
             min_evaluate_nodes=config.federated.min_evaluate_clients,
             min_available_nodes=config.federated.min_available_nodes,
+            server_learning_rate=config.federated.server_learning_rate,
             tracker=tracker,
             per_client_budgets=per_client_budgets,
             node_to_partition=node_to_partition,
-        )
-
-    if config.federated.server_learning_rate != 1.0 and config.federated.strategy != "pldp_bo":
-        logger.warning(
-            "server_learning_rate=%.2f is only effective with strategy='pldp_bo' "
-            "(current: '%s'). Ignored.",
-            config.federated.server_learning_rate,
-            config.federated.strategy,
         )
 
     strategy.start(

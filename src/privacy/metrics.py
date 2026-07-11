@@ -28,6 +28,7 @@ def compute_utility_loss(
         for batch_images, batch_labels in valloader:
             images, labels = to_device((batch_images, batch_labels))
             outputs = model(images)
+            outputs = torch.clamp(outputs, min=-20.0, max=20.0)
             total_loss += criterion(outputs, labels).item()
             num_batches += 1
     return total_loss / max(num_batches, 1)

@@ -3,10 +3,8 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-from src.models.base import BaseModel
-
-
 from src.device import get_device
+from src.models.base import BaseModel
 
 _INPUT_CHANNELS_MAP: dict[str, int] = {
     "mnist": 1,

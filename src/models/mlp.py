@@ -5,7 +5,6 @@ from torch import nn
 
 from src.models.base import BaseModel
 
-
 _INPUT_SIZE_MAP: dict[str, int] = {
     "mnist": 28 * 28,
     "cifar10": 3 * 32 * 32,

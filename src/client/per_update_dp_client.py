@@ -116,6 +116,8 @@ class PerUpdateDPClient(FlowerClient):
 
         flat_delta = np.concatenate([d.ravel() for d in delta])
         noisy_flat, sigma = self._mechanism.apply(flat_delta, epsilon)
+        clip_bound = 10.0 * self._mechanism.clipping_norm
+        noisy_flat = np.clip(noisy_flat, -clip_bound, clip_bound)
 
         if self._accountant is not None:
             self._accountant.step(
