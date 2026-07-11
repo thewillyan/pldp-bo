@@ -30,6 +30,30 @@ def normalize_ei(ei: np.ndarray) -> np.ndarray:
     return np.zeros_like(ei)
 
 
+def _serialize_kernel_params(params: dict) -> dict:
+    """Filter kernel params to only ConfigRecord-compatible values.
+
+    sklearn's get_params(deep=True) returns Kernel objects and tuples which
+    are not valid ConfigRecord values. Extract only numeric scalars and
+    convert tuples to lists.
+    """
+    serialized: dict = {}
+    for k, v in params.items():
+        if isinstance(v, (float, int, str, bool)):
+            serialized[k] = v
+        elif isinstance(v, np.floating):
+            serialized[k] = float(v)
+        elif isinstance(v, np.integer):
+            serialized[k] = int(v)
+        elif isinstance(v, (tuple, list)):
+            serialized[k] = [
+                float(x) if isinstance(x, (float, np.floating)) else
+                int(x) if isinstance(x, (int, np.integer)) else x
+                for x in v
+            ]
+    return serialized
+
+
 def _build_kernel(name: str = "matern52", noise_level: float = 0.01) -> Kernel:
     if name == "matern52":
         return Matern(nu=2.5) + WhiteKernel(noise_level=noise_level)
@@ -168,9 +192,9 @@ class PLDPBOScheduler(EpsilonScheduler):
         if self._remaining_budget is not None:
             state["remaining_budget"] = self._remaining_budget
         if self._warm_start_kernel is not None:
-            state["gp_kernel_params"] = self._warm_start_kernel.get_params(deep=True)
+            state["gp_kernel_params"] = json.dumps(_serialize_kernel_params(self._warm_start_kernel.get_params(deep=True)))
         elif self._gp is not None:
-            state["gp_kernel_params"] = self._gp.kernel_.get_params(deep=True)
+            state["gp_kernel_params"] = json.dumps(_serialize_kernel_params(self._gp.kernel_.get_params(deep=True)))
         if self._seed is not None:
             state["seed"] = self._seed
         return state
@@ -197,7 +221,9 @@ class PLDPBOScheduler(EpsilonScheduler):
             scheduler._remaining_budget = state["remaining_budget"]
         if state.get("gp_kernel_params") is not None:
             k = _build_kernel(state["gp_kernel"], state["observation_noise"])
-            k.set_params(**state["gp_kernel_params"])
+            raw = state["gp_kernel_params"]
+            params = json.loads(raw) if isinstance(raw, str) else raw
+            k.set_params(**params)
             scheduler._warm_start_kernel = k
         if scheduler._phase == "bo":
             scheduler._fit_gp()
