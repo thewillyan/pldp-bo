@@ -9,6 +9,7 @@ import seaborn as sns
 
 from src.plotting._helpers import (
     extract_metrics_by_round,
+    extract_round_stats,
     get_run_by_id,
     get_run_name,
 )
@@ -133,6 +134,7 @@ def plot_comparison_privacy(
     labels: Sequence[str] | None = None,
     save_path: Path | None = None,
     dpi: int = 150,
+    show_std: bool = True,
 ) -> matplotlib.figure.Figure:
     resolved_labels = _resolve_labels(run_ids, labels)
     palette = sns.color_palette(PALETTE, n_colors=len(run_ids))
@@ -148,12 +150,23 @@ def plot_comparison_privacy(
         color = palette[i]
         ls = LINE_STYLES[i % len(LINE_STYLES)]
 
-        rounds, epsilons = extract_metrics_by_round(run, "epsilon")
-        if rounds:
-            ax.plot(
-                rounds, epsilons, color=color, linestyle=ls, linewidth=2, label=label,
-            )
-            has_data = True
+        aggs = ("mean", "std") if show_std else ("mean",)
+        rounds, eps_stats = extract_round_stats(run, "epsilon", aggs=aggs)
+        epsilons = eps_stats.get("mean", [])
+        if not epsilons:
+            continue
+
+        ax.plot(
+            rounds, epsilons, color=color, linestyle=ls, linewidth=2, label=label,
+        )
+        has_data = True
+
+        if show_std:
+            stds = eps_stats.get("std", [])
+            if stds and len(stds) == len(epsilons):
+                upper = [m + s for m, s in zip(epsilons, stds)]
+                lower = [m - s for m, s in zip(epsilons, stds)]
+                ax.fill_between(rounds, lower, upper, alpha=0.1, color=color)
 
     if not has_data:
         msg = "No epsilon metrics found in any of the specified runs."

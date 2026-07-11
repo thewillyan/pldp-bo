@@ -332,17 +332,22 @@ class TestPlotConvergence:
 class TestPlotPrivacyBudget:
     def test_success(self) -> None:
         run = make_run(metrics={
-            "round_0_epsilon": 1.0,
-            "round_1_epsilon": 2.0,
-            "round_2_epsilon": 3.0,
+            "round_0_epsilon_mean": 1.0,
+            "round_0_epsilon_std": 0.2,
+            "round_1_epsilon_mean": 2.0,
+            "round_1_epsilon_std": 0.3,
+            "round_2_epsilon_mean": 3.0,
+            "round_2_epsilon_std": 0.4,
         })
         with patch("src.plotting.privacy.get_run_by_id", return_value=run):
             from src.plotting.privacy import plot_privacy_budget
 
             fig = plot_privacy_budget("test_id")
-        assert len(fig.axes) == 2
+        assert len(fig.axes) == 1
         assert fig.axes[0].get_xlabel() == "Round"
         assert fig.axes[0].get_ylabel() == "Epsilon (\u03b5)"
+        assert fig.axes[0].get_title() == "Privacy Budget: Mean \u03b5 \u00b1 \u03c3 per Round"
+        assert len(fig.axes[0].collections) == 1
         plt.close(fig)
 
     def test_no_data(self) -> None:
@@ -354,7 +359,7 @@ class TestPlotPrivacyBudget:
                 plot_privacy_budget("test_id")
 
     def test_save_path(self, tmp_path: Path) -> None:
-        run = make_run(metrics={"round_0_epsilon": 1.0})
+        run = make_run(metrics={"round_0_epsilon_mean": 1.0})
         path = tmp_path / "privacy.png"
         with patch("src.plotting.privacy.get_run_by_id", return_value=run):
             from src.plotting.privacy import plot_privacy_budget
@@ -371,6 +376,33 @@ class TestPlotPrivacyBudget:
 
 class TestPlotClientEpsilonDistribution:
     def test_success(self) -> None:
+        run = make_run(
+            metrics={
+                "round_0_client_0_epsilon": 0.5,
+                "round_1_client_0_epsilon": 0.8,
+                "round_2_client_0_epsilon": 0.6,
+                "round_0_client_1_epsilon": 1.0,
+                "round_1_client_1_epsilon": 1.2,
+                "round_2_client_1_epsilon": 0.9,
+                "round_1_client_0_client_epsilon": 3.0,
+                "round_1_client_1_client_epsilon": 4.0,
+                "round_2_client_0_cumulative_epsilon": 1.9,
+                "round_2_client_1_cumulative_epsilon": 3.1,
+            },
+            params={"federated.num_rounds": "5"},
+        )
+        with patch("src.plotting.privacy.get_run_by_id", return_value=run):
+            from src.plotting.privacy import plot_client_epsilon_distribution
+
+            fig = plot_client_epsilon_distribution("test_id")
+        assert len(fig.axes) == 2
+        assert fig.axes[0].get_xlabel() == "Client ID"
+        assert fig.axes[1].get_xlabel() == "Round"
+        assert fig.axes[1].get_title() == "Epsilon Expended per Round"
+        assert len(fig.axes[1].lines) >= 4
+        plt.close(fig)
+
+    def test_success_legacy(self) -> None:
         run = make_run(metrics={
             "round_1_client_0_epsilon": 1.0,
             "round_1_client_1_epsilon": 2.0,
@@ -395,7 +427,14 @@ class TestPlotClientEpsilonDistribution:
                 plot_client_epsilon_distribution("test_id")
 
     def test_save_path(self, tmp_path: Path) -> None:
-        run = make_run(metrics={"round_1_client_0_epsilon": 1.0})
+        run = make_run(
+            metrics={
+                "round_0_client_0_epsilon": 0.5,
+                "round_1_client_0_epsilon": 0.8,
+                "round_0_client_0_client_epsilon": 2.0,
+                "round_1_client_0_cumulative_epsilon": 1.3,
+            },
+        )
         path = tmp_path / "client_eps.png"
         with patch("src.plotting.privacy.get_run_by_id", return_value=run):
             from src.plotting.privacy import plot_client_epsilon_distribution
@@ -553,12 +592,16 @@ class TestPlotComparisonConvergence:
 class TestPlotComparisonPrivacy:
     def test_success(self) -> None:
         run1 = make_run(metrics={
-            "round_0_epsilon": 1.0,
-            "round_1_epsilon": 2.0,
+            "round_0_epsilon_mean": 1.0,
+            "round_0_epsilon_std": 0.2,
+            "round_1_epsilon_mean": 2.0,
+            "round_1_epsilon_std": 0.3,
         })
         run2 = make_run(metrics={
-            "round_0_epsilon": 1.5,
-            "round_1_epsilon": 2.5,
+            "round_0_epsilon_mean": 1.5,
+            "round_0_epsilon_std": 0.1,
+            "round_1_epsilon_mean": 2.5,
+            "round_1_epsilon_std": 0.4,
         })
         fake_runs = {"run1": run1, "run2": run2}
         with patch(
@@ -575,6 +618,28 @@ class TestPlotComparisonPrivacy:
         legends = fig.axes[0].get_legend()
         assert legends is not None
         assert len(legends.get_texts()) == 2
+        assert len(fig.axes[0].collections) == 2
+        plt.close(fig)
+
+    def test_no_std(self) -> None:
+        run1 = make_run(metrics={
+            "round_0_epsilon_mean": 1.0,
+            "round_0_epsilon_std": 0.2,
+            "round_1_epsilon_mean": 2.0,
+            "round_1_epsilon_std": 0.3,
+        })
+        fake_runs = {"run1": run1}
+        with patch(
+            "src.plotting.comparison.get_run_by_id",
+            side_effect=lambda rid: fake_runs[rid],
+        ):
+            from src.plotting.comparison import plot_comparison_privacy
+
+            fig = plot_comparison_privacy(
+                ["run1"], labels=["A"], show_std=False
+            )
+        assert len(fig.axes) == 1
+        assert len(fig.axes[0].collections) == 0
         plt.close(fig)
 
     def test_no_data(self) -> None:
@@ -586,7 +651,7 @@ class TestPlotComparisonPrivacy:
                 plot_comparison_privacy(["run1"], labels=["A"])
 
     def test_save_path(self, tmp_path: Path) -> None:
-        run = make_run(metrics={"round_0_epsilon": 1.0})
+        run = make_run(metrics={"round_0_epsilon_mean": 1.0})
         path = tmp_path / "comparison_privacy.png"
         with patch("src.plotting.comparison.get_run_by_id", return_value=run):
             from src.plotting.comparison import plot_comparison_privacy

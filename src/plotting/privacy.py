@@ -5,7 +5,7 @@ import matplotlib.figure
 import matplotlib.pyplot as plt
 import numpy as np
 
-from src.plotting._helpers import extract_metrics_by_round, get_run_by_id
+from src.plotting._helpers import extract_round_stats, get_run_by_id
 
 
 def plot_privacy_budget(
@@ -15,25 +15,27 @@ def plot_privacy_budget(
 ) -> matplotlib.figure.Figure:
     run = get_run_by_id(run_id)
 
-    rounds, epsilons = extract_metrics_by_round(run, "epsilon")
+    rounds, eps_stats = extract_round_stats(run, "epsilon", aggs=("mean", "std"))
+    means = eps_stats.get("mean", [])
+    stds = eps_stats.get("std", [])
 
     if not rounds:
         raise ValueError(f"No epsilon metrics found in run {run_id}")
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    fig, ax = plt.subplots(figsize=(8, 5))
 
-    ax1.plot(rounds, epsilons, marker="o", markersize=3, color="red")
-    ax1.set_xlabel("Round")
-    ax1.set_ylabel("Epsilon (ε)")
-    ax1.set_title("Privacy Budget (ε) vs Round")
-    ax1.grid(True, alpha=0.3)
+    ax.plot(rounds, means, marker="o", markersize=4, color="red", linewidth=1.5, label="Mean ε")
 
-    if len(epsilons) > 1:
-        ax2.plot(epsilons, range(len(epsilons)), marker="o", markersize=3, color="red")
-        ax2.set_xlabel("Epsilon (ε)")
-        ax2.set_ylabel("Round")
-        ax2.set_title("Round vs Privacy Budget")
-        ax2.grid(True, alpha=0.3)
+    if stds and len(stds) == len(means):
+        upper = [m + s for m, s in zip(means, stds)]
+        lower = [m - s for m, s in zip(means, stds)]
+        ax.fill_between(rounds, lower, upper, alpha=0.2, color="red", label="±1σ")
+
+    ax.set_xlabel("Round")
+    ax.set_ylabel("Epsilon (ε)")
+    ax.set_title("Privacy Budget: Mean ε ± σ per Round")
+    ax.legend(frameon=True, framealpha=0.9, edgecolor="gray")
+    ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
 
@@ -53,6 +55,7 @@ def plot_client_epsilon_distribution(
     allocated: dict[int, float] = {}
     used_data: dict[int, tuple[int, float]] = {}
     per_round: dict[int, tuple[int, float]] = {}
+    client_trace: dict[int, list[tuple[int, float]]] = {}
 
     for key, value in run.data.metrics.items():
         if "_client_" not in key:
@@ -76,14 +79,14 @@ def plot_client_epsilon_distribution(
             prev_round, _ = per_round.get(client_id, (-1, 0.0))
             if round_num > prev_round:
                 per_round[client_id] = (round_num, float(value))
+            client_trace.setdefault(client_id, []).append((round_num, float(value)))
 
     if allocated and used_data:
         all_ids = sorted(set(allocated.keys()) | set(used_data.keys()))
         allocated_vals = [allocated.get(cid, 0.0) for cid in all_ids]
         used_vals = [used_data.get(cid, (0, 0.0))[1] for cid in all_ids]
-        remaining = [a - u for a, u in zip(allocated_vals, used_vals)]
 
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 5))
 
         x = np.arange(len(all_ids))
         width = 0.35
@@ -100,15 +103,29 @@ def plot_client_epsilon_distribution(
         ax1.legend(frameon=True, framealpha=0.9, edgecolor="gray")
         ax1.grid(True, alpha=0.3, axis="y")
 
-        bar_colors = ["#27AE60" if r > 0 else "#E74C3C" for r in remaining]
-        ax2.bar(all_ids, remaining, color=bar_colors, edgecolor="black", linewidth=0.5)
-        ax2.axhline(y=0, color="black", linewidth=0.8, linestyle="--")
-        ax2.set_xlabel("Client ID")
-        ax2.set_ylabel("Remaining Epsilon (ε)")
-        ax2.set_title("Remaining Budget per Client")
-        ax2.set_xticks(x)
-        ax2.set_xticklabels(all_ids)
-        ax2.grid(True, alpha=0.3, axis="y")
+        total_rounds_str = run.data.params.get("federated.num_rounds", "0")
+        total_rounds = int(total_rounds_str) if total_rounds_str else 0
+        trace_colors = plt.cm.tab20(np.linspace(0, 1, min(20, len(all_ids))))
+        for i, cid in enumerate(sorted(all_ids)):
+            data = sorted(client_trace.get(cid, []))
+            if not data:
+                continue
+            rds = [d[0] for d in data]
+            eps = [d[1] for d in data]
+            color = trace_colors[i % len(trace_colors)]
+            ax2.plot(rds, eps, marker="o", markersize=4, color=color,
+                     label=f"Client {cid}", linewidth=1.5)
+            last_r, last_eps = data[-1]
+            exhausted = total_rounds > 0 and last_r < total_rounds - 1
+            marker_color = "#E74C3C" if exhausted else color
+            ax2.plot(last_r, last_eps, marker="x", markersize=8,
+                     color=marker_color, mew=2)
+
+        ax2.set_xlabel("Round")
+        ax2.set_ylabel("Epsilon (ε)")
+        ax2.set_title("Epsilon Expended per Round")
+        ax2.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize="small")
+        ax2.grid(alpha=0.3)
 
         plt.suptitle(
             f"Personalized Privacy Budgets (n={len(all_ids)} clients)",
