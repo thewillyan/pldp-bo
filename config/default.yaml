@@ -40,7 +40,8 @@ personalization:
 
 bo:
   enabled: false
-  warmup_rounds: 20
+  max_warmup_ratio: 0.2
+  min_warmup: 3
   epsilon_min: 0.1
   epsilon_max: 10.0
   epsilon_budget: 10.0

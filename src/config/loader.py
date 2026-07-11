@@ -72,7 +72,8 @@ class PersonalizationConfig:
 @dataclass
 class BOConfig:
     enabled: bool = False
-    warmup_rounds: int = 20
+    max_warmup_ratio: float = 0.0
+    min_warmup: int = 3
     epsilon_min: float = 0.1
     epsilon_max: float = 10.0
     epsilon_budget: float = 10.0

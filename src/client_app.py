@@ -59,7 +59,7 @@ def _make_scheduler(
     if config.bo.enabled:
         e_min = eps_min if eps_min is not None else config.bo.epsilon_min
         e_max = eps_max if eps_max is not None else config.bo.epsilon_max
-        w_rounds = warmup_rounds if warmup_rounds is not None else config.bo.warmup_rounds
+        w_rounds = warmup_rounds if warmup_rounds is not None else 0
         return PLDPBOScheduler(
             epsilon_min=e_min,
             epsilon_max=e_max,
@@ -136,6 +136,7 @@ def train(msg: Message, context: Context) -> Message:
                 partition_id, client_subset,
                 config.personalization, config.bo, config.data.num_clients,
                 total_train_size=total_train_size,
+                num_rounds=config.federated.num_rounds,
             )
             eps_min_per_client = bounds_min
         else:

@@ -45,7 +45,8 @@ bo:
   bounds_strategy: from_epsilon
   bounds_ratio_min: 0.01
   bounds_ratio_max: 1.0
-  warmup_rounds: 20
+  max_warmup_ratio: 0.2
+  min_warmup: 3
 
 logging:
   tracker: mlflow

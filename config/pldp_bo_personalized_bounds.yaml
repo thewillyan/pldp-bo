@@ -50,6 +50,8 @@ personalization:
 
 bo:
   enabled: true
+  max_warmup_ratio: 0.2
+  min_warmup: 3
   epsilon_budget: 10.0
   optimization_metric: nun
   bounds_strategy: from_epsilon

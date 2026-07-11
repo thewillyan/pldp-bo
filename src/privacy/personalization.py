@@ -106,6 +106,23 @@ def _get_num_classes(dataset: Dataset | Subset) -> int:
     return len(np.unique(targets))
 
 
+def _resolve_warmup(
+    partition_id: int,
+    bo_config: BOConfig,
+    num_clients: int,
+    num_rounds: int,
+    weight: float | None = None,
+) -> int:
+    warmup_map = {int(k): v for k, v in bo_config.client_warmup_rounds_map.items()}
+    if partition_id in warmup_map:
+        return warmup_map[partition_id]
+    if bo_config.max_warmup_ratio > 0 and weight is not None:
+        max_warmup = max(bo_config.min_warmup, math.ceil(bo_config.max_warmup_ratio * num_rounds))
+        normalized = min(weight / max(1, num_clients), 1.0)
+        return max(bo_config.min_warmup, math.ceil(max_warmup * normalized))
+    return bo_config.min_warmup
+
+
 def assign_epsilon_bounds(
     partition_id: int,
     train_dataset: Dataset | Subset,
@@ -113,12 +130,11 @@ def assign_epsilon_bounds(
     bo_config: BOConfig,
     num_clients: int = 1,
     total_train_size: int | None = None,
+    num_rounds: int = 50,
 ) -> tuple[float, float, int]:
-    warmup_map = {int(k): v for k, v in bo_config.client_warmup_rounds_map.items()}
-    warmup = warmup_map.get(partition_id, bo_config.warmup_rounds)
-
     strategy = bo_config.bounds_strategy
     if strategy == "global":
+        warmup = _resolve_warmup(partition_id, bo_config, num_clients, num_rounds, weight=float(num_clients))
         return bo_config.epsilon_min, bo_config.epsilon_max, warmup
 
     if strategy == "custom_map":
@@ -133,6 +149,7 @@ def assign_epsilon_bounds(
                 f"Available eps_min keys: {sorted(eps_min_map.keys())}, "
                 f"eps_max keys: {sorted(eps_max_map.keys())}",
             )
+        warmup = _resolve_warmup(partition_id, bo_config, num_clients, num_rounds)
         return eps_min, eps_max, warmup
 
     if strategy == "from_epsilon":
@@ -146,6 +163,7 @@ def assign_epsilon_bounds(
         )
         eps_min = max(weight * bo_config.bounds_ratio_min, 1e-6)
         eps_max = weight * bo_config.bounds_ratio_max
+        warmup = _resolve_warmup(partition_id, bo_config, num_clients, num_rounds, weight)
         return eps_min, eps_max, warmup
 
     raise ValueError(f"Unknown bounds_strategy: {strategy}")
