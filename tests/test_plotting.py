@@ -4,6 +4,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+import math
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -301,6 +302,25 @@ class TestPlotConvergence:
             fig = plot_convergence("test_id", save_path=path)
         assert path.exists()
         assert path.stat().st_size > 0
+        plt.close(fig)
+
+    def test_nan_loss_does_not_corrupt_xaxis(self) -> None:
+        metrics: dict[str, float] = {
+            "round_0_server_loss": 2.3,
+            "round_1_server_loss": 1e10,
+            **{f"round_{r}_server_loss": math.nan for r in range(2, 51)},
+            **{f"round_{r}_accuracy": 0.5 for r in range(0, 51)},
+        }
+        run = make_run(metrics=metrics)
+        with patch("src.plotting.convergence.get_run_by_id", return_value=run):
+            from src.plotting.convergence import plot_convergence
+
+            fig = plot_convergence("test_id")
+        ax_loss, ax_acc = fig.axes
+        assert ax_loss.get_xlim()[0] <= 0
+        assert ax_loss.get_xlim()[1] >= 50
+        assert ax_acc.get_xlim()[0] <= 0
+        assert ax_acc.get_xlim()[1] >= 50
         plt.close(fig)
 
 

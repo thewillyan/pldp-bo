@@ -47,6 +47,13 @@ def plot_convergence(
         ax2.set_title("Accuracy vs Round")
         ax2.grid(True, alpha=0.3)
 
+    all_rounds = list(rounds) + list(acc_rounds)
+    if all_rounds:
+        x_min, x_max = min(all_rounds), max(all_rounds)
+        pad = 0.02 * (x_max - x_min) or 0.5
+        ax1.set_xlim(x_min - pad, x_max + pad)
+        ax2.set_xlim(x_min - pad, x_max + pad)
+
     plt.tight_layout()
 
     if save_path:

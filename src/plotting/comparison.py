@@ -1,6 +1,6 @@
 import warnings
-from pathlib import Path
 from collections.abc import Sequence
+from pathlib import Path
 
 import matplotlib.axes
 import matplotlib.figure
@@ -99,6 +99,16 @@ def plot_comparison_convergence(
                 linewidth=2,
                 label=label,
             )
+
+    all_rounds: list[int] = []
+    for _, loss_rounds, _, acc_rounds, _ in run_data:
+        all_rounds.extend(loss_rounds)
+        all_rounds.extend(acc_rounds)
+    if all_rounds:
+        x_min, x_max = min(all_rounds), max(all_rounds)
+        pad = 0.02 * (x_max - x_min) or 0.5
+        ax_loss.set_xlim(x_min - pad, x_max + pad)
+        ax_acc.set_xlim(x_min - pad, x_max + pad)
 
     ax_loss.set_xlabel("Round")
     ax_loss.set_ylabel("Loss")
