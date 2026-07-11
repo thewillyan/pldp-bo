@@ -63,8 +63,9 @@ def _set_tracking_uri(args: argparse.Namespace) -> None:
 
 
 def _resolve_group_runs(group: str) -> list[str]:
-    uri = f"sqlite:///mlruns/group/{group}/mlflow.db"
-    mlflow.set_tracking_uri(uri)
+    _set_tracking_uri(argparse.Namespace(
+        tracking_uri=None, group=group,
+    ))
     runs = list_runs()
     return [r.info.run_id for r in runs]
 
@@ -100,7 +101,8 @@ def _list_runs_all_sources(
                 if run.info.run_id not in seen:
                     seen.add(run.info.run_id)
                     runs.append(run)
-        except Exception:
+        except Exception as exc:
+            print(f"Warning: could not query {uri}: {exc}", file=sys.stderr)
             continue
 
     return runs
@@ -142,7 +144,7 @@ def cmd_single(args: argparse.Namespace) -> None:
     _set_tracking_uri(args)
     if plt is None:
         print("Error: matplotlib is required for plotting", file=sys.stderr)
-        sys.exit(1)
+        raise SystemExit(1)
     _set_plot_theme()
 
     save_dir = Path(args.save_dir)
@@ -171,7 +173,7 @@ def cmd_compare(args: argparse.Namespace) -> None:
     _set_tracking_uri(args)
     if plt is None:
         print("Error: matplotlib is required for plotting", file=sys.stderr)
-        sys.exit(1)
+        raise SystemExit(1)
     _set_plot_theme()
 
     save_dir = Path(args.save_dir)
@@ -181,7 +183,7 @@ def cmd_compare(args: argparse.Namespace) -> None:
         run_ids = _resolve_group_runs(args.group)
         if not run_ids:
             print(f"No runs found in group '{args.group}'", file=sys.stderr)
-            sys.exit(1)
+            raise SystemExit(1)
         labels = None
     else:
         run_ids = args.runs
@@ -193,10 +195,10 @@ def cmd_compare(args: argparse.Namespace) -> None:
             f" got {len(labels)}",
             file=sys.stderr,
         )
-        sys.exit(1)
+        raise SystemExit(1)
 
     if args.type in ("convergence", "all"):
-        path = save_dir / "convergence.png"
+        path = save_dir / "comparison_convergence.png"
         try:
             fig = plot_comparison_convergence(
                 run_ids, labels=labels, save_path=path
@@ -207,7 +209,7 @@ def cmd_compare(args: argparse.Namespace) -> None:
             print(f"Warning: {e}", file=sys.stderr)
 
     if args.type in ("privacy", "all"):
-        path = save_dir / "privacy_budget.png"
+        path = save_dir / "comparison_privacy_budget.png"
         try:
             fig = plot_comparison_privacy(
                 run_ids, labels=labels, save_path=path
@@ -230,7 +232,7 @@ def cmd_get_run_id(args: argparse.Namespace) -> None:
     )
     if not runs:
         print(f"Run '{args.run_name}' not found", file=sys.stderr)
-        sys.exit(1)
+        raise SystemExit(1)
     print(runs[0].info.run_id)
 
 
