@@ -82,7 +82,9 @@ def _parse_json_from_stream(
     return None, depth
 
 
-def cmd_single(config_path: str, num_clients: str, overrides: list[str]) -> str | None:
+def cmd_single(
+    config_path: str, num_clients: str, overrides: list[str],
+) -> tuple[str, str] | None:
     path = pathlib.Path(config_path)
     if not path.exists():
         print(f"Error: config '{config_path}' not found", file=sys.stderr)
@@ -161,7 +163,9 @@ def cmd_single(config_path: str, num_clients: str, overrides: list[str]) -> str 
             flwr_json["mlflow-run-id"] = run_id
         (json_dir / fname).write_text(json.dumps(flwr_json, indent=2))
 
-    return run_id
+    if run_id is None:
+        return None
+    return run_id, tracking_uri
 
 
 def cmd_group(group_name: str, num_clients: str, overrides: list[str]) -> None:
@@ -201,12 +205,13 @@ def cmd_group(group_name: str, num_clients: str, overrides: list[str]) -> None:
 
         print(f"\n--- {config_name} ---")
 
-        run_id = cmd_single(str(config_path), num_clients, overrides)
-        if run_id is None:
+        result = cmd_single(str(config_path), num_clients, overrides)
+        if result is None:
             print("  ERROR: Experiment failed.", file=sys.stderr)
             failed.append(config_name)
             continue
 
+        run_id, _ = result
         run_ids.append(run_id)
         run_labels.append(config_name)
 
@@ -311,9 +316,31 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "single":
-        run_id = cmd_single(args.config_path, args.num_clients, args.overrides)
-        if run_id:
+        result = cmd_single(args.config_path, args.num_clients, args.overrides)
+        if result is not None:
+            run_id, tracking_uri = result
             print(run_id)
+
+            config_stem = pathlib.Path(args.config_path).stem
+            plots_dir = pathlib.Path(f"mlruns/single/{config_stem}/plots")
+            plots_dir.mkdir(parents=True, exist_ok=True)
+
+            plot_proc = subprocess.run(
+                [
+                    sys.executable, _PLOT_SCRIPT,
+                    "--tracking-uri", tracking_uri,
+                    "plot", run_id,
+                    "--type", "all",
+                    "--save-dir", str(plots_dir),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            for line in plot_proc.stdout.strip().split("\n"):
+                if line.strip():
+                    print(line)
+            if plot_proc.returncode != 0:
+                print("WARNING: Plot generation failed", file=sys.stderr)
     elif args.command == "group":
         cmd_group(args.group_name, args.num_clients, args.overrides)
     elif args.command == "list":
