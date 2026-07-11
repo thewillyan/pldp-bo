@@ -16,15 +16,6 @@ CONFIG_DIR = pathlib.Path("config/experiments")
 _PLOT_SCRIPT = str(pathlib.Path(__file__).resolve().parent / "plot")
 
 
-def _get_tracking_uri(config_path: pathlib.Path) -> str:
-    env_uri = os.environ.get("MLFLOW_TRACKING_URI")
-    if env_uri:
-        return env_uri
-    with open(config_path) as f:
-        cfg = yaml.safe_load(f)
-    return cfg.get("logging", {}).get("tracking_uri", "./mlruns")
-
-
 def _resolve_run_id(tracking_uri: str, run_name: str) -> str | None:
     mlflow.set_tracking_uri(tracking_uri)
     client = mlflow.tracking.MlflowClient()
@@ -40,8 +31,6 @@ def _resolve_run_id(tracking_uri: str, run_name: str) -> str | None:
 
 
 def _needs_quoting(val: str) -> bool:
-    if val.lower() in ("true", "false", "nan", "inf"):
-        return False
     try:
         float(val)
         return False
@@ -83,13 +72,13 @@ def _parse_json_from_stream(
 
 
 def cmd_single(
-    config_path: str, num_clients: str, overrides: list[str],
+    config_path: str, num_clients: int, overrides: list[str],
 ) -> tuple[str, str] | None:
     path = pathlib.Path(config_path)
     if not path.exists():
         print(f"Error: config '{config_path}' not found", file=sys.stderr)
         return None
-    if not num_clients.isdigit() or int(num_clients) < 2:
+    if num_clients < 2:
         print("Error: num_clients must be an integer >= 2", file=sys.stderr)
         return None
 
@@ -168,8 +157,8 @@ def cmd_single(
     return run_id, tracking_uri
 
 
-def cmd_group(group_name: str, num_clients: str, overrides: list[str]) -> None:
-    if not num_clients.isdigit() or int(num_clients) < 2:
+def cmd_group(group_name: str, num_clients: int, overrides: list[str]) -> None:
+    if num_clients < 2:
         print("Error: num_clients must be an integer >= 2", file=sys.stderr)
         sys.exit(1)
 
@@ -198,44 +187,48 @@ def cmd_group(group_name: str, num_clients: str, overrides: list[str]) -> None:
     saved_tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
     os.environ["MLFLOW_TRACKING_URI"] = tracking_uri
 
-    for config_path in configs:
-        config_name = config_path.stem
-        exp_plots = plots_dir / config_name
-        exp_plots.mkdir(parents=True, exist_ok=True)
+    try:
+        for config_path in configs:
+            config_name = config_path.stem
+            exp_plots = plots_dir / config_name
+            exp_plots.mkdir(parents=True, exist_ok=True)
 
-        print(f"\n--- {config_name} ---")
+            print(f"\n--- {config_name} ---")
 
-        result = cmd_single(str(config_path), num_clients, overrides)
-        if result is None:
-            print("  ERROR: Experiment failed.", file=sys.stderr)
-            failed.append(config_name)
-            continue
+            result = cmd_single(str(config_path), num_clients, overrides)
+            if result is None:
+                print("  ERROR: Experiment failed.", file=sys.stderr)
+                failed.append(config_name)
+                continue
 
-        run_id, _ = result
-        run_ids.append(run_id)
-        run_labels.append(config_name)
+            run_id, _ = result
+            run_ids.append(run_id)
+            run_labels.append(config_name)
 
-        plot_proc = subprocess.run(
-            [
-                sys.executable, _PLOT_SCRIPT,
-                "--tracking-uri", tracking_uri,
-                "plot", run_id,
-                "--type", "all",
-                "--save-dir", str(exp_plots),
-            ],
-            capture_output=True,
-            text=True,
-        )
-        for line in plot_proc.stdout.strip().split("\n"):
-            if line.strip():
-                print(f"  {line}")
-        if plot_proc.returncode != 0:
-            print("  WARNING: Plot generation failed", file=sys.stderr)
-
-    if saved_tracking_uri is not None:
-        os.environ["MLFLOW_TRACKING_URI"] = saved_tracking_uri
-    else:
-        os.environ.pop("MLFLOW_TRACKING_URI", None)
+            plot_proc = subprocess.run(
+                [
+                    sys.executable, _PLOT_SCRIPT,
+                    "--tracking-uri", tracking_uri,
+                    "plot", run_id,
+                    "--type", "all",
+                    "--save-dir", str(exp_plots),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            for line in plot_proc.stdout.splitlines():
+                if line.strip():
+                    print(f"  {line}")
+            for line in plot_proc.stderr.splitlines():
+                if line.strip():
+                    print(f"  {line}", file=sys.stderr)
+            if plot_proc.returncode != 0:
+                print("  WARNING: Plot generation failed", file=sys.stderr)
+    finally:
+        if saved_tracking_uri is not None:
+            os.environ["MLFLOW_TRACKING_URI"] = saved_tracking_uri
+        else:
+            os.environ.pop("MLFLOW_TRACKING_URI", None)
 
     if len(run_ids) > 1:
         comp_dir = plots_dir / "comparison"
@@ -254,9 +247,12 @@ def cmd_group(group_name: str, num_clients: str, overrides: list[str]) -> None:
             capture_output=True,
             text=True,
         )
-        for line in plot_proc.stdout.strip().split("\n"):
+        for line in plot_proc.stdout.splitlines():
             if line.strip():
                 print(f"  {line}")
+        for line in plot_proc.stderr.splitlines():
+            if line.strip():
+                print(f"  {line}", file=sys.stderr)
         if plot_proc.returncode != 0:
             print("WARNING: Comparison plot generation failed", file=sys.stderr)
 
@@ -301,12 +297,12 @@ def main() -> None:
 
     p_single = sub.add_parser("single", help="Run a single experiment")
     p_single.add_argument("config_path", type=str)
-    p_single.add_argument("num_clients", type=str)
+    p_single.add_argument("num_clients", type=int)
     p_single.add_argument("overrides", nargs="*", help="KEY=VALUE overrides")
 
     p_group = sub.add_parser("group", help="Run all experiments in a group")
     p_group.add_argument("group_name", type=str)
-    p_group.add_argument("num_clients", type=str)
+    p_group.add_argument("num_clients", type=int)
     p_group.add_argument("overrides", nargs="*", help="KEY=VALUE overrides")
 
     p_list = sub.add_parser("list", help="List available groups and configs")
@@ -336,9 +332,12 @@ def main() -> None:
                 capture_output=True,
                 text=True,
             )
-            for line in plot_proc.stdout.strip().split("\n"):
+            for line in plot_proc.stdout.splitlines():
                 if line.strip():
                     print(line)
+            for line in plot_proc.stderr.splitlines():
+                if line.strip():
+                    print(line, file=sys.stderr)
             if plot_proc.returncode != 0:
                 print("WARNING: Plot generation failed", file=sys.stderr)
     elif args.command == "group":
