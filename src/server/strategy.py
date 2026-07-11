@@ -104,15 +104,22 @@ class MetricLoggingMixin:
                 utility_losses.append(float(utility_loss))
                 self._log_metric(f"round_{server_round}_client_{cid}_utility_loss", float(utility_loss), step=server_round)
 
-            cum_eps = m.get("cumulative_epsilon")
+            cum_eps_val = m.get("cumulative_epsilon")
+            cum_eps = float(cum_eps_val) if cum_eps_val is not None else None
             if cum_eps is not None:
-                cumulative_epsilons.append(float(cum_eps))
-                self._log_metric(f"round_{server_round}_client_{cid}_cumulative_epsilon", float(cum_eps), step=server_round)
+                cumulative_epsilons.append(cum_eps)
+                self._log_metric(f"round_{server_round}_client_{cid}_cumulative_epsilon", cum_eps, step=server_round)
 
             client_eps = m.get("client_epsilon")
             if client_eps is not None:
                 client_epsilons.append(float(client_eps))
                 self._log_metric(f"round_{server_round}_client_{cid}_client_epsilon", float(client_eps), step=server_round)
+
+            if self._per_client_budgets is not None and cum_eps is not None:
+                budget = self._per_client_budgets.get(cid)
+                if budget is not None:
+                    remaining = max(0.0, budget - float(cum_eps))
+                    self._log_metric(f"round_{server_round}_client_{cid}_remaining_budget", remaining, step=server_round)
 
         self._log_metric_stats("epsilon", epsilons, server_round)
         self._log_metric_stats("client_epsilon", client_epsilons, server_round)

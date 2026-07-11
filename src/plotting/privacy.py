@@ -1,48 +1,10 @@
 from pathlib import Path
 
-import matplotlib.axes
 import matplotlib.figure
 import matplotlib.pyplot as plt
 import numpy as np
 
 from src.plotting._helpers import extract_round_stats, get_run_by_id
-
-
-def plot_privacy_budget(
-    run_id: str,
-    save_path: Path | None = None,
-    dpi: int = 150,
-) -> matplotlib.figure.Figure:
-    run = get_run_by_id(run_id)
-
-    rounds, eps_stats = extract_round_stats(run, "epsilon", aggs=("mean", "std"))
-    means = eps_stats.get("mean", [])
-    stds = eps_stats.get("std", [])
-
-    if not rounds:
-        raise ValueError(f"No epsilon metrics found in run {run_id}")
-
-    fig, ax = plt.subplots(figsize=(8, 5))
-
-    ax.plot(rounds, means, marker="o", markersize=4, color="red", linewidth=1.5, label="Mean ε")
-
-    if stds and len(stds) == len(means):
-        upper = [m + s for m, s in zip(means, stds)]
-        lower = [m - s for m, s in zip(means, stds)]
-        ax.fill_between(rounds, lower, upper, alpha=0.2, color="red", label="±1σ")
-
-    ax.set_xlabel("Round")
-    ax.set_ylabel("Epsilon (ε)")
-    ax.set_title("Privacy Budget: Mean ε ± σ per Round")
-    ax.legend(frameon=True, framealpha=0.9, edgecolor="gray")
-    ax.grid(True, alpha=0.3)
-
-    plt.tight_layout()
-
-    if save_path:
-        fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
-
-    return fig
 
 
 def plot_client_epsilon_distribution(
@@ -52,7 +14,7 @@ def plot_client_epsilon_distribution(
 ) -> matplotlib.figure.Figure:
     run = get_run_by_id(run_id)
 
-    allocated: dict[int, float] = {}
+    remaining: dict[int, tuple[int, float]] = {}
     used_data: dict[int, tuple[int, float]] = {}
     per_round: dict[int, tuple[int, float]] = {}
     client_trace: dict[int, list[tuple[int, float]]] = {}
@@ -69,8 +31,10 @@ def plot_client_epsilon_distribution(
         except (ValueError, IndexError):
             continue
 
-        if key.endswith("_client_epsilon"):
-            allocated[client_id] = float(value)
+        if key.endswith("_remaining_budget"):
+            prev_round, _ = remaining.get(client_id, (-1, float("inf")))
+            if round_num > prev_round:
+                remaining[client_id] = (round_num, float(value))
         elif key.endswith("_cumulative_epsilon"):
             prev_round, _ = used_data.get(client_id, (-1, 0.0))
             if round_num > prev_round:
@@ -81,9 +45,12 @@ def plot_client_epsilon_distribution(
                 per_round[client_id] = (round_num, float(value))
             client_trace.setdefault(client_id, []).append((round_num, float(value)))
 
-    if allocated and used_data:
-        all_ids = sorted(set(allocated.keys()) | set(used_data.keys()))
-        allocated_vals = [allocated.get(cid, 0.0) for cid in all_ids]
+    if remaining and used_data:
+        all_ids = sorted(set(remaining.keys()) | set(used_data.keys()))
+        allocated_vals = [
+            remaining.get(cid, (0, 0.0))[1] + used_data.get(cid, (0, 0.0))[1]
+            for cid in all_ids
+        ]
         used_vals = [used_data.get(cid, (0, 0.0))[1] for cid in all_ids]
 
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 5))
@@ -120,6 +87,18 @@ def plot_client_epsilon_distribution(
             marker_color = "#E74C3C" if exhausted else color
             ax2.plot(last_r, last_eps, marker="x", markersize=8,
                      color=marker_color, mew=2)
+
+        sorted_rounds, stats = extract_round_stats(run, "epsilon", aggs=("mean", "std"))
+        if sorted_rounds:
+            mean_vals = stats.get("mean", [])
+            std_vals = stats.get("std", [])
+            if mean_vals and std_vals and len(mean_vals) == len(std_vals):
+                ax2.plot(sorted_rounds, mean_vals, color="black", linewidth=2.5,
+                         linestyle="--", label="Mean ± σ", zorder=len(all_ids) + 5)
+                upper = [m + s for m, s in zip(mean_vals, std_vals)]
+                lower = [m - s for m, s in zip(mean_vals, std_vals)]
+                ax2.fill_between(sorted_rounds, lower, upper, alpha=0.15,
+                                 color="black", zorder=len(all_ids) + 4)
 
         ax2.set_xlabel("Round")
         ax2.set_ylabel("Epsilon (ε)")

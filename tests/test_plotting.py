@@ -325,51 +325,6 @@ class TestPlotConvergence:
 
 
 # ---------------------------------------------------------------------------
-# privacy — plot_privacy_budget
-# ---------------------------------------------------------------------------
-
-
-class TestPlotPrivacyBudget:
-    def test_success(self) -> None:
-        run = make_run(metrics={
-            "round_0_epsilon_mean": 1.0,
-            "round_0_epsilon_std": 0.2,
-            "round_1_epsilon_mean": 2.0,
-            "round_1_epsilon_std": 0.3,
-            "round_2_epsilon_mean": 3.0,
-            "round_2_epsilon_std": 0.4,
-        })
-        with patch("src.plotting.privacy.get_run_by_id", return_value=run):
-            from src.plotting.privacy import plot_privacy_budget
-
-            fig = plot_privacy_budget("test_id")
-        assert len(fig.axes) == 1
-        assert fig.axes[0].get_xlabel() == "Round"
-        assert fig.axes[0].get_ylabel() == "Epsilon (\u03b5)"
-        assert fig.axes[0].get_title() == "Privacy Budget: Mean \u03b5 \u00b1 \u03c3 per Round"
-        assert len(fig.axes[0].collections) == 1
-        plt.close(fig)
-
-    def test_no_data(self) -> None:
-        run = make_run(metrics={})
-        with patch("src.plotting.privacy.get_run_by_id", return_value=run):
-            from src.plotting.privacy import plot_privacy_budget
-
-            with pytest.raises(ValueError, match="No epsilon metrics found"):
-                plot_privacy_budget("test_id")
-
-    def test_save_path(self, tmp_path: Path) -> None:
-        run = make_run(metrics={"round_0_epsilon_mean": 1.0})
-        path = tmp_path / "privacy.png"
-        with patch("src.plotting.privacy.get_run_by_id", return_value=run):
-            from src.plotting.privacy import plot_privacy_budget
-
-            fig = plot_privacy_budget("test_id", save_path=path)
-        assert path.exists()
-        plt.close(fig)
-
-
-# ---------------------------------------------------------------------------
 # privacy — plot_client_epsilon_distribution
 # ---------------------------------------------------------------------------
 
@@ -384,10 +339,16 @@ class TestPlotClientEpsilonDistribution:
                 "round_0_client_1_epsilon": 1.0,
                 "round_1_client_1_epsilon": 1.2,
                 "round_2_client_1_epsilon": 0.9,
-                "round_1_client_0_client_epsilon": 3.0,
-                "round_1_client_1_client_epsilon": 4.0,
+                "round_2_client_0_remaining_budget": 248.1,
+                "round_2_client_1_remaining_budget": 246.9,
                 "round_2_client_0_cumulative_epsilon": 1.9,
                 "round_2_client_1_cumulative_epsilon": 3.1,
+                "round_0_epsilon_mean": 0.75,
+                "round_0_epsilon_std": 0.25,
+                "round_1_epsilon_mean": 1.0,
+                "round_1_epsilon_std": 0.2,
+                "round_2_epsilon_mean": 0.75,
+                "round_2_epsilon_std": 0.15,
             },
             params={"federated.num_rounds": "5"},
         )
@@ -399,7 +360,8 @@ class TestPlotClientEpsilonDistribution:
         assert fig.axes[0].get_xlabel() == "Client ID"
         assert fig.axes[1].get_xlabel() == "Round"
         assert fig.axes[1].get_title() == "Epsilon Expended per Round"
-        assert len(fig.axes[1].lines) >= 4
+        assert len(fig.axes[1].lines) >= 5
+        assert len(fig.axes[1].collections) == 1
         plt.close(fig)
 
     def test_success_legacy(self) -> None:
@@ -431,7 +393,7 @@ class TestPlotClientEpsilonDistribution:
             metrics={
                 "round_0_client_0_epsilon": 0.5,
                 "round_1_client_0_epsilon": 0.8,
-                "round_0_client_0_client_epsilon": 2.0,
+                "round_1_client_0_remaining_budget": 248.7,
                 "round_1_client_0_cumulative_epsilon": 1.3,
             },
         )
@@ -659,89 +621,6 @@ class TestPlotComparisonPrivacy:
             fig = plot_comparison_privacy(
                 ["run1"], labels=["A"], save_path=path
             )
-        assert path.exists()
-        plt.close(fig)
-
-
-# ---------------------------------------------------------------------------
-# bo — plot_epsilon_schedules
-# ---------------------------------------------------------------------------
-
-
-class TestPlotEpsilonSchedules:
-    def test_success(self) -> None:
-        run = make_run(metrics={
-            "round_0_client_0_epsilon": 1.0,
-            "round_1_client_0_epsilon": 2.0,
-            "round_0_client_1_epsilon": 0.5,
-            "round_1_client_1_epsilon": 1.0,
-        })
-        with patch("src.plotting.bo.get_run_by_id", return_value=run):
-            from src.plotting.bo import plot_epsilon_schedules
-
-            fig = plot_epsilon_schedules("test_id")
-        assert len(fig.axes) == 1
-        assert fig.axes[0].get_xlabel() == "Round"
-        legends = fig.axes[0].get_legend()
-        assert legends is not None
-        assert len(legends.get_texts()) >= 2
-        plt.close(fig)
-
-    def test_custom_client_ids(self) -> None:
-        run = make_run(metrics={
-            "round_0_client_0_epsilon": 1.0,
-            "round_1_client_0_epsilon": 2.0,
-            "round_0_client_1_epsilon": 0.5,
-            "round_1_client_1_epsilon": 1.0,
-        })
-        with patch("src.plotting.bo.get_run_by_id", return_value=run):
-            from src.plotting.bo import plot_epsilon_schedules
-
-            fig = plot_epsilon_schedules("test_id", client_ids=[0])
-        legends = fig.axes[0].get_legend()
-        assert legends is not None
-        assert len(legends.get_texts()) == 1
-        plt.close(fig)
-
-    def test_no_clients(self) -> None:
-        run = make_run(metrics={})
-        with patch("src.plotting.bo.get_run_by_id", return_value=run):
-            from src.plotting.bo import plot_epsilon_schedules
-
-            with pytest.raises(ValueError, match="No per-client epsilon"):
-                plot_epsilon_schedules("test_id")
-
-    def test_mean_std(self) -> None:
-        run = make_run(metrics={
-            "round_0_client_0_epsilon": 1.0,
-            "round_1_client_0_epsilon": 2.0,
-            "round_0_client_1_epsilon": 0.5,
-            "round_1_client_1_epsilon": 1.0,
-            "round_0_epsilon_mean": 0.75,
-            "round_0_epsilon_std": 0.25,
-            "round_1_epsilon_mean": 1.5,
-            "round_1_epsilon_std": 0.5,
-        })
-        with patch("src.plotting.bo.get_run_by_id", return_value=run):
-            from src.plotting.bo import plot_epsilon_schedules
-
-            fig = plot_epsilon_schedules("test_id", show_mean_std=True)
-        legends = fig.axes[0].get_legend()
-        assert legends is not None
-        legend_texts = [t.get_text() for t in legends.get_texts()]
-        assert "Mean" in legend_texts
-        plt.close(fig)
-
-    def test_save_path(self, tmp_path: Path) -> None:
-        run = make_run(metrics={
-            "round_0_client_0_epsilon": 1.0,
-            "round_0_client_1_epsilon": 0.5,
-        })
-        path = tmp_path / "epsilon_schedules.png"
-        with patch("src.plotting.bo.get_run_by_id", return_value=run):
-            from src.plotting.bo import plot_epsilon_schedules
-
-            fig = plot_epsilon_schedules("test_id", save_path=path)
         assert path.exists()
         plt.close(fig)
 

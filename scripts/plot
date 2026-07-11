@@ -22,7 +22,7 @@ from src.plotting.comparison import (
 from src.plotting.convergence import plot_convergence
 from src.plotting.privacy import (
     plot_client_epsilon_distribution,
-    plot_privacy_budget,
+    plot_cumulative_privacy_budget,
 )
 
 
@@ -163,18 +163,18 @@ def cmd_single(args: argparse.Namespace) -> None:
             print(f"Warning: {e}", file=sys.stderr)
 
     if args.type in ("privacy", "all"):
-        path = save_dir / "privacy_budget.png"
-        try:
-            fig = plot_privacy_budget(args.run_id, save_path=path)
-            print(f"Saved privacy plot to {path}")
-            plt.close(fig)
-        except ValueError as e:
-            print(f"Warning: {e}", file=sys.stderr)
-
         client_path = save_dir / "client_budget_distribution.png"
         try:
             fig = plot_client_epsilon_distribution(args.run_id, save_path=client_path)
             print(f"Saved client budget distribution to {client_path}")
+            plt.close(fig)
+        except ValueError as e:
+            print(f"Warning: {e}", file=sys.stderr)
+
+        cumulative_path = save_dir / "cumulative_budget.png"
+        try:
+            fig = plot_cumulative_privacy_budget(args.run_id, save_path=cumulative_path)
+            print(f"Saved cumulative privacy budget to {cumulative_path}")
             plt.close(fig)
         except ValueError as e:
             print(f"Warning: {e}", file=sys.stderr)

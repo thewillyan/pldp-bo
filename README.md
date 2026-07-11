@@ -188,8 +188,7 @@ All functions return a `matplotlib.figure.Figure`; pass `save_path` to save to d
 ```python
 from src.plotting import (
     plot_convergence,
-    plot_privacy_budget,
-    plot_epsilon_schedules,
+    plot_client_epsilon_distribution,
     plot_metric_vs_epsilon,
     plot_comparison_convergence,
     plot_comparison_privacy,
@@ -199,12 +198,8 @@ from src.plotting import (
 fig = plot_convergence("mlflow_run_id")
 fig.savefig("convergence.png")
 
-# Privacy budget spend over rounds
-fig = plot_privacy_budget("mlflow_run_id")
-
-# Per-client epsilon schedules with mean ± σ band
-fig = plot_epsilon_schedules("mlflow_run_id")
-fig = plot_epsilon_schedules("mlflow_run_id", client_ids=[0, 1, 2], show_mean_std=False)
+# Privacy budget: client budget distribution + epsilon trace with mean ± σ band
+fig = plot_client_epsilon_distribution("mlflow_run_id")
 
 # Epsilon vs metric scatter (warm-up vs BO phases)
 fig = plot_metric_vs_epsilon("mlflow_run_id", client_id=3, metric="utility_loss", warmup_rounds=20)
@@ -245,12 +240,12 @@ pldp-bo/
     models/
       cnn.py, mlp.py, resnet.py      # Model definitions
     plotting/
-      __init__.py                    # Exports all 6 plotting functions
+      __init__.py                    # Exports all plotting functions
       _helpers.py                    # MLflow extraction helpers
-      bo.py                          # plot_epsilon_schedules, plot_metric_vs_epsilon
+      bo.py                          # plot_metric_vs_epsilon
       comparison.py                  # plot_comparison_convergence, plot_comparison_privacy
       convergence.py                 # plot_convergence
-      privacy.py                     # plot_privacy_budget
+      privacy.py                     # plot_client_epsilon_distribution, plot_cumulative_privacy_budget
     privacy/
       accountant.py                  # RDPAccountant (no opacus)
       bo_scheduler.py                # PLDPBOScheduler (warm-up + GP + EI)
