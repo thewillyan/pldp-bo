@@ -130,7 +130,7 @@ class PLDPBOScheduler(EpsilonScheduler):
 
         self._round += 1
 
-    def _fit_gp(self) -> None:
+    def _fit_gp(self, *, optimize: bool = True) -> None:
         x = np.array([[eps] for eps, _ in self._observations])
         y = np.array([m for _, m in self._observations])
         kernel = _build_kernel(self._gp_kernel_name, self._observation_noise)
@@ -138,9 +138,10 @@ class PLDPBOScheduler(EpsilonScheduler):
             kernel = self._restored_kernel
         elif self._gp is not None:
             kernel = self._gp.kernel_
+        n_restarts = 3 if optimize else 0
         self._gp = GaussianProcessRegressor(
             kernel=kernel,
-            n_restarts_optimizer=3,
+            n_restarts_optimizer=n_restarts,
             random_state=self._rng.randint(0, 2**31),
             normalize_y=True,
         )
@@ -161,7 +162,7 @@ class PLDPBOScheduler(EpsilonScheduler):
 
         # Mask grid points that would exceed the remaining privacy budget
         if self._remaining_budget is not None:
-            alpha[grid > self._remaining_budget] = -np.inf
+            alpha[grid > self._remaining_budget + 1e-12] = -np.inf
 
         # Degenerate case (all ei_norm equal → all zeros): alpha = -λ · penalty,
         # which automatically selects epsilon_min as argmax.
@@ -220,7 +221,7 @@ class PLDPBOScheduler(EpsilonScheduler):
             k.set_params(**params)
             scheduler._restored_kernel = k
         if scheduler._phase == "bo":
-            scheduler._fit_gp()
+            scheduler._fit_gp(optimize=False)
         return scheduler
 
     def __repr__(self) -> str:
