@@ -132,9 +132,22 @@ def _expand_dot_keys(overrides: dict) -> dict:
     for key, value in overrides.items():
         parts = key.split(".")
         current = result
-        for part in parts[:-1]:
+        for depth, part in enumerate(parts[:-1]):
+            if part in current and not isinstance(current[part], dict):
+                logger.warning(
+                    "Config override key conflict: '%s' overlaps with existing key at '%s'",
+                    key, ".".join(parts[:depth + 1]),
+                )
+                break
             current = current.setdefault(part, {})
-        current[parts[-1]] = value
+        else:
+            existing = current.get(parts[-1])
+            if isinstance(existing, dict):
+                logger.warning(
+                    "Config override key conflict: '%s' would overwrite nested config",
+                    key,
+                )
+            current[parts[-1]] = value
     return result
 
 
