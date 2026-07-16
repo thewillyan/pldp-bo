@@ -45,7 +45,10 @@ def plot_client_epsilon_distribution(
                 per_round[client_id] = (round_num, float(value))
             client_trace.setdefault(client_id, []).append((round_num, float(value)))
 
-    if remaining and used_data:
+    has_remaining = bool(remaining)
+    has_used = bool(used_data)
+
+    if has_remaining and has_used:
         all_ids = sorted(set(remaining.keys()) | set(used_data.keys()))
         allocated_vals = [
             remaining.get(cid, (0, 0.0))[1] + used_data.get(cid, (0, 0.0))[1]
@@ -115,6 +118,36 @@ def plot_client_epsilon_distribution(
         if save_path:
             fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
 
+        return fig
+
+    if has_remaining and not has_used:
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ids_sorted = sorted(remaining.keys())
+        vals = [remaining[cid][1] for cid in ids_sorted]
+        ax.bar(ids_sorted, vals, color="#4A90D9", edgecolor="black", linewidth=0.5)
+        ax.set_xlabel("Client ID")
+        ax.set_ylabel("Remaining Epsilon (ε)")
+        ax.set_title("Privacy Budget Remaining Per Client")
+        ax.set_xticks(ids_sorted)
+        ax.grid(True, alpha=0.3, axis="y")
+        fig.tight_layout()
+        if save_path:
+            fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
+        return fig
+
+    if not has_remaining and has_used:
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ids_sorted = sorted(used_data.keys())
+        vals = [used_data[cid][1] for cid in ids_sorted]
+        ax.bar(ids_sorted, vals, color="#1A5276", edgecolor="black", linewidth=0.5)
+        ax.set_xlabel("Client ID")
+        ax.set_ylabel("Cumulative Epsilon (ε)")
+        ax.set_title("Privacy Budget Used Per Client")
+        ax.set_xticks(ids_sorted)
+        ax.grid(True, alpha=0.3, axis="y")
+        fig.tight_layout()
+        if save_path:
+            fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
         return fig
 
     # Fallback for legacy runs without client_epsilon/cumulative_epsilon
