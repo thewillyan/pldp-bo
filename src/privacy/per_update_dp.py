@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import math
 
 import numpy as np
@@ -7,8 +8,15 @@ import numpy as np
 from src.privacy.constants import RDP_ALPHAS
 from src.utils import deserialize_rng, serialize_rng
 
+logger = logging.getLogger(__name__)
 
-def calibrate_sigma(epsilon: float, clipping_norm: float, delta: float) -> float:
+
+def calibrate_sigma(
+    epsilon: float,
+    clipping_norm: float,
+    delta: float,
+    min_sigma: float | None = None,
+) -> float:
     if epsilon <= 0:
         raise ValueError("epsilon must be positive")
     if delta <= 0 or delta >= 1:
@@ -16,7 +24,16 @@ def calibrate_sigma(epsilon: float, clipping_norm: float, delta: float) -> float
     if clipping_norm <= 0:
         raise ValueError("clipping_norm must be positive")
     sigma = clipping_norm * math.sqrt(2.0 * math.log(1.25 / delta)) / epsilon
-    return max(sigma, clipping_norm)
+    floor = min_sigma if min_sigma is not None else clipping_norm
+    if sigma < floor:
+        logger.warning(
+            "calibrate_sigma: analytical sigma=%.6f for clipping_norm=%.2f, "
+            "epsilon=%.2f is below floor %.6f; clamping to floor. "
+            "Actual privacy will be stronger than requested epsilon.",
+            sigma, clipping_norm, epsilon, floor,
+        )
+        return floor
+    return sigma
 
 
 def clip_update(delta: np.ndarray, clipping_norm: float) -> np.ndarray:
