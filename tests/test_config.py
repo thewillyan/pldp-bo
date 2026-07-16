@@ -55,8 +55,6 @@ def test_personalization_defaults_when_absent() -> None:
     config = load_config("config/default.yaml")
     assert config.personalization.enabled is False
     assert config.personalization.strategy == "uniform"
-    assert config.personalization.epsilon_min == 0.1
-    assert config.personalization.epsilon_max == 10.0
     assert config.personalization.client_epsilon_map == {}
 
 
@@ -72,7 +70,7 @@ def test_personalization_config_override() -> None:
 def test_bo_config_defaults() -> None:
     config = load_config("config/default.yaml")
     assert config.bo.enabled is False
-    assert config.bo.warmup_rounds == 20
+    assert config.bo.min_warmup == 3
     assert config.bo.epsilon_budget == 10.0
     assert config.bo.optimization_metric == "nun"
 
@@ -82,12 +80,12 @@ def test_bo_config_override() -> None:
         "config/default.yaml",
         overrides={
             "bo.enabled": True,
-            "bo.warmup_rounds": 10,
+            "bo.min_warmup": 10,
             "bo.epsilon_budget": 5.0,
             "bo.optimization_metric": "utility",
         },
     )
     assert config.bo.enabled is True
-    assert config.bo.warmup_rounds == 10
+    assert config.bo.min_warmup == 10
     assert config.bo.epsilon_budget == 5.0
     assert config.bo.optimization_metric == "utility"

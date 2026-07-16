@@ -331,9 +331,9 @@ class TestPLDPBOScheduler:
     # --- Config integration ---
 
     def test_config_integration(self) -> None:
+        warmup_rounds = 15
         bo_config = BOConfig(
             enabled=True,
-            warmup_rounds=15,
             epsilon_min=0.5,
             epsilon_max=8.0,
             acquisition_penalty=0.2,
@@ -344,7 +344,7 @@ class TestPLDPBOScheduler:
         scheduler = PLDPBOScheduler(
             epsilon_min=bo_config.epsilon_min,
             epsilon_max=bo_config.epsilon_max,
-            warmup_rounds=bo_config.warmup_rounds,
+            warmup_rounds=warmup_rounds,
             acquisition_penalty=bo_config.acquisition_penalty,
             grid_points=bo_config.grid_points,
             gp_kernel=bo_config.gp_kernel,

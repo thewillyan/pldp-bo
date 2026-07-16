@@ -176,7 +176,7 @@ def test_rdp_accountant_serialization_empty() -> None:
 def _make_bo_config(**kwargs) -> BOConfig:
     defaults = dict(
         enabled=True,
-        warmup_rounds=20,
+        min_warmup=20,
         epsilon_min=0.1,
         epsilon_max=10.0,
         epsilon_budget=10.0,
@@ -193,8 +193,6 @@ def _make_personalization_config(**kwargs) -> PersonalizationConfig:
         enabled=True,
         strategy="custom",
         client_epsilon_map={0: 5.0, 1: 2.0},
-        epsilon_min=0.1,
-        epsilon_max=10.0,
     )
     defaults.update(kwargs)
     return PersonalizationConfig(**defaults)
@@ -255,7 +253,7 @@ class TestAssignEpsilonBounds:
         pc = _make_personalization_config(enabled=False)
         bc = _make_bo_config(
             bounds_strategy="global",
-            warmup_rounds=20,
+            min_warmup=20,
             client_warmup_rounds_map={"0": 15, "5": 25},
         )
         dataset = _make_dataset([0, 1, 2])
@@ -285,8 +283,6 @@ class TestAssignEpsilonBounds:
     def test_from_epsilon_data_proportional(self) -> None:
         pc = _make_personalization_config(
             strategy="data_proportional",
-            epsilon_min=0.1,
-            epsilon_max=10.0,
         )
         bc = _make_bo_config(
             bounds_strategy="from_epsilon",
@@ -294,8 +290,8 @@ class TestAssignEpsilonBounds:
             bounds_ratio_max=2.0,
         )
         small = _make_dataset([0] * 10)
-        eps_min, eps_max, _ = assign_epsilon_bounds(0, small, pc, bc, num_clients=10)
-        # weight = expected_per_client / client_size = (10*10/10) / 10 = 1.0
+        eps_min, eps_max, _ = assign_epsilon_bounds(0, small, pc, bc, num_clients=10, total_train_size=100)
+        # weight = client_size / expected_per_client = 10 / (100/10) = 1.0
         # eps_min = max(1.0 * 0.2, 1e-6) = 0.2
         # eps_max = 1.0 * 2.0 = 2.0
         assert eps_min == pytest.approx(0.2)
@@ -312,7 +308,7 @@ class TestAssignEpsilonBounds:
         pc = _make_personalization_config(enabled=False)
         bc = _make_bo_config(
             bounds_strategy="global",
-            warmup_rounds=20,
+            min_warmup=20,
             client_warmup_rounds_map={0: 15, 5: 25},
         )
         dataset = _make_dataset([0, 1, 2])
