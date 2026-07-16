@@ -106,7 +106,7 @@ class PLDPBOScheduler(EpsilonScheduler):
         self._gp: GaussianProcessRegressor | None = None
         self._f_best: float = float("inf")
         self._remaining_budget: float | None = None
-        self._warm_start_kernel: Kernel | None = None
+        self._restored_kernel: Kernel | None = None
 
     def set_remaining_budget(self, remaining: float | None) -> None:
         self._remaining_budget = remaining
@@ -134,15 +134,9 @@ class PLDPBOScheduler(EpsilonScheduler):
         x = np.array([[eps] for eps, _ in self._observations])
         y = np.array([m for _, m in self._observations])
         kernel = _build_kernel(self._gp_kernel_name, self._observation_noise)
-        if self._warm_start_kernel is not None:
-            # use kernel hyperparameters restored from serialized state,
-            # carrying forward learned length-scales and noise levels
-            kernel = self._warm_start_kernel
-            self._warm_start_kernel = None
+        if self._restored_kernel is not None:
+            kernel = self._restored_kernel
         elif self._gp is not None:
-            # carry forward kernel hyperparameters (length-scale, noise-level)
-            # learned from previous fits, providing warm-start continuity
-            # across sequential BO rounds
             kernel = self._gp.kernel_
         self._gp = GaussianProcessRegressor(
             kernel=kernel,
@@ -191,8 +185,8 @@ class PLDPBOScheduler(EpsilonScheduler):
         }
         if self._remaining_budget is not None:
             state["remaining_budget"] = self._remaining_budget
-        if self._warm_start_kernel is not None:
-            state["gp_kernel_params"] = json.dumps(_serialize_kernel_params(self._warm_start_kernel.get_params(deep=True)))
+        if self._restored_kernel is not None:
+            state["gp_kernel_params"] = json.dumps(_serialize_kernel_params(self._restored_kernel.get_params(deep=True)))
         elif self._gp is not None:
             state["gp_kernel_params"] = json.dumps(_serialize_kernel_params(self._gp.kernel_.get_params(deep=True)))
         if self._seed is not None:
@@ -224,7 +218,7 @@ class PLDPBOScheduler(EpsilonScheduler):
             raw = state["gp_kernel_params"]
             params = json.loads(raw) if isinstance(raw, str) else raw
             k.set_params(**params)
-            scheduler._warm_start_kernel = k
+            scheduler._restored_kernel = k
         if scheduler._phase == "bo":
             scheduler._fit_gp()
         return scheduler
