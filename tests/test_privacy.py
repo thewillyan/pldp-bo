@@ -371,28 +371,4 @@ class TestComputeUtilityLoss:
 # ---------------------------------------------------------------------------
 
 
-class TestWeightClamping:
-    def test_clamping_uses_10x_clipping_norm(self) -> None:
-        clipping_norm = 1.0
-        delta_flat = np.array([1000.0, -2000.0, 500.0])  # extreme noise values
-        bound = 10.0 * clipping_norm
-        clamped = np.clip(delta_flat, -bound, bound)
-        assert np.all(clamped >= -bound), f"Values below -{bound}: {clamped}"
-        assert np.all(clamped <= bound), f"Values above {bound}: {clamped}"
-        assert clamped[0] == bound   # 1000 → 10
-        assert clamped[1] == -bound  # -2000 → -10
 
-    def test_clamping_uses_10x_clipping_norm_larger_clip(self) -> None:
-        clipping_norm = 5.0
-        delta_flat = np.array([1000.0, -2000.0])
-        bound = 10.0 * clipping_norm  # 50
-        clamped = np.clip(delta_flat, -bound, bound)
-        assert clamped[0] == 50.0
-        assert clamped[1] == -50.0
-
-    def test_values_within_bound_are_unchanged(self) -> None:
-        clipping_norm = 1.0
-        delta_flat = np.array([1.0, -2.0, 3.0])
-        bound = 10.0 * clipping_norm
-        clamped = np.clip(delta_flat, -bound, bound)
-        np.testing.assert_array_equal(clamped, delta_flat)
