@@ -341,19 +341,27 @@ class TestFullRoundLifecycle:
             warmup_rounds=self.WARMUP,
             seed=42,
         )
+        accountant = RDPAccountant(delta=self.DELTA)
+
+        # Run warmup to get beyond phase transition
+        for _ in range(self.WARMUP + 1):
+            eps = scheduler.get_epsilon()
+            sigma = calibrate_sigma(eps, self.C, self.DELTA)
+            accountant.step(sigma=sigma, clipping_norm=self.C, num_steps=1)
+            scheduler.step(eps, 0.5)
+
         round_before = scheduler._round
+        n_obs_before = len(scheduler._observations)
 
-        fit_metrics = {
-            "update_norm": 0.0,
-            "utility_loss": 0.0,
-            "budget_exhausted": True,
-        }
-        metric_key = _OPTIMIZATION_METRIC_KEY_MAP["nun"]
-        metric_value = fit_metrics.get(metric_key)
-        exhausted = fit_metrics.get("budget_exhausted", False)
+        # Simulate the guard in client_app.py: when budget_exhausted is True,
+        # scheduler.step() should NOT be called
+        epsilon = scheduler.get_epsilon()
+        fit_metrics = {"budget_exhausted": True, "update_norm": 1.5, "utility_loss": 0.5}
+        if not fit_metrics.get("budget_exhausted", False):
+            metric_key = _OPTIMIZATION_METRIC_KEY_MAP["nun"]
+            metric_value = fit_metrics.get(metric_key)
+            if metric_value is not None:
+                scheduler.step(epsilon, float(metric_value))
 
-        assert metric_value is not None
-        assert exhausted
-        # scheduler.step should NOT be called when exhausted
-        # (verified by _round not incrementing)
-        assert scheduler._round == round_before
+        assert scheduler._round == round_before, "scheduler._round should not increment"
+        assert len(scheduler._observations) == n_obs_before, "should not add observation"
