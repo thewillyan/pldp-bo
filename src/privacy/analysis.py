@@ -22,6 +22,7 @@ def find_noise_for_target_epsilon(
     num_rounds: int,
     clipping_norm: float = 1.0,
     delta: float = 1e-5,
+    sigma_bounds: tuple[float, float] = (0.1, 100.0),
 ) -> float:
     if target_epsilon <= 0:
         raise ValueError("epsilon must be positive")
@@ -38,7 +39,7 @@ def find_noise_for_target_epsilon(
             acc.step(sigma=sigma, clipping_norm=clipping_norm, num_steps=1)
         return acc.get_epsilon()
 
-    lo, hi = 0.1, 100.0
+    lo, hi = sigma_bounds
 
     eps_at_hi = _compute_eps(hi)
     if eps_at_hi > target_epsilon:

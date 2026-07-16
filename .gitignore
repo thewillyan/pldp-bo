@@ -14,3 +14,4 @@ plots/
 tmp/
 .coverage
 coverage.xml
+*.old

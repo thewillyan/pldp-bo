@@ -86,7 +86,9 @@ def plot_client_epsilon_distribution(
             ax2.plot(rds, eps, marker="o", markersize=4, color=color,
                      label=f"Client {cid}", linewidth=1.5)
             last_r, last_eps = data[-1]
-            exhausted = total_rounds > 0 and last_r < total_rounds - 1
+            exhausted = total_rounds > 0 and (
+                last_r < total_rounds - 1 or len(data) < total_rounds
+            )
             marker_color = "#E74C3C" if exhausted else color
             ax2.plot(last_r, last_eps, marker="x", markersize=8,
                      color=marker_color, mew=2)

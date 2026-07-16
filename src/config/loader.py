@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import logging
 import typing
 from dataclasses import dataclass, field, fields
@@ -74,7 +73,7 @@ class BOConfig:
     enabled: bool = False
     max_warmup_ratio: float = 0.0
     min_warmup: int = 3
-    epsilon_min: float = 0.1
+    epsilon_min: float = 0.2
     epsilon_max: float = 10.0
     epsilon_budget: float = 10.0
     optimization_metric: str = "nun"
@@ -179,8 +178,13 @@ def load_config(config_path: str, overrides: dict | None = None) -> ExperimentCo
                         value = sub_config[fld.name]
                         expected = type_hints.get(fld.name)
                         if isinstance(value, str) and expected in (float, int):
-                            with contextlib.suppress(ValueError, TypeError):
+                            try:
                                 value = expected(value)
+                            except (ValueError, TypeError):
+                                logger.warning(
+                                    "Config key '%s.%s': cannot convert '%s' to %s",
+                                    key, fld.name, value, expected.__name__,
+                                )
                         setattr(current, fld.name, value)
 
     if overrides:

@@ -90,6 +90,8 @@ def cmd_single(
     env_uri = os.environ.get("MLFLOW_TRACKING_URI")
     if env_uri:
         tracking_uri = env_uri
+    elif cfg_tracking_uri:
+        tracking_uri = cfg_tracking_uri
     else:
         single_dir = pathlib.Path(f"mlruns/single/{path.stem}")
         single_dir.mkdir(parents=True, exist_ok=True)
