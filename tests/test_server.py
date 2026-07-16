@@ -115,6 +115,62 @@ class TestWeightedAveraging:
         np.testing.assert_array_almost_equal(scaled, aggregated)
 
 
+class TestFilterValidReplies:
+    def test_filters_replies_without_metrics(self) -> None:
+        from flwr.app import Message, MetricRecord, RecordDict
+
+        replies = [
+            Message(
+                content=RecordDict({"metrics": MetricRecord({"num-examples": 5})}),
+                message_type="train",
+                dst_node_id=0,
+            ),
+            Message(
+                content=RecordDict({}),
+                message_type="train",
+                dst_node_id=1,
+            ),
+        ]
+        from src.server.strategy import _filter_valid_replies
+
+        valid = _filter_valid_replies(replies)
+        assert len(valid) == 1
+        assert valid[0].metadata.dst_node_id == 0
+
+    def test_filters_replies_with_zero_examples(self) -> None:
+        from flwr.app import Message, MetricRecord, RecordDict
+
+        replies = [
+            Message(
+                content=RecordDict({"metrics": MetricRecord({"num-examples": 0})}),
+                message_type="train",
+                dst_node_id=0,
+            ),
+            Message(
+                content=RecordDict({"metrics": MetricRecord({"num-examples": 10})}),
+                message_type="train",
+                dst_node_id=1,
+            ),
+        ]
+        from src.server.strategy import _filter_valid_replies
+
+        valid = _filter_valid_replies(replies)
+        assert len(valid) == 1
+        assert valid[0].metadata.dst_node_id == 1
+
+    def test_returns_empty_when_all_invalid(self) -> None:
+        from flwr.app import Message, RecordDict
+
+        replies = [
+            Message(content=RecordDict({}), message_type="train", dst_node_id=0),
+            Message(content=RecordDict({}), message_type="train", dst_node_id=1),
+        ]
+        from src.server.strategy import _filter_valid_replies
+
+        valid = _filter_valid_replies(replies)
+        assert len(valid) == 0
+
+
 class TestModuleConstants:
     def test_eps_is_small_positive(self) -> None:
         assert _EPS > 0

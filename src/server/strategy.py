@@ -4,7 +4,7 @@ from collections.abc import Iterable
 
 import numpy as np
 from flwr.app import Array, ArrayRecord, ConfigRecord, MetricRecord, RecordDict
-from flwr.common import Message
+from flwr.common import Message, Metadata
 from flwr.serverapp.grid.grid import Grid
 from flwr.serverapp.strategy import FedAvg, FedProx
 
@@ -12,6 +12,24 @@ from src.tracking.tracker import ExperimentTracker
 
 _EPS = 1e-12
 _MIN_VALUES_FOR_STATS = 3
+
+
+def _filter_valid_replies(replies: Iterable[Message]) -> list[Message]:
+    """Filter replies to only those with valid training results.
+
+    Replaces Flower's private ``FedAvg._check_and_log_replies`` to avoid
+    depending on an unstable internal API.
+    """
+    valid: list[Message] = []
+    for reply in replies:
+        metrics_rec = reply.content.metric_records.get("metrics")
+        if metrics_rec is None:
+            continue
+        num_examples = metrics_rec.get("num-examples", 0)
+        if num_examples is None or num_examples <= 0:
+            continue
+        valid.append(reply)
+    return valid
 
 
 def _add_budgets_to_messages(
@@ -41,11 +59,22 @@ def _add_budgets_to_messages(
                 content[key] = rec
             for key, rec in msg.content.metric_records.items():
                 content[key] = rec
-            yield Message(
-                content=content,
-                message_type=msg.metadata.message_type,
+
+            orig = msg.metadata
+            new_metadata = Metadata(
+                run_id=orig.run_id,
+                message_id=orig.message_id,
+                src_node_id=orig.src_node_id,
                 dst_node_id=dst,
+                reply_to_message_id=orig.reply_to_message_id,
+                group_id=orig.group_id,
+                created_at=orig.created_at,
+                ttl=orig.ttl,
+                message_type=orig.message_type,
+                src_task_id=orig.src_task_id,
+                dst_task_id=orig.dst_task_id,
             )
+            yield Message(content=content, metadata=new_metadata)
         else:
             yield msg
 
@@ -180,7 +209,7 @@ class MedianRobustAggregation(MetricLoggingMixin, FedAvg):
         server_round: int,
         replies: Iterable[Message],
     ) -> tuple[ArrayRecord | None, MetricRecord | None]:
-        valid_replies, _ = self._check_and_log_replies(replies, is_train=True)
+        valid_replies = _filter_valid_replies(replies)
 
         if not valid_replies:
             return None, None
@@ -265,10 +294,15 @@ class MedianRobustAggregation(MetricLoggingMixin, FedAvg):
 
 
 def _is_budget_exhausted(reply: Message) -> bool:
-    metrics = reply.content.metric_records.get("metrics", {})
-    if metrics is None:
+    metrics_rec = reply.content.metric_records.get("metrics")
+    if metrics_rec is None:
         return False
-    return bool(metrics.get("budget_exhausted", 0))
+    raw = metrics_rec.get("budget_exhausted")
+    if raw is None:
+        return False
+    if isinstance(raw, (list, tuple)):
+        return any(bool(v) for v in raw)
+    return bool(raw)
 
 
 class SafeFedAvg(MetricLoggingMixin, FedAvg):
