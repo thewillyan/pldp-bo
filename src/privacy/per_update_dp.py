@@ -11,6 +11,55 @@ from src.utils import deserialize_rng, serialize_rng
 logger = logging.getLogger(__name__)
 
 
+def _rdp_epsilon_for_sigma(
+    sigma: float,
+    clipping_norm: float,
+    delta: float,
+) -> float:
+    cost = np.array(
+        [compute_rdp_cost(float(a), sigma, clipping_norm) for a in RDP_ALPHAS],
+        dtype=np.float64,
+    )
+    log_one_over_delta = math.log(1.0 / delta)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        epsilons = cost + log_one_over_delta / (RDP_ALPHAS - 1.0)
+    valid = np.isfinite(epsilons)
+    if not valid.any():
+        return float("inf")
+    return float(np.min(epsilons[valid]))
+
+
+def _rdp_calibrate_sigma(
+    epsilon: float,
+    clipping_norm: float,
+    delta: float,
+    sigma_min: float = 0.01,
+    sigma_max: float = 5e7,
+) -> float:
+    eps_at_max = _rdp_epsilon_for_sigma(sigma_max, clipping_norm, delta)
+    if eps_at_max > epsilon:
+        logger.warning(
+            "_rdp_calibrate_sigma: target epsilon=%.4f is below the "
+            "fundamental RDP lower bound ≈%.4f for delta=%.0e. "
+            "Returning sigma_max=%.0e; actual privacy will be stronger "
+            "than requested but epsilon will be clamped to ≈%.4f.",
+            epsilon, eps_at_max, delta, sigma_max, eps_at_max,
+        )
+        return sigma_max
+    eps_at_min = _rdp_epsilon_for_sigma(sigma_min, clipping_norm, delta)
+    if eps_at_min < epsilon:
+        return sigma_min
+    lo, hi = sigma_min, sigma_max
+    for _ in range(50):
+        mid = (lo + hi) / 2.0
+        eps = _rdp_epsilon_for_sigma(mid, clipping_norm, delta)
+        if eps > epsilon:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2.0
+
+
 def calibrate_sigma(
     epsilon: float,
     clipping_norm: float,
@@ -23,11 +72,11 @@ def calibrate_sigma(
         raise ValueError("delta must be in (0, 1)")
     if clipping_norm <= 0:
         raise ValueError("clipping_norm must be positive")
-    sigma = clipping_norm * math.sqrt(2.0 * math.log(1.25 / delta)) / epsilon
+    sigma = _rdp_calibrate_sigma(epsilon, clipping_norm, delta)
     floor = min_sigma if min_sigma is not None else clipping_norm
     if sigma < floor:
         logger.warning(
-            "calibrate_sigma: analytical sigma=%.6f for clipping_norm=%.2f, "
+            "calibrate_sigma: RDP-calibrated sigma=%.6f for clipping_norm=%.2f, "
             "epsilon=%.2f is below floor %.6f; clamping to floor. "
             "Actual privacy will be stronger than requested epsilon.",
             sigma, clipping_norm, epsilon, floor,
