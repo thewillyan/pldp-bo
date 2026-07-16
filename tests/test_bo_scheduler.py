@@ -194,7 +194,7 @@ class TestPLDPBOScheduler:
         assert state["gp_kernel_params"] is not None
 
         restored = PLDPBOScheduler.from_state(state)
-        # _warm_start_kernel is consumed by _fit_gp during from_state;
+        # _restored_kernel is used (not consumed) by _fit_gp during from_state;
         # verify preservation by checking that GP predictions match
         np.testing.assert_array_almost_equal(
             restored._gp.predict(np.array([[0.5], [2.5]]), return_std=True)[0],
