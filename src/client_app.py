@@ -113,6 +113,13 @@ def train(msg: Message, context: Context) -> Message:
     }
     config = load_config(config_path, overrides=overrides)
 
+    if config.bo.enabled:
+        _VALID_BO_METRICS = {"nun", "utility"}
+        if config.bo.optimization_metric not in _VALID_BO_METRICS:
+            raise ValueError(
+                f"Invalid bo.optimization_metric='{config.bo.optimization_metric}'. "
+                f"Must be one of {sorted(_VALID_BO_METRICS)}."
+            )
 
     set_seed(config.seed, deterministic=config.deterministic)
 
@@ -143,6 +150,10 @@ def train(msg: Message, context: Context) -> Message:
             bounds_min = None
             bounds_max = None
             warmup = None
+            if config.privacy.target_epsilon is not None:
+                eps_min_per_client = config.privacy.target_epsilon * 0.01
+            elif config.privacy.total_budget is not None:
+                eps_min_per_client = config.privacy.total_budget * 0.001 / config.federated.num_rounds
 
         if ACCOUNTANT_STATE_KEY in context.state:
             state = context.state[ACCOUNTANT_STATE_KEY]
@@ -215,12 +226,10 @@ def train(msg: Message, context: Context) -> Message:
     num_examples, fit_metrics = client.fit(parameters, {})[1:]
 
     if scheduler is not None and accountant is not None and not fit_metrics.get("budget_exhausted", False):
-            metric_key = _OPTIMIZATION_METRIC_KEY_MAP.get(
-                config.bo.optimization_metric, config.bo.optimization_metric,
-            )
-            metric_value = fit_metrics.get(metric_key)
-            if metric_value is not None:
-                scheduler.step(epsilon, float(metric_value))
+        metric_key = _OPTIMIZATION_METRIC_KEY_MAP[config.bo.optimization_metric]
+        metric_value = fit_metrics.get(metric_key)
+        if metric_value is not None:
+            scheduler.step(epsilon, float(metric_value))
 
     if accountant is not None and config.privacy.enabled:
         context.state[ACCOUNTANT_STATE_KEY] = ConfigRecord(accountant.get_state())
