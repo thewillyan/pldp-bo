@@ -23,6 +23,11 @@ def compute_budget_weight(
     if strategy == "custom":
         return _weight_custom(partition_id, config)
     if strategy == "data_proportional":
+        if total_train_size is None:
+            raise ValueError(
+                "total_train_size is required for data_proportional strategy. "
+                "This should be provided by the caller (e.g., via create_client_dataloader)."
+            )
         return _weight_data_proportional(train_dataset, num_clients, total_train_size=total_train_size)
     if strategy == "heterogeneity":
         return _weight_heterogeneity(train_dataset)
@@ -51,7 +56,7 @@ def _weight_custom(partition_id: int, config: PersonalizationConfig) -> float:
 
 def _weight_data_proportional(
     dataset: Dataset | Subset, num_clients: int,
-    total_train_size: int | None = None,
+    total_train_size: int,
 ) -> float:
     """Budget weight proportional to data size.
 
@@ -60,8 +65,7 @@ def _weight_data_proportional(
     smaller weight (stronger privacy / more noise).
     """
     client_size = len(dataset)
-    total_size = total_train_size if total_train_size is not None else client_size * num_clients
-    expected_per_client = total_size / num_clients
+    expected_per_client = total_train_size / num_clients
     return client_size / expected_per_client
 
 

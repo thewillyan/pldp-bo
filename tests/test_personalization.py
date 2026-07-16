@@ -77,6 +77,29 @@ def test_weight_data_proportional_strategy() -> None:
     assert small_weight < large_weight
 
 
+def test_weight_data_proportional_exact_value() -> None:
+    total_size = 100
+    config = PersonalizationConfig(
+        enabled=True,
+        strategy="data_proportional",
+    )
+    # Client with 30 samples out of 100 total across 5 clients
+    dataset = _make_dataset([0, 1] * 15)
+    weight = compute_budget_weight(0, dataset, config, num_clients=5, total_train_size=total_size)
+    expected = 30.0 / (100.0 / 5.0)  # client_size / expected_per_client = 30 / 20 = 1.5
+    assert weight == pytest.approx(expected)
+
+
+def test_weight_data_proportional_requires_total_train_size() -> None:
+    config = PersonalizationConfig(
+        enabled=True,
+        strategy="data_proportional",
+    )
+    dataset = _make_dataset([0, 1] * 5)
+    with pytest.raises(ValueError, match="total_train_size is required"):
+        compute_budget_weight(0, dataset, config, num_clients=2, total_train_size=None)
+
+
 def test_weight_heterogeneity_strategy() -> None:
     config = PersonalizationConfig(
         enabled=True,
