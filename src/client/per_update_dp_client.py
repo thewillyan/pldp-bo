@@ -105,7 +105,10 @@ class PerUpdateDPClient(FlowerClient):
         elif self.config.privacy.target_epsilon is not None:
             epsilon = self.config.privacy.target_epsilon
         else:
-            epsilon = 1.0
+            raise ValueError(
+                "No epsilon source for PerUpdateDPClient. "
+                "Provide client_epsilon or set privacy.target_epsilon in config."
+            )
 
         local_weights = self.model.get_weights()
         global_weights = [

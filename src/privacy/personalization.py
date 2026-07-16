@@ -73,7 +73,7 @@ def _weight_heterogeneity(
     dataset: Dataset | Subset,
 ) -> float:
     entropy = _compute_label_entropy(dataset)
-    normalized_entropy = entropy / math.log(_get_num_classes(dataset)) if entropy > 0 else 0.0
+    normalized_entropy = entropy / math.log(max(_get_num_classes(dataset), 2)) if entropy > 0 else 0.0
     return 1.0 - normalized_entropy
 
 
@@ -153,7 +153,8 @@ def assign_epsilon_bounds(
                 f"Available eps_min keys: {sorted(eps_min_map.keys())}, "
                 f"eps_max keys: {sorted(eps_max_map.keys())}",
             )
-        warmup = _resolve_warmup(partition_id, bo_config, num_clients, num_rounds)
+        weight = eps_max / max(bo_config.epsilon_max, 1e-12)
+        warmup = _resolve_warmup(partition_id, bo_config, num_clients, num_rounds, weight)
         return eps_min, eps_max, warmup
 
     if strategy == "from_epsilon":

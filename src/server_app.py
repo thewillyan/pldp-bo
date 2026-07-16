@@ -52,6 +52,11 @@ def _compute_per_client_budgets(
     # Other personalization strategies: discover budget weights via QUERY
     if config.personalization.enabled:
         node_ids = list(grid.get_node_ids())
+        if not node_ids:
+            logger.warning("No nodes discovered for budget setup, retrying in 5s...")
+            import time
+            time.sleep(5)
+            node_ids = list(grid.get_node_ids())
         if node_ids:
             query_msgs = [
                 Message(
@@ -91,8 +96,10 @@ def _compute_per_client_budgets(
             logger.warning("No nodes available for setup; falling back to equal division")
 
     # Equal division — partition_id assumed to equal node_id.
-    per_client = total_budget / num_clients
-    budgets = {cid: per_client for cid in range(num_clients)}
+    node_ids = list(grid.get_node_ids())
+    actual_count = len(node_ids) if node_ids else num_clients
+    per_client = total_budget / actual_count
+    budgets = {cid: per_client for cid in range(actual_count)}
     return budgets, None
 
 
