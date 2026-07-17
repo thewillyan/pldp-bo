@@ -79,7 +79,7 @@ class PerUpdateDPClient(FlowerClient):
         net = self.model.get_model().to(get_device())
         net.train()
 
-        proximal_mu = config.get("proximal-mu", self.config.federated.proximal_mu)
+        proximal_mu = self.config.federated.proximal_mu
         global_params = copy.deepcopy(list(net.parameters())) if proximal_mu > 0 else []
 
         optimizer = _get_optimizer(net, self.config)

@@ -68,13 +68,18 @@ def _make_scheduler(
             grid_points=config.bo.grid_points,
             gp_kernel=config.bo.gp_kernel,
             observation_noise=config.bo.observation_noise,
+            budget_margin=config.bo.budget_margin,
             seed=config.seed + partition_id,
         )
     if config.personalization.enabled:
         return None
     if config.privacy.target_epsilon is not None:
         return FixedEpsilonScheduler(config.privacy.target_epsilon)
-    return None
+    return UniformRandomEpsilonScheduler(
+        epsilon_min=config.bo.epsilon_min,
+        epsilon_max=config.bo.epsilon_max,
+        seed=config.seed + partition_id,
+    )
 
 
 def _restore_or_create_scheduler(

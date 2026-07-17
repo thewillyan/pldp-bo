@@ -89,6 +89,7 @@ class PLDPBOScheduler(EpsilonScheduler):
         grid_points: int = 100,
         gp_kernel: str = "matern52",
         observation_noise: float = 0.01,
+        budget_margin: float = 0.1,
         seed: int | None = None,
     ) -> None:
         if epsilon_min <= 0:
@@ -101,6 +102,8 @@ class PLDPBOScheduler(EpsilonScheduler):
             raise ValueError("acquisition_penalty must be non-negative")
         if grid_points < 10:
             raise ValueError("grid_points must be at least 10")
+        if not 0.0 <= budget_margin <= 1.0:
+            raise ValueError("budget_margin must be in [0, 1]")
 
         self._epsilon_min = epsilon_min
         self._epsilon_max = epsilon_max
@@ -109,6 +112,7 @@ class PLDPBOScheduler(EpsilonScheduler):
         self._grid_points = grid_points
         self._gp_kernel_name = gp_kernel
         self._observation_noise = observation_noise
+        self._budget_margin = budget_margin
         self._seed = seed
         self._rng = np.random.RandomState(seed)
 
@@ -151,6 +155,7 @@ class PLDPBOScheduler(EpsilonScheduler):
         kernel = _build_kernel(self._gp_kernel_name, self._observation_noise)
         if self._restored_kernel is not None:
             kernel = self._restored_kernel
+            self._restored_kernel = None
         elif self._gp is not None:
             kernel = self._gp.kernel_
         n_restarts = 3 if optimize else 0
@@ -181,8 +186,7 @@ class PLDPBOScheduler(EpsilonScheduler):
         # composition (non-linear). Reserve a conservative margin to avoid
         # selecting points that will be rejected by the RDP enforcement.
         if self._remaining_budget is not None:
-            budget_margin = 0.1
-            alpha[grid > self._remaining_budget * (1 - budget_margin)] = -np.inf
+            alpha[grid > self._remaining_budget * (1 - self._budget_margin)] = -np.inf
 
         # Degenerate case (all ei_norm equal → all zeros): alpha = -λ · penalty,
         # which automatically selects epsilon_min as argmax.
@@ -198,6 +202,7 @@ class PLDPBOScheduler(EpsilonScheduler):
             "grid_points": self._grid_points,
             "gp_kernel": self._gp_kernel_name,
             "observation_noise": self._observation_noise,
+            "budget_margin": self._budget_margin,
             "phase": self._phase,
             "round": self._round,
             "observations": json.dumps(self._observations),
@@ -224,6 +229,7 @@ class PLDPBOScheduler(EpsilonScheduler):
             grid_points=state["grid_points"],
             gp_kernel=state["gp_kernel"],
             observation_noise=state["observation_noise"],
+            budget_margin=state.get("budget_margin", 0.1),
             seed=state.get("seed"),
         )
         scheduler._phase = state["phase"]
