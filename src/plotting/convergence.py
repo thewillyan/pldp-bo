@@ -31,28 +31,40 @@ def plot_convergence(
             stacklevel=2,
         )
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    has_loss = bool(losses)
+    has_acc = bool(accuracies)
+    ncols = int(has_loss) + int(has_acc)
 
-    if losses:
-        ax1.plot(rounds, losses, marker="o", markersize=3)
-        ax1.set_xlabel("Round")
-        ax1.set_ylabel("Loss")
-        ax1.set_title("Server Loss vs Round")
-        ax1.grid(True, alpha=0.3)
-
-    if accuracies:
-        ax2.plot(acc_rounds, accuracies, marker="o", markersize=3, color="green")
-        ax2.set_xlabel("Round")
-        ax2.set_ylabel("Accuracy")
-        ax2.set_title("Accuracy vs Round")
-        ax2.grid(True, alpha=0.3)
+    if ncols == 1:
+        fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+        axes = [ax]
+    else:
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+        axes = [ax1, ax2]
 
     all_rounds = list(rounds) + list(acc_rounds)
-    if all_rounds:
-        x_min, x_max = min(all_rounds), max(all_rounds)
-        pad = 0.02 * (x_max - x_min) or 0.5
-        ax1.set_xlim(x_min - pad, x_max + pad)
-        ax2.set_xlim(x_min - pad, x_max + pad)
+    x_min, x_max = min(all_rounds), max(all_rounds)
+    pad = 0.02 * (x_max - x_min) or 0.5
+
+    ax_idx = 0
+    if has_loss:
+        ax = axes[ax_idx]
+        ax.plot(rounds, losses, marker="o", markersize=3)
+        ax.set_xlabel("Round")
+        ax.set_ylabel("Loss")
+        ax.set_title("Server Loss vs Round")
+        ax.grid(True, alpha=0.3)
+        ax.set_xlim(x_min - pad, x_max + pad)
+        ax_idx += 1
+
+    if has_acc:
+        ax = axes[ax_idx]
+        ax.plot(acc_rounds, accuracies, marker="o", markersize=3, color="green")
+        ax.set_xlabel("Round")
+        ax.set_ylabel("Accuracy")
+        ax.set_title("Accuracy vs Round")
+        ax.grid(True, alpha=0.3)
+        ax.set_xlim(x_min - pad, x_max + pad)
 
     plt.tight_layout()
 

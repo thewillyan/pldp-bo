@@ -274,7 +274,7 @@ class TestPlotConvergence:
 
             with pytest.warns(UserWarning, match="No server_loss data"):
                 fig = plot_convergence("test_id")
-        assert len(fig.axes) == 2
+        assert len(fig.axes) == 1
         plt.close(fig)
 
     def test_partial_accuracy(self) -> None:
@@ -287,7 +287,7 @@ class TestPlotConvergence:
 
             with pytest.warns(UserWarning, match="No accuracy data"):
                 fig = plot_convergence("test_id")
-        assert len(fig.axes) == 2
+        assert len(fig.axes) == 1
         plt.close(fig)
 
     def test_save_path(self, tmp_path: Path) -> None:
