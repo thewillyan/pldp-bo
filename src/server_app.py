@@ -103,9 +103,11 @@ def _compute_per_client_budgets(
             )
         budgets = {cid: total_budget * w / total_weight for cid, w in weight_map.items()}
         for nid in node_ids:
-            if nid not in node_to_partition:
-                node_to_partition[nid] = nid
-                budgets[nid] = total_budget / len(node_ids)
+            pid = node_to_partition.get(nid, nid)
+            if pid not in budgets:
+                if nid not in node_to_partition:
+                    node_to_partition[nid] = nid
+                budgets[pid] = total_budget / len(node_ids)
         return budgets, node_to_partition
 
     # Other personalization strategies: discover budget weights in a single QUERY round
@@ -141,9 +143,11 @@ def _compute_per_client_budgets(
                 for cid, w in client_weights.items()
             }
             for nid in node_ids:
-                if nid not in node_to_partition:
-                    node_to_partition[nid] = nid
-                    budgets[nid] = total_budget / len(node_ids)
+                pid = node_to_partition.get(nid, nid)
+                if pid not in budgets:
+                    if nid not in node_to_partition:
+                        node_to_partition[nid] = nid
+                    budgets[pid] = total_budget / len(node_ids)
             return budgets, node_to_partition
         logger.warning(
             "No clients returned budget weights; falling back to equal division",

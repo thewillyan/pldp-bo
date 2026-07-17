@@ -339,12 +339,13 @@ class SafeFedAvg(MetricLoggingMixin, FedAvg):
         server_round: int,
         replies: Iterable[Message],
     ) -> tuple[ArrayRecord | None, MetricRecord | None]:
-        valid_replies = [r for r in replies if not _is_budget_exhausted(r)]
-        if not valid_replies:
+        valid_replies = _filter_valid_replies(replies)
+        active_replies = [r for r in valid_replies if not _is_budget_exhausted(r)]
+        if not active_replies:
             return None, None
-        reply_contents = [r.content for r in valid_replies]
+        reply_contents = [r.content for r in active_replies]
         self._log_client_metrics(server_round, reply_contents)
-        result_arrays, metrics = super().aggregate_train(server_round, valid_replies)
+        result_arrays, metrics = super().aggregate_train(server_round, active_replies)
 
         if result_arrays is not None and self._current_arrays is not None:
             global_keys = list(self._current_arrays.keys())
@@ -390,12 +391,13 @@ class SafeFedProx(MetricLoggingMixin, FedProx):
         server_round: int,
         replies: Iterable[Message],
     ) -> tuple[ArrayRecord | None, MetricRecord | None]:
-        valid_replies = [r for r in replies if not _is_budget_exhausted(r)]
-        if not valid_replies:
+        valid_replies = _filter_valid_replies(replies)
+        active_replies = [r for r in valid_replies if not _is_budget_exhausted(r)]
+        if not active_replies:
             return None, None
-        reply_contents = [r.content for r in valid_replies]
+        reply_contents = [r.content for r in active_replies]
         self._log_client_metrics(server_round, reply_contents)
-        result_arrays, metrics = super().aggregate_train(server_round, valid_replies)
+        result_arrays, metrics = super().aggregate_train(server_round, active_replies)
 
         if result_arrays is not None and self._current_arrays is not None:
             global_keys = list(self._current_arrays.keys())

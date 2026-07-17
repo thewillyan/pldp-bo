@@ -240,7 +240,7 @@ class TestComputePerClientBudgetsIntegration:
             "personalization.client_epsilon_map": {"0": 1.0, "3": 3.0},
         })
         budgets, n2p = _compute_per_client_budgets(grid, config)
-        assert budgets == {0: 2.0, 3: 6.0}
+        assert budgets == {0: 2.0, 3: 6.0, 1: 4.0}
         assert n2p == {1001: 0, 1002: 1}
 
     def test_custom_fallback_equal_on_zero_weight(self) -> None:
