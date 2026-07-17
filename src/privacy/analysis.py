@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import math
+
+import numpy as np
+
 from src.privacy.accountant import RDPAccountant
+from src.privacy.constants import RDP_ALPHAS
+from src.privacy.per_update_dp import compute_rdp_cost
 
 
 def simulate_epsilon(
@@ -9,11 +15,22 @@ def simulate_epsilon(
     clipping_norm: float = 1.0,
     delta: float = 1e-5,
 ) -> list[float]:
-    accountant = RDPAccountant(delta=delta)
+    cost_per_alpha = np.array(
+        [compute_rdp_cost(float(a), sigma, clipping_norm) for a in RDP_ALPHAS],
+        dtype=np.float64,
+    )
+    log_one_over_delta = math.log(1.0 / delta)
     epsilons: list[float] = []
+    cumulative = np.zeros_like(cost_per_alpha)
     for _ in range(num_rounds):
-        accountant.step(sigma=sigma, clipping_norm=clipping_norm, num_steps=1)
-        epsilons.append(accountant.get_epsilon())
+        cumulative += cost_per_alpha
+        with np.errstate(divide="ignore", invalid="ignore"):
+            eps_vals = cumulative + log_one_over_delta / (RDP_ALPHAS - 1.0)
+        valid = np.isfinite(eps_vals)
+        if not valid.any():
+            epsilons.append(float("inf"))
+        else:
+            epsilons.append(float(np.min(eps_vals[valid])))
     return epsilons
 
 
@@ -35,8 +52,7 @@ def find_noise_for_target_epsilon(
 
     def _compute_eps(sigma: float) -> float:
         acc = RDPAccountant(delta=delta)
-        for _ in range(num_rounds):
-            acc.step(sigma=sigma, clipping_norm=clipping_norm, num_steps=1)
+        acc.step(sigma=sigma, clipping_norm=clipping_norm, num_steps=num_rounds)
         return acc.get_epsilon()
 
     lo, hi = sigma_bounds
