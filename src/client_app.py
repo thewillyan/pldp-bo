@@ -153,7 +153,7 @@ def train(msg: Message, context: Context) -> Message:
             if config.privacy.target_epsilon is not None:
                 eps_min_per_client = config.privacy.target_epsilon * 0.01
             elif config.privacy.total_budget is not None:
-                eps_min_per_client = config.privacy.total_budget * 0.001 / config.federated.num_rounds
+                eps_min_per_client = config.privacy.total_budget * 0.01 / config.federated.num_rounds
 
         if ACCOUNTANT_STATE_KEY in context.state:
             state = context.state[ACCOUNTANT_STATE_KEY]
@@ -192,7 +192,7 @@ def train(msg: Message, context: Context) -> Message:
         if hasattr(scheduler, "set_remaining_budget"):
             scheduler.set_remaining_budget(remaining)
 
-    epsilon = _resolve_epsilon(
+    epsilon, computed_sigma = _resolve_epsilon(
         scheduler, accountant, config, total_budget,
         eps_min=eps_min_per_client,
     )
@@ -203,6 +203,7 @@ def train(msg: Message, context: Context) -> Message:
             epsilon,
         )
         epsilon = 0.0  # sentinel: PerUpdateDPClient._check_budget checks for == 0
+        computed_sigma = 0.0
     logger.debug("Client %d using epsilon=%.4f", partition_id, epsilon)
 
     client_model = create_model(config.model, dataset_name=config.data.name)
@@ -213,6 +214,7 @@ def train(msg: Message, context: Context) -> Message:
         valloader=valloader,
         config=config,
         client_epsilon=epsilon,
+        computed_sigma=computed_sigma if computed_sigma > 0 else None,
         accountant=accountant,
         seed=client_seed,
         mechanism_state=mechanism_state,
@@ -225,7 +227,7 @@ def train(msg: Message, context: Context) -> Message:
     parameters = arrays.to_numpy_ndarrays()
     num_examples, fit_metrics = client.fit(parameters, {})[1:]
 
-    if scheduler is not None and accountant is not None and not fit_metrics.get("budget_exhausted", False):
+    if config.bo.enabled and scheduler is not None and accountant is not None and not fit_metrics.get("budget_exhausted", False):
         metric_key = _OPTIMIZATION_METRIC_KEY_MAP[config.bo.optimization_metric]
         metric_value = fit_metrics.get(metric_key)
         if metric_value is not None:
@@ -257,7 +259,8 @@ def _resolve_epsilon(
     config: ExperimentConfig,
     total_budget: float | None = None,
     eps_min: float | None = None,
-) -> float:
+) -> tuple[float, float]:
+    """Return (epsilon, sigma) where sigma is None if no budget enforcement applies."""
     if scheduler is not None:
         candidate = scheduler.get_epsilon()
     elif config.personalization.enabled:
@@ -269,7 +272,7 @@ def _resolve_epsilon(
         if total_budget is not None and total_budget > 0:
             candidate = total_budget / config.federated.num_rounds
         else:
-            return 0.0
+            return 0.0, 0.0
     elif config.privacy.target_epsilon is not None:
         candidate = config.privacy.target_epsilon
     elif config.privacy.enabled:
@@ -279,18 +282,19 @@ def _resolve_epsilon(
             "or disable privacy."
         )
     else:
-        return 0.0
+        return 0.0, 0.0
 
     if accountant is not None and total_budget is not None:
         c = config.privacy.update_clip_norm
         delta = config.privacy.delta
         lower_bound = eps_min if eps_min is not None else 1e-6
-        candidate = enforce_epsilon_budget(
+        candidate, computed_sigma = enforce_epsilon_budget(
             candidate, accountant.rdp_per_alpha, total_budget,
             lower_bound, c, delta,
         )
+        return candidate, computed_sigma
 
-    return candidate
+    return candidate, 0.0
 
 
 @app.query()

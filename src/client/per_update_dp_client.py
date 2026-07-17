@@ -28,12 +28,14 @@ class PerUpdateDPClient(FlowerClient):
         valloader: DataLoader,
         config: ExperimentConfig,
         client_epsilon: float | None = None,
+        computed_sigma: float | None = None,
         accountant: RDPAccountant | None = None,
         seed: int | None = None,
         mechanism_state: dict | None = None,
     ) -> None:
         super().__init__(model, trainloader, valloader, config)
         self._client_epsilon = client_epsilon
+        self._computed_sigma = computed_sigma
         self._accountant = accountant
         if mechanism_state:
             self._mechanism = PerUpdateGaussianMechanism.from_state(
@@ -114,7 +116,7 @@ class PerUpdateDPClient(FlowerClient):
         delta = [lw - gw for lw, gw in zip(local_weights, global_weights, strict=True)]
 
         flat_delta = np.concatenate([d.ravel() for d in delta])
-        noisy_flat, sigma = self._mechanism.apply(flat_delta, epsilon)
+        noisy_flat, sigma = self._mechanism.apply(flat_delta, epsilon, sigma=self._computed_sigma)
 
         if self._accountant is not None:
             self._accountant.step(

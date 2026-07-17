@@ -221,7 +221,7 @@ def test_rdp_accountant_diagnostics_empty() -> None:
 class TestEnforceEpsilonBudget:
     def test_valid_epsilon_unchanged(self) -> None:
         accountant = RDPAccountant(delta=1e-5)
-        result = enforce_epsilon_budget(
+        result_eps, result_sigma = enforce_epsilon_budget(
             candidate_epsilon=2.0,
             current_rdp=accountant.rdp_per_alpha,
             epsilon_budget=8.0,
@@ -229,12 +229,13 @@ class TestEnforceEpsilonBudget:
             clipping_norm=1.0,
             delta=1e-5,
         )
-        assert result == pytest.approx(2.0, rel=1e-3)
+        assert result_eps == pytest.approx(2.0, rel=1e-3)
+        assert result_sigma > 0
 
     def test_reduces_epsilon_when_budget_violated(self) -> None:
         accountant = RDPAccountant(delta=1e-5)
         accountant.step(sigma=10.0, clipping_norm=1.0, num_steps=1)
-        result = enforce_epsilon_budget(
+        result_eps, result_sigma = enforce_epsilon_budget(
             candidate_epsilon=5.0,
             current_rdp=accountant.rdp_per_alpha,
             epsilon_budget=2.0,
@@ -242,12 +243,13 @@ class TestEnforceEpsilonBudget:
             clipping_norm=1.0,
             delta=1e-5,
         )
-        assert 0.1 <= result < 5.0
+        assert 0.1 <= result_eps < 5.0
+        assert result_sigma > 0
 
     def test_exhausted_budget_returns_sentinel(self) -> None:
         accountant = RDPAccountant(delta=1e-5)
         accountant.step(sigma=0.1, clipping_norm=1.0, num_steps=200)
-        result = enforce_epsilon_budget(
+        result_eps, result_sigma = enforce_epsilon_budget(
             candidate_epsilon=1.0,
             current_rdp=accountant.rdp_per_alpha,
             epsilon_budget=0.5,
@@ -255,11 +257,12 @@ class TestEnforceEpsilonBudget:
             clipping_norm=1.0,
             delta=1e-5,
         )
-        assert result == pytest.approx(-1.0)
+        assert result_eps == pytest.approx(-1.0)
+        assert result_sigma == pytest.approx(0.0)
 
     def test_candidate_below_min_returns_candidate(self) -> None:
         accountant = RDPAccountant(delta=1e-5)
-        result = enforce_epsilon_budget(
+        result_eps, result_sigma = enforce_epsilon_budget(
             candidate_epsilon=0.05,
             current_rdp=accountant.rdp_per_alpha,
             epsilon_budget=8.0,
@@ -267,12 +270,13 @@ class TestEnforceEpsilonBudget:
             clipping_norm=1.0,
             delta=1e-5,
         )
-        assert result == pytest.approx(0.05)
+        assert result_eps == pytest.approx(0.05)
+        assert result_sigma > 0
 
     def test_exhaustion_with_binary_search(self) -> None:
         accountant = RDPAccountant(delta=1e-5)
         accountant.step(sigma=0.3, clipping_norm=1.0, num_steps=100)
-        result = enforce_epsilon_budget(
+        result_eps, result_sigma = enforce_epsilon_budget(
             candidate_epsilon=10.0,
             current_rdp=accountant.rdp_per_alpha,
             epsilon_budget=1.0,
@@ -280,14 +284,30 @@ class TestEnforceEpsilonBudget:
             clipping_norm=1.0,
             delta=1e-5,
         )
-        assert result == pytest.approx(-1.0)
+        assert result_eps == pytest.approx(-1.0)
+        assert result_sigma == pytest.approx(0.0)
+
+    def test_returned_sigma_matches_epsilon(self) -> None:
+        """Verify that the returned sigma, when used to calibrate,
+        produces an epsilon close to the returned epsilon."""
+        from src.privacy.per_update_dp import _rdp_epsilon_for_sigma
+        accountant = RDPAccountant(delta=1e-5)
+        result_eps, result_sigma = enforce_epsilon_budget(
+            candidate_epsilon=2.0,
+            current_rdp=accountant.rdp_per_alpha,
+            epsilon_budget=8.0,
+            epsilon_min=0.1,
+            clipping_norm=1.0,
+            delta=1e-5,
+        )
+        eps_from_sigma = _rdp_epsilon_for_sigma(result_sigma, 1.0, 1e-5)
+        assert result_eps == pytest.approx(eps_from_sigma, rel=1e-6)
 
 
 class TestResolveEpsilon:
     """Tests for _resolve_epsilon in client_app.py."""
 
     def _make_config(self, personalization_enabled: bool = True,
-                     personalization_eps_min: float = 1.0,
                      bo_eps_min: float = 0.1) -> ExperimentConfig:
         cfg = ExperimentConfig()
         cfg.privacy.enabled = True
@@ -295,48 +315,50 @@ class TestResolveEpsilon:
         cfg.privacy.delta = 1e-5
         cfg.privacy.target_epsilon = 5.0
         cfg.personalization.enabled = personalization_enabled
-        cfg.personalization.epsilon_min = personalization_eps_min
         cfg.bo.epsilon_min = bo_eps_min
         return cfg
 
     def test_explicit_eps_min_respected_with_personalization(self) -> None:
         from src.client_app import _resolve_epsilon
-        config = self._make_config(personalization_eps_min=1.0)
+        config = self._make_config()
         accountant = RDPAccountant(delta=1e-5)
-        result = _resolve_epsilon(
+        result_eps, result_sigma = _resolve_epsilon(
             scheduler=None,
             accountant=accountant,
             config=config,
             total_budget=100.0,
             eps_min=0.1,
         )
-        assert result >= 1.0 or result == -1.0
+        assert result_eps >= 0.1 or result_eps == -1.0
+        assert result_sigma >= 0
 
     def test_lower_bound_above_personalization_unchanged(self) -> None:
         from src.client_app import _resolve_epsilon
-        config = self._make_config(personalization_eps_min=0.5)
+        config = self._make_config()
         accountant = RDPAccountant(delta=1e-5)
-        result = _resolve_epsilon(
+        result_eps, result_sigma = _resolve_epsilon(
             scheduler=None,
             accountant=accountant,
             config=config,
             total_budget=100.0,
             eps_min=2.0,
         )
-        assert result >= 2.0 or result == -1.0
+        assert result_eps >= 2.0 or result_eps == -1.0
+        assert result_sigma >= 0
 
     def test_no_personalization_uses_bo_min(self) -> None:
         from src.client_app import _resolve_epsilon
         config = self._make_config(personalization_enabled=False, bo_eps_min=0.3)
         accountant = RDPAccountant(delta=1e-5)
-        result = _resolve_epsilon(
+        result_eps, result_sigma = _resolve_epsilon(
             scheduler=None,
             accountant=accountant,
             config=config,
             total_budget=100.0,
             eps_min=None,
         )
-        assert result >= 0.3 or result == -1.0
+        assert result_eps >= 0.3 or result_eps == -1.0
+        assert result_sigma >= 0
 
 
 # ---------------------------------------------------------------------------

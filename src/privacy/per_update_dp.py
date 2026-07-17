@@ -121,8 +121,9 @@ class PerUpdateGaussianMechanism:
         self._delta = delta
         self._rng = np.random.RandomState(seed)
 
-    def apply(self, delta: np.ndarray, epsilon: float) -> tuple[np.ndarray, float]:
-        sigma = calibrate_sigma(epsilon, self._clipping_norm, self._delta)
+    def apply(self, delta: np.ndarray, epsilon: float, sigma: float | None = None) -> tuple[np.ndarray, float]:
+        if sigma is None:
+            sigma = calibrate_sigma(epsilon, self._clipping_norm, self._delta)
         clipped = _clip_update(delta, self._clipping_norm)
         noisy = add_gaussian_noise(clipped, sigma, rng=self._rng)
         return noisy, sigma
@@ -187,23 +188,25 @@ def enforce_epsilon_budget(
     epsilon_min: float,
     clipping_norm: float,
     delta: float,
-) -> float:
-    """Return the largest ε ≤ candidate_epsilon that fits the budget.
+) -> tuple[float, float]:
+    """Return (ε, σ) where ε is the largest epsilon ≤ candidate_epsilon that fits the budget,
+    and σ is the corresponding noise scale.
 
     Binary-searches over σ directly instead of ε to avoid calling
     ``calibrate_sigma`` (itself a binary search) inside the outer loop.
 
-    Returns -1.0 if even *epsilon_min* would exceed the remaining budget,
+    Returns (-1.0, 0.0) if even *epsilon_min* would exceed the remaining budget,
     signalling that the client's privacy budget is exhausted.
     """
     if candidate_epsilon <= 0:
-        return -1.0
+        return -1.0, 0.0
 
     if candidate_epsilon <= epsilon_min:
         if _is_epsilon_within_budget(candidate_epsilon, current_rdp,
                                      epsilon_budget, clipping_norm, delta):
-            return candidate_epsilon
-        return -1.0
+            sigma = calibrate_sigma(candidate_epsilon, clipping_norm, delta)
+            return candidate_epsilon, sigma
+        return -1.0, 0.0
 
     sigma_candidate = calibrate_sigma(candidate_epsilon, clipping_norm, delta)
     hypothetical = _hypothetical_epsilon(
@@ -211,11 +214,11 @@ def enforce_epsilon_budget(
     )
 
     if hypothetical <= epsilon_budget:
-        return candidate_epsilon
+        return candidate_epsilon, sigma_candidate
 
     if not _is_epsilon_within_budget(epsilon_min, current_rdp, epsilon_budget,
                                      clipping_norm, delta):
-        return -1.0
+        return -1.0, 0.0
 
     # Binary search over σ (monotonic: larger σ → smaller ε → lower RDP cost).
     sigma_min_eps = calibrate_sigma(epsilon_min, clipping_norm, delta)
@@ -232,4 +235,5 @@ def enforce_epsilon_budget(
             lo_sigma = mid_sigma  # too expensive; need larger σ
 
     result_sigma = (lo_sigma + hi_sigma) / 2.0
-    return _rdp_epsilon_for_sigma(result_sigma, clipping_norm, delta)
+    result_epsilon = _rdp_epsilon_for_sigma(result_sigma, clipping_norm, delta)
+    return result_epsilon, result_sigma

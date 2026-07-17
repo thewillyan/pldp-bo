@@ -103,7 +103,7 @@ class TestFullRoundLifecycle:
         self,
         candidate: float,
         accountant: RDPAccountant,
-    ) -> float:
+    ) -> tuple[float, float]:
         return enforce_epsilon_budget(
             candidate,
             accountant.rdp_per_alpha,
@@ -122,7 +122,7 @@ class TestFullRoundLifecycle:
         accountant: RDPAccountant,
     ) -> float | None:
         """Return resolved epsilon, or None if budget is exhausted."""
-        epsilon = self._resolve_epsilon(candidate, accountant)
+        epsilon, _ = self._resolve_epsilon(candidate, accountant)
         if epsilon < 0:
             return None
         assert epsilon <= candidate + 1e-12
@@ -155,11 +155,11 @@ class TestFullRoundLifecycle:
             candidate = scheduler.get_epsilon()
             assert self.EPS_MIN <= candidate <= self.EPS_MAX
 
-            epsilon = self._resolve_epsilon(candidate, accountant)
+            epsilon, computed_sigma = self._resolve_epsilon(candidate, accountant)
             assert epsilon <= candidate + 1e-12
             assert self.EPS_MIN <= epsilon <= self.EPS_MAX
 
-            sigma = calibrate_sigma(epsilon, self.C, self.DELTA)
+            sigma = computed_sigma if computed_sigma > 0 else calibrate_sigma(epsilon, self.C, self.DELTA)
             accountant.step(sigma=sigma, clipping_norm=self.C, num_steps=1)
 
             metric = self._simulate_training_metric(epsilon)
@@ -194,10 +194,10 @@ class TestFullRoundLifecycle:
 
         for _ in range(self.WARMUP + 2):
             candidate = scheduler.get_epsilon()
-            epsilon = self._resolve_epsilon(candidate, accountant)
+            epsilon, computed_sigma = self._resolve_epsilon(candidate, accountant)
             if epsilon < 0:
                 break
-            sigma = calibrate_sigma(epsilon, self.C, self.DELTA)
+            sigma = computed_sigma if computed_sigma > 0 else calibrate_sigma(epsilon, self.C, self.DELTA)
             accountant.step(sigma=sigma, clipping_norm=self.C, num_steps=1)
             metric = self._simulate_training_metric(epsilon)
             scheduler.step(epsilon, metric)
@@ -239,10 +239,11 @@ class TestFullRoundLifecycle:
             candidate = scheduler.get_epsilon()
             assert candidate == 2.0
             if accountant is not None:
-                epsilon = self._resolve_epsilon(candidate, accountant)
+                epsilon, computed_sigma = self._resolve_epsilon(candidate, accountant)
             else:
                 epsilon = candidate
-            sigma = calibrate_sigma(epsilon, self.C, self.DELTA)
+                computed_sigma = 0.0
+            sigma = computed_sigma if computed_sigma > 0 else calibrate_sigma(epsilon, self.C, self.DELTA)
             accountant.step(sigma=sigma, clipping_norm=self.C, num_steps=1)
 
         assert accountant.get_epsilon() > 0
@@ -259,12 +260,13 @@ class TestFullRoundLifecycle:
             candidate = scheduler.get_epsilon()
             assert self.EPS_MIN <= candidate <= self.EPS_MAX
             if accountant is not None:
-                epsilon = self._resolve_epsilon(candidate, accountant)
+                epsilon, computed_sigma = self._resolve_epsilon(candidate, accountant)
                 if epsilon < 0:
                     break
             else:
                 epsilon = candidate
-            sigma = calibrate_sigma(epsilon, self.C, self.DELTA)
+                computed_sigma = 0.0
+            sigma = computed_sigma if computed_sigma > 0 else calibrate_sigma(epsilon, self.C, self.DELTA)
             accountant.step(sigma=sigma, clipping_norm=self.C, num_steps=1)
 
         assert accountant.get_epsilon() > 0
@@ -284,10 +286,10 @@ class TestFullRoundLifecycle:
         for _ in range(self.WARMUP + 2):
             for acct, sched in zip(accountants, schedulers, strict=True):
                 candidate = sched.get_epsilon()
-                epsilon = self._resolve_epsilon(candidate, acct)
+                epsilon, computed_sigma = self._resolve_epsilon(candidate, acct)
                 if epsilon < 0:
                     continue
-                sigma = calibrate_sigma(epsilon, self.C, self.DELTA)
+                sigma = computed_sigma if computed_sigma > 0 else calibrate_sigma(epsilon, self.C, self.DELTA)
                 acct.step(sigma=sigma, clipping_norm=self.C, num_steps=1)
                 metric = self._simulate_training_metric(epsilon)
                 sched.step(epsilon, metric)
