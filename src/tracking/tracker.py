@@ -12,9 +12,8 @@ from src.config.loader import ExperimentConfig
 class ExperimentTracker:
     def __init__(self, config: ExperimentConfig) -> None:
         self._config = config
-        mlflow.set_tracking_uri(
-            os.environ.get("MLFLOW_TRACKING_URI") or config.logging.tracking_uri
-        )
+        tracking_uri = os.environ.get("MLFLOW_TRACKING_URI") or config.logging.tracking_uri
+        mlflow.set_tracking_uri(tracking_uri)
         mlflow.set_experiment(config.logging.experiment_name)
 
     def start_run(self) -> None:

@@ -105,7 +105,11 @@ def cmd_single(
         single_dir.mkdir(parents=True, exist_ok=True)
         tracking_uri = f"sqlite:///{single_dir}/mlflow.db"
 
-    run_config_parts = [f"config-path='{config_path}'"]
+    run_config_parts = [
+        f"config-path='{config_path}'",
+        f"data.num_clients={num_clients}",
+        f"federated.min_available_nodes={num_clients}",
+    ]
     for ov in overrides:
         if "=" not in ov:
             print(f"Warning: ignoring invalid override '{ov}'", file=sys.stderr)
@@ -124,8 +128,10 @@ def cmd_single(
         "--federation-config", f"num-supernodes={num_clients}",
     ]
 
+    process_env = os.environ | {"MLFLOW_TRACKING_URI": tracking_uri}
     process = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1,
+        env=process_env,
     )
     assert process.stdout is not None
     assert process.stderr is not None

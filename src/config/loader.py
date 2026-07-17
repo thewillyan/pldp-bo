@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import types
 import typing
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -81,6 +82,7 @@ class BOConfig:
     acquisition_penalty: float = 0.1
     gp_kernel: str = "matern52"
     observation_noise: float = 0.01
+    budget_margin: float = 0.1  # fraction of remaining budget reserved when masking grid points
 
     # Per-client bounds personalization
     bounds_strategy: str = "global"
@@ -150,15 +152,56 @@ def _expand_dot_keys(overrides: dict) -> dict:
     return result
 
 
-def _merge_dict_into_dataclass(dc_instance: object, override: dict) -> None:
+def _unwrap_optional(tp: type) -> type:
+    """If tp is Optional[X] (i.e. X | None), return X. Otherwise return tp unchanged."""
+    origin = typing.get_origin(tp)
+    if origin is types.UnionType:
+        args = typing.get_args(tp)
+        non_none = [a for a in args if a is not type(None)]
+        if len(non_none) == 1:
+            return non_none[0]
+    return tp
+
+
+def _coerce_value(value: object, expected: type) -> object:
+    if not isinstance(value, str):
+        return value
+    expected = _unwrap_optional(expected)
+    if expected is bool:
+        return value.lower() in ("true", "1", "yes")
+    if expected is int:
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            logger.warning("Cannot convert override value '%s' to int", value)
+            return value
+    if expected is float:
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            logger.warning("Cannot convert override value '%s' to float", value)
+            return value
+    return value
+
+
+def _merge_dict_into_dataclass(
+    dc_instance: object, override: dict, dc_type: type | None = None,
+) -> None:
+    if dc_type is None:
+        dc_type = type(dc_instance)
+    type_hints = typing.get_type_hints(dc_type)
     for key, value in override.items():
-        if hasattr(dc_instance, key):
-            if isinstance(value, dict) and hasattr(getattr(dc_instance, key), "__dataclass_fields__"):
-                _merge_dict_into_dataclass(getattr(dc_instance, key), value)
-            else:
-                setattr(dc_instance, key, value)
-        else:
+        if not hasattr(dc_instance, key):
             logger.warning("Unknown config override key: '%s'", key)
+            continue
+        if isinstance(value, dict) and hasattr(getattr(dc_instance, key), "__dataclass_fields__"):
+            child_type = type(getattr(dc_instance, key))
+            _merge_dict_into_dataclass(getattr(dc_instance, key), value, dc_type=child_type)
+        else:
+            expected = type_hints.get(key)
+            if expected is not None:
+                value = _coerce_value(value, expected)
+            setattr(dc_instance, key, value)
 
 
 def load_config(config_path: str, overrides: dict | None = None) -> ExperimentConfig:
