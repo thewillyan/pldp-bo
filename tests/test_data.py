@@ -87,6 +87,21 @@ def test_partition_noniid_large_alpha() -> None:
     assert max(sizes) - min(sizes) < 0.3 * sum(sizes) / len(sizes)
 
 
+def test_partition_noniid_dirichlet_seed_reproducibility() -> None:
+    dataset = _make_toy_dataset(200)
+    a = partition_noniid_dirichlet(dataset, 5, alpha=0.5, seed=42)
+    b = partition_noniid_dirichlet(dataset, 5, alpha=0.5, seed=42)
+    for sa, sb in zip(a, b, strict=True):
+        assert sa.indices == sb.indices
+
+
+def test_partition_noniid_dirichlet_different_seed_different() -> None:
+    dataset = _make_toy_dataset(200)
+    a = partition_noniid_dirichlet(dataset, 5, alpha=0.5, seed=42)
+    b = partition_noniid_dirichlet(dataset, 5, alpha=0.5, seed=99)
+    assert any(sa.indices != sb.indices for sa, sb in zip(a, b, strict=True))
+
+
 class TestPartitionSingle:
     def test_iid_returns_correct_size(self) -> None:
         dataset = _make_toy_dataset(100)
