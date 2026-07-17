@@ -68,12 +68,13 @@ def test_calibrate_sigma_larger_epsilon_gives_smaller_sigma() -> None:
     assert sigma_low > sigma_high
 
 
-def test_calibrate_sigma_minimum_is_clipping_norm() -> None:
+def test_calibrate_sigma_no_default_floor() -> None:
     sigma = calibrate_sigma(epsilon=100.0, clipping_norm=1.0, delta=1e-5)
-    assert sigma >= 1.0
-    assert sigma == pytest.approx(1.0)
+    assert sigma < 1.0
+    assert sigma > 0
     sigma_large = calibrate_sigma(epsilon=1e9, clipping_norm=5.0, delta=1e-5)
-    assert sigma_large == pytest.approx(5.0)
+    assert sigma_large < 5.0
+    assert sigma_large > 0
 
 
 def test_calibrate_sigma_invalid_epsilon() -> None:

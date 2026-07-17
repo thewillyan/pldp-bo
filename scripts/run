@@ -17,17 +17,21 @@ _PLOT_SCRIPT = str(pathlib.Path(__file__).resolve().parent / "plot")
 
 
 def _resolve_run_id(tracking_uri: str, run_name: str) -> str | None:
+    prev_uri = mlflow.get_tracking_uri()
     mlflow.set_tracking_uri(tracking_uri)
-    client = mlflow.tracking.MlflowClient()
-    experiment_ids = [exp.experiment_id for exp in client.search_experiments()]
-    escaped = run_name.replace("\\", "\\\\").replace("'", "\\'")
-    runs = client.search_runs(
-        experiment_ids=experiment_ids,
-        filter_string=f"attributes.run_name = '{escaped}'",
-        order_by=["start_time DESC"],
-        max_results=1,
-    )
-    return runs[0].info.run_id if runs else None
+    try:
+        client = mlflow.tracking.MlflowClient()
+        experiment_ids = [exp.experiment_id for exp in client.search_experiments()]
+        escaped = run_name.replace("\\", "\\\\").replace("'", "\\'")
+        runs = client.search_runs(
+            experiment_ids=experiment_ids,
+            filter_string=f"attributes.run_name = '{escaped}'",
+            order_by=["start_time DESC"],
+            max_results=1,
+        )
+        return runs[0].info.run_id if runs else None
+    finally:
+        mlflow.set_tracking_uri(prev_uri)
 
 
 def _needs_quoting(val: str) -> bool:
@@ -145,9 +149,9 @@ def cmd_single(
 
     run_id = None
     if process.returncode == 0 and run_name:
-        run_id = _resolve_run_id(cfg_tracking_uri or tracking_uri, run_name)
-        if run_id is None and cfg_tracking_uri:
-            run_id = _resolve_run_id(tracking_uri, run_name)
+        run_id = _resolve_run_id(tracking_uri, run_name)
+        if run_id is None and env_uri:
+            run_id = _resolve_run_id(cfg_tracking_uri, run_name)
 
     if flwr_json:
         json_dir = _json_save_dir(tracking_uri)
@@ -184,57 +188,49 @@ def cmd_group(group_name: str, num_clients: int, overrides: list[str]) -> None:
     group_dir = pathlib.Path(f"mlruns/group/{group_name}")
     plots_dir = group_dir / "plots"
     tracking_uri = f"sqlite:///{group_dir}/mlflow.db"
+    os.environ["MLFLOW_TRACKING_URI"] = tracking_uri
     plots_dir.mkdir(parents=True, exist_ok=True)
 
     run_ids: list[str] = []
     run_labels: list[str] = []
     failed: list[str] = []
 
-    saved_tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
-    os.environ["MLFLOW_TRACKING_URI"] = tracking_uri
+    for config_path in configs:
+        config_name = config_path.stem
+        exp_plots = plots_dir / config_name
+        exp_plots.mkdir(parents=True, exist_ok=True)
 
-    try:
-        for config_path in configs:
-            config_name = config_path.stem
-            exp_plots = plots_dir / config_name
-            exp_plots.mkdir(parents=True, exist_ok=True)
+        print(f"\n--- {config_name} ---")
 
-            print(f"\n--- {config_name} ---")
+        result = cmd_single(str(config_path), num_clients, overrides)
+        if result is None:
+            print("  ERROR: Experiment failed.", file=sys.stderr)
+            failed.append(config_name)
+            continue
 
-            result = cmd_single(str(config_path), num_clients, overrides)
-            if result is None:
-                print("  ERROR: Experiment failed.", file=sys.stderr)
-                failed.append(config_name)
-                continue
+        run_id, _ = result
+        run_ids.append(run_id)
+        run_labels.append(config_name)
 
-            run_id, _ = result
-            run_ids.append(run_id)
-            run_labels.append(config_name)
-
-            plot_proc = subprocess.run(
-                [
-                    sys.executable, _PLOT_SCRIPT,
-                    "--tracking-uri", tracking_uri,
-                    "plot", run_id,
-                    "--type", "all",
-                    "--save-dir", str(exp_plots),
-                ],
-                capture_output=True,
-                text=True,
-            )
-            for line in plot_proc.stdout.splitlines():
-                if line.strip():
-                    print(f"  {line}")
-            for line in plot_proc.stderr.splitlines():
-                if line.strip():
-                    print(f"  {line}", file=sys.stderr)
-            if plot_proc.returncode != 0:
-                print("  WARNING: Plot generation failed", file=sys.stderr)
-    finally:
-        if saved_tracking_uri is not None:
-            os.environ["MLFLOW_TRACKING_URI"] = saved_tracking_uri
-        else:
-            os.environ.pop("MLFLOW_TRACKING_URI", None)
+        plot_proc = subprocess.run(
+            [
+                sys.executable, _PLOT_SCRIPT,
+                "--tracking-uri", tracking_uri,
+                "plot", run_id,
+                "--type", "all",
+                "--save-dir", str(exp_plots),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        for line in plot_proc.stdout.splitlines():
+            if line.strip():
+                print(f"  {line}")
+        for line in plot_proc.stderr.splitlines():
+            if line.strip():
+                print(f"  {line}", file=sys.stderr)
+        if plot_proc.returncode != 0:
+            print("  WARNING: Plot generation failed", file=sys.stderr)
 
     if len(run_ids) > 1:
         comp_dir = plots_dir / "comparison"

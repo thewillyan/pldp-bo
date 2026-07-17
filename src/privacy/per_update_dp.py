@@ -73,15 +73,14 @@ def calibrate_sigma(
     if clipping_norm <= 0:
         raise ValueError("clipping_norm must be positive")
     sigma = _rdp_calibrate_sigma(epsilon, clipping_norm, delta)
-    floor = min_sigma if min_sigma is not None else clipping_norm
-    if sigma < floor:
+    if min_sigma is not None and sigma < min_sigma:
         logger.warning(
             "calibrate_sigma: RDP-calibrated sigma=%.6f for clipping_norm=%.2f, "
-            "epsilon=%.2f is below floor %.6f; clamping to floor. "
+            "epsilon=%.2f is below min_sigma %.6f; clamping to min_sigma. "
             "Actual privacy will be stronger than requested epsilon.",
-            sigma, clipping_norm, epsilon, floor,
+            sigma, clipping_norm, epsilon, min_sigma,
         )
-        return floor
+        return min_sigma
     return sigma
 
 

@@ -178,11 +178,11 @@ class PLDPBOScheduler(EpsilonScheduler):
         # Mask grid points that would exceed the remaining privacy budget.
         # Note: this is a simple additive check. The actual per-round epsilon
         # may be further reduced by enforce_epsilon_budget which uses RDP
-        # composition (non-linear). A small tolerance prevents the BO from
-        # selecting points trivially over-budget due to this disagreement.
+        # composition (non-linear). Reserve a conservative margin to avoid
+        # selecting points that will be rejected by the RDP enforcement.
         if self._remaining_budget is not None:
-            overshoot_tolerance = 0.05
-            alpha[grid > self._remaining_budget * (1 + overshoot_tolerance)] = -np.inf
+            budget_margin = 0.1
+            alpha[grid > self._remaining_budget * (1 - budget_margin)] = -np.inf
 
         # Degenerate case (all ei_norm equal → all zeros): alpha = -λ · penalty,
         # which automatically selects epsilon_min as argmax.

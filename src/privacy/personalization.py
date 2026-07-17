@@ -136,7 +136,14 @@ def assign_epsilon_bounds(
 ) -> tuple[float, float, int]:
     strategy = bo_config.bounds_strategy
     if strategy == "global":
-        warmup = _resolve_warmup(partition_id, bo_config, num_clients, num_rounds, weight=float(num_clients))
+        try:
+            weight = compute_budget_weight(
+                partition_id, train_dataset, personalization_config, num_clients,
+                total_train_size=total_train_size,
+            )
+        except (ValueError, KeyError):
+            weight = float(num_clients)
+        warmup = _resolve_warmup(partition_id, bo_config, num_clients, num_rounds, weight)
         return bo_config.epsilon_min, bo_config.epsilon_max, warmup
 
     if strategy == "custom_map":
