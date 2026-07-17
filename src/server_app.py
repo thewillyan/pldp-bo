@@ -85,14 +85,27 @@ def _compute_per_client_budgets(
             budgets = {nid: per_client for nid in node_ids}
             return budgets, None
         node_to_partition = _discover_node_to_partition(grid, node_ids)
+        discovered = set(node_to_partition.values())
+        configured = set(weight_map.keys())
+        missing = configured - discovered
+        extra = discovered - configured
+        if missing:
+            logger.warning(
+                "client_epsilon_map references partition IDs %s not found among %d discovered nodes; "
+                "those clients will receive zero budget",
+                sorted(missing), len(node_to_partition),
+            )
+        if extra:
+            logger.warning(
+                "client_epsilon_map missing entries for partition IDs %s; "
+                "those clients will use config-derived defaults",
+                sorted(extra),
+            )
         budgets = {cid: total_budget * w / total_weight for cid, w in weight_map.items()}
         return budgets, node_to_partition
 
-    # Other personalization strategies: discover budget weights via QUERY
+    # Other personalization strategies: discover budget weights in a single QUERY round
     if config.personalization.enabled:
-        node_to_partition = _discover_node_to_partition(grid, node_ids)
-        client_weights: dict[int, float] = {}
-        # Re-query to get budget weights (reuse node_to_partition for partition_ids)
         query_msgs = [
             Message(
                 content=RecordDict({
@@ -105,13 +118,17 @@ def _compute_per_client_budgets(
             for nid in node_ids
         ]
         replies = list(grid.send_and_receive(query_msgs, timeout=30.0))
+
+        node_to_partition = {}
+        client_weights: dict[int, float] = {}
         for reply in replies:
             meta = reply.content.config_records.get("config", ConfigRecord())
             node_id = reply.metadata.src_node_id
+            p_id = meta.get("partition_id", node_id)
+            node_to_partition[node_id] = int(p_id)
             weight = meta.get("budget_weight")
             if weight is not None:
-                p_id = node_to_partition.get(node_id, node_id)
-                client_weights[p_id] = float(weight)
+                client_weights[int(p_id)] = float(weight)
 
         if client_weights:
             total_weight = sum(client_weights.values())
