@@ -22,84 +22,111 @@ logger = logging.getLogger(__name__)
 app = ServerApp()
 
 
+def _discover_node_to_partition(
+    grid: Grid,
+    node_ids: list[int],
+) -> dict[int, int]:
+    """Discover the mapping from node_id to partition_id via QUERY messages."""
+    query_msgs = [
+        Message(
+            content=RecordDict({
+                "config": ConfigRecord({"task": "personalization_metadata"}),
+            }),
+            message_type="query",
+            dst_node_id=nid,
+            group_id="pldp-budget-setup",
+        )
+        for nid in node_ids
+    ]
+    replies = list(grid.send_and_receive(query_msgs, timeout=30.0))
+
+    node_to_partition: dict[int, int] = {}
+    for reply in replies:
+        meta = reply.content.config_records.get("config", ConfigRecord())
+        node_id = reply.metadata.src_node_id
+        p_id = meta.get("partition_id", node_id)
+        node_to_partition[node_id] = int(p_id)
+    return node_to_partition
+
+
 def _compute_per_client_budgets(
     grid: Grid,
     config: ExperimentConfig,
 ) -> tuple[dict[int, float] | None, dict[int, int] | None]:
     """Compute per-client budgets and a mapping from node_id to partition_id.
 
-    Returns (budgets, node_to_partition) where budgets is keyed by partition_id.
+    Returns (budgets, node_to_partition).
+    - Equal division: budgets keyed by node_id, node_to_partition is None
+      (_add_budgets_to_messages falls back to node_id as key).
+    - Personalized: budgets keyed by partition_id, node_to_partition maps
+      node_id -> partition_id.
     """
     total_budget = config.privacy.total_budget
     if total_budget is None:
         return None, None
 
-    num_clients = max(config.data.num_clients, 1)
+    node_ids = list(grid.get_node_ids())
+    if not node_ids:
+        logger.warning("No nodes discovered for budget setup, retrying in 5s...")
+        import time
+        time.sleep(5)
+        node_ids = list(grid.get_node_ids())
+    if not node_ids:
+        logger.warning("No nodes available for budget setup; skipping per-client budgets")
+        return None, None
 
-    # custom strategy: weights from config map, no setup needed
-    # Keys in client_epsilon_map are partition_ids, used as-is.
+    # custom strategy: weights from config map
     if config.personalization.enabled and config.personalization.strategy == "custom":
         weight_map = {int(k): v for k, v in config.personalization.client_epsilon_map.items()}
         total_weight = sum(weight_map.values())
         if total_weight <= 0:
             logger.warning("client_epsilon_map sums to 0; falling back to equal division")
-            per_client = total_budget / num_clients
-            budgets = {cid: per_client for cid in range(num_clients)}
+            per_client = total_budget / len(node_ids)
+            budgets = {nid: per_client for nid in node_ids}
             return budgets, None
+        node_to_partition = _discover_node_to_partition(grid, node_ids)
         budgets = {cid: total_budget * w / total_weight for cid, w in weight_map.items()}
-        return budgets, None
+        return budgets, node_to_partition
 
     # Other personalization strategies: discover budget weights via QUERY
     if config.personalization.enabled:
-        node_ids = list(grid.get_node_ids())
-        if not node_ids:
-            logger.warning("No nodes discovered for budget setup, retrying in 5s...")
-            import time
-            time.sleep(5)
-            node_ids = list(grid.get_node_ids())
-        if node_ids:
-            query_msgs = [
-                Message(
-                    content=RecordDict({
-                        "config": ConfigRecord({"task": "personalization_metadata"}),
-                    }),
-                    message_type="query",
-                    dst_node_id=nid,
-                    group_id="pldp-budget-setup",
-                )
-                for nid in node_ids
-            ]
-            replies = list(grid.send_and_receive(query_msgs, timeout=30.0))
-
-            client_weights: dict[int, float] = {}
-            node_to_partition: dict[int, int] = {}
-            for reply in replies:
-                meta = reply.content.config_records.get("config", ConfigRecord())
-                node_id = reply.metadata.src_node_id
-                weight = meta.get("budget_weight")
-                p_id = meta.get("partition_id", node_id)
-                node_to_partition[node_id] = int(p_id)
-                if weight is not None:
-                    client_weights[int(p_id)] = float(weight)
-
-            if client_weights:
-                total_weight = sum(client_weights.values())
-                budgets = {
-                    cid: total_budget * w / total_weight
-                    for cid, w in client_weights.items()
-                }
-                return budgets, node_to_partition
-            logger.warning(
-                "No clients returned budget weights; falling back to equal division",
+        node_to_partition = _discover_node_to_partition(grid, node_ids)
+        client_weights: dict[int, float] = {}
+        # Re-query to get budget weights (reuse node_to_partition for partition_ids)
+        query_msgs = [
+            Message(
+                content=RecordDict({
+                    "config": ConfigRecord({"task": "personalization_metadata"}),
+                }),
+                message_type="query",
+                dst_node_id=nid,
+                group_id="pldp-budget-setup",
             )
-        else:
-            logger.warning("No nodes available for setup; falling back to equal division")
+            for nid in node_ids
+        ]
+        replies = list(grid.send_and_receive(query_msgs, timeout=30.0))
+        for reply in replies:
+            meta = reply.content.config_records.get("config", ConfigRecord())
+            node_id = reply.metadata.src_node_id
+            weight = meta.get("budget_weight")
+            if weight is not None:
+                p_id = node_to_partition.get(node_id, node_id)
+                client_weights[p_id] = float(weight)
 
-    # Equal division — partition_id assumed to equal node_id.
-    node_ids = list(grid.get_node_ids())
-    actual_count = len(node_ids) if node_ids else num_clients
-    per_client = total_budget / actual_count
-    budgets = {cid: per_client for cid in range(actual_count)}
+        if client_weights:
+            total_weight = sum(client_weights.values())
+            budgets = {
+                cid: total_budget * w / total_weight
+                for cid, w in client_weights.items()
+            }
+            return budgets, node_to_partition
+        logger.warning(
+            "No clients returned budget weights; falling back to equal division",
+        )
+
+    # Equal division: key budgets by node_id directly
+    per_client = total_budget / len(node_ids)
+    budgets = {nid: per_client for nid in node_ids}
     return budgets, None
 
 

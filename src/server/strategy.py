@@ -81,6 +81,7 @@ def _add_budgets_to_messages(
 
 class MetricLoggingMixin:
     _tracker: ExperimentTracker | None
+    _per_client_budgets: dict[int, float] | None
 
     def _log_metric(self, key: str, value: float, step: int) -> None:
         if self._tracker is not None:
