@@ -87,14 +87,12 @@ def _compute_label_entropy(dataset: Dataset | Subset) -> float:
 
 
 def _get_targets(dataset: Dataset | Subset) -> np.ndarray:
-    # Collect indices through nested Subset layers (e.g. Subset(Subset(dataset)))
-    # to reach the underlying raw dataset and apply the index chain.
     indices = None
     while isinstance(dataset, Subset):
         if indices is None:
-            indices = dataset.indices
+            indices = np.asarray(dataset.indices)
         else:
-            indices = [dataset.indices[i] for i in indices]
+            indices = np.asarray(dataset.indices)[indices]
         dataset = dataset.dataset
     try:
         targets = np.array(dataset.targets)

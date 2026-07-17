@@ -14,9 +14,9 @@ from src.privacy.constants import RDP_ALPHAS
 from src.privacy.metrics import compute_utility_loss
 from src.privacy.per_update_dp import (
     PerUpdateGaussianMechanism,
+    _clip_update,
     add_gaussian_noise,
     calibrate_sigma,
-    clip_update,
     compute_rdp_cost,
     enforce_epsilon_budget,
 )
@@ -81,15 +81,15 @@ def test_calibrate_sigma_invalid_epsilon() -> None:
         calibrate_sigma(epsilon=0.0, clipping_norm=1.0, delta=1e-5)
 
 
-def test_clip_update_below_threshold() -> None:
+def test__clip_update_below_threshold() -> None:
     delta = np.array([0.1, 0.2, 0.3])
-    clipped = clip_update(delta, clipping_norm=1.0)
+    clipped = _clip_update(delta, clipping_norm=1.0)
     np.testing.assert_array_almost_equal(clipped, delta)
 
 
-def test_clip_update_above_threshold() -> None:
+def test__clip_update_above_threshold() -> None:
     delta = np.array([3.0, 4.0])  # norm = 5.0
-    clipped = clip_update(delta, clipping_norm=1.0)
+    clipped = _clip_update(delta, clipping_norm=1.0)
     expected_norm = 1.0
     clipped_norm = np.linalg.norm(clipped)
     assert abs(clipped_norm - expected_norm) < 1e-6
@@ -117,7 +117,7 @@ def test_per_update_gaussian_mechanism_apply() -> None:
     noisy, sigma = mechanism.apply(delta, epsilon=1.0)
     assert sigma > 0
     assert noisy.shape == delta.shape
-    clipped_norm = np.linalg.norm(clip_update(delta, 1.0))
+    clipped_norm = np.linalg.norm(_clip_update(delta, 1.0))
     assert abs(clipped_norm - 1.0) < 1e-6
 
 

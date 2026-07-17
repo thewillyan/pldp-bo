@@ -37,7 +37,11 @@ def get_run_name(run: Run) -> str:
     return str(run.info.run_id[:8])
 
 
-_AUTO_NAME_RE = re.compile(r"^[a-z]+-[a-z]+(?:-\d+)?$")
+# MLflow auto-generated names match "adjective-noun-####" (three hyphen-separated parts,
+# third is a positive integer). This avoids false positives on user names that use
+# underscores (common in this project's configs: "pldp_bo_mnist_iid_nun").
+_AUTO_NAME_RE = re.compile(r"^[a-z]+-[a-z]+-\d+$")
+_per_client_key_re = re.compile(r"_client_\d+_")
 
 def _is_mlflow_auto_name(name: str) -> bool:
     return bool(_AUTO_NAME_RE.match(name))
@@ -53,7 +57,7 @@ def extract_metrics_by_round(
     for key, value in run.data.metrics.items():
         if not key.startswith(prefix) or not key.endswith(suffix):
             continue
-        if "_client_" in key:
+        if _per_client_key_re.search(key):
             continue
         parts = key.split("_")
         if len(parts) >= 3:

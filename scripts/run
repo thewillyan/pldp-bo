@@ -20,10 +20,10 @@ def _resolve_run_id(tracking_uri: str, run_name: str) -> str | None:
     mlflow.set_tracking_uri(tracking_uri)
     client = mlflow.tracking.MlflowClient()
     experiment_ids = [exp.experiment_id for exp in client.search_experiments()]
-    safe_name = run_name.replace('"', '\\"')
+    escaped = run_name.replace("\\", "\\\\").replace("'", "\\'")
     runs = client.search_runs(
         experiment_ids=experiment_ids,
-        filter_string=f'attributes.run_name = "{safe_name}"',
+        filter_string=f"attributes.run_name = '{escaped}'",
         order_by=["start_time DESC"],
         max_results=1,
     )

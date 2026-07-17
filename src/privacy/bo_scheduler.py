@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import numpy as np
 from scipy.stats import norm
@@ -10,12 +11,19 @@ from sklearn.gaussian_process.kernels import RBF, Kernel, Matern, WhiteKernel
 from src.privacy.epsilon_scheduler import EpsilonScheduler
 from src.utils import deserialize_rng, serialize_rng  # noqa: I001
 
+logger = logging.getLogger(__name__)
+
 
 def expected_improvement(
     mean: np.ndarray,
     std: np.ndarray,
     f_best: float,
 ) -> np.ndarray:
+    """Expected Improvement under minimization (lower metric is better).
+
+    For maximization, invert the metric before calling this function
+    (negate ``f_best`` and ``mean``).
+    """
     std = np.maximum(std, 1e-12)
     improvement = f_best - mean
     z = improvement / std
@@ -45,10 +53,17 @@ def _serialize_kernel_params(params: dict) -> dict:
             serialized[k] = float(v)
         elif isinstance(v, np.integer):
             serialized[k] = int(v)
+        elif isinstance(v, np.bool_):
+            serialized[k] = bool(v)
+        elif v is None:
+            serialized[k] = None
+        elif isinstance(v, np.ndarray):
+            serialized[k] = v.tolist()
         elif isinstance(v, (tuple, list)):
             serialized[k] = [
                 float(x) if isinstance(x, (float, np.floating)) else
-                int(x) if isinstance(x, (int, np.integer)) else x
+                int(x) if isinstance(x, (int, np.integer)) else
+                bool(x) if isinstance(x, np.bool_) else x
                 for x in v
             ]
     return serialized
@@ -218,7 +233,13 @@ class PLDPBOScheduler(EpsilonScheduler):
             k = _build_kernel(state["gp_kernel"], state["observation_noise"])
             raw = state["gp_kernel_params"]
             params = json.loads(raw) if isinstance(raw, str) else raw
-            k.set_params(**params)
+            try:
+                k.set_params(**params)
+            except (ValueError, TypeError) as exc:
+                logger.warning(
+                    "Failed to restore kernel params for %s: %s; using fresh kernel",
+                    state.get("gp_kernel", "?"), exc,
+                )
             scheduler._restored_kernel = k
         if scheduler._phase == "bo":
             scheduler._fit_gp(optimize=False)

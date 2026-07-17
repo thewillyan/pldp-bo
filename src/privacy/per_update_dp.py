@@ -85,7 +85,7 @@ def calibrate_sigma(
     return sigma
 
 
-def clip_update(delta: np.ndarray, clipping_norm: float) -> np.ndarray:
+def _clip_update(delta: np.ndarray, clipping_norm: float) -> np.ndarray:
     norm = np.linalg.norm(delta)
     if norm > clipping_norm:
         return delta * (clipping_norm / norm)
@@ -123,7 +123,7 @@ class PerUpdateGaussianMechanism:
 
     def apply(self, delta: np.ndarray, epsilon: float) -> tuple[np.ndarray, float]:
         sigma = calibrate_sigma(epsilon, self._clipping_norm, self._delta)
-        clipped = clip_update(delta, self._clipping_norm)
+        clipped = _clip_update(delta, self._clipping_norm)
         noisy = add_gaussian_noise(clipped, sigma, rng=self._rng)
         return noisy, sigma
 
@@ -190,6 +190,9 @@ def enforce_epsilon_budget(
 ) -> float:
     """Return the largest ε ≤ candidate_epsilon that fits the budget.
 
+    Binary-searches over σ directly instead of ε to avoid calling
+    ``calibrate_sigma`` (itself a binary search) inside the outer loop.
+
     Returns -1.0 if even *epsilon_min* would exceed the remaining budget,
     signalling that the client's privacy budget is exhausted.
     """
@@ -214,16 +217,19 @@ def enforce_epsilon_budget(
                                      clipping_norm, delta):
         return -1.0
 
-    lo, hi = epsilon_min, candidate_epsilon
-    for _ in range(30):
-        mid = (lo + hi) / 2.0
-        sigma_mid = calibrate_sigma(mid, clipping_norm, delta)
-        eps_mid = _hypothetical_epsilon(
-            current_rdp, sigma_mid, clipping_norm, delta,
-        )
-        if eps_mid <= epsilon_budget:
-            lo = mid
-        else:
-            hi = mid
+    # Binary search over σ (monotonic: larger σ → smaller ε → lower RDP cost).
+    sigma_min_eps = calibrate_sigma(epsilon_min, clipping_norm, delta)
+    lo_sigma, hi_sigma = sigma_candidate, sigma_min_eps
 
-    return lo
+    for _ in range(30):
+        mid_sigma = (lo_sigma + hi_sigma) / 2.0
+        projected = _hypothetical_epsilon(
+            current_rdp, mid_sigma, clipping_norm, delta,
+        )
+        if projected <= epsilon_budget:
+            hi_sigma = mid_sigma  # this σ fits; try smaller σ (larger ε)
+        else:
+            lo_sigma = mid_sigma  # too expensive; need larger σ
+
+    result_sigma = (lo_sigma + hi_sigma) / 2.0
+    return _rdp_epsilon_for_sigma(result_sigma, clipping_norm, delta)

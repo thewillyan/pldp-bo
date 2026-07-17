@@ -73,7 +73,7 @@ class PerUpdateDPClient(FlowerClient):
             return parameters, 0, metrics
 
         self.model.set_weights(parameters)
-        global_model_state = copy.deepcopy(self.model.get_model().state_dict())
+        global_weights = self.model.get_weights()
         net = self.model.get_model().to(get_device())
         net.train()
 
@@ -111,10 +111,6 @@ class PerUpdateDPClient(FlowerClient):
             )
 
         local_weights = self.model.get_weights()
-        global_weights = [
-            v.cpu().numpy() if isinstance(v, torch.Tensor) else v
-            for v in global_model_state.values()
-        ]
         delta = [lw - gw for lw, gw in zip(local_weights, global_weights, strict=True)]
 
         flat_delta = np.concatenate([d.ravel() for d in delta])

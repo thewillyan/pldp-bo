@@ -235,10 +235,10 @@ def cmd_get_run_id(args: argparse.Namespace) -> None:
     _set_tracking_uri(args)
     client = mlflow.tracking.MlflowClient()
     experiment_ids = [exp.experiment_id for exp in client.search_experiments()]
-    safe_name = args.run_name.replace('"', '\\"')
+    escaped = args.run_name.replace("\\", "\\\\").replace("'", "\\'")
     runs = client.search_runs(
         experiment_ids=experiment_ids,
-        filter_string=f'attributes.run_name = "{safe_name}"',
+        filter_string=f"attributes.run_name = '{escaped}'",
         order_by=["start_time DESC"],
     )
     if not runs:
