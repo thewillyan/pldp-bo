@@ -346,7 +346,7 @@ class SafeFedAvg(MetricLoggingMixin, FedAvg):
         self._log_client_metrics(server_round, reply_contents)
         result_arrays, metrics = super().aggregate_train(server_round, valid_replies)
 
-        if self._server_learning_rate != 1.0 and result_arrays is not None and self._current_arrays is not None:
+        if result_arrays is not None and self._current_arrays is not None:
             global_keys = list(self._current_arrays.keys())
             scaled: dict[str, Array] = {}
             for k in global_keys:
@@ -397,7 +397,7 @@ class SafeFedProx(MetricLoggingMixin, FedProx):
         self._log_client_metrics(server_round, reply_contents)
         result_arrays, metrics = super().aggregate_train(server_round, valid_replies)
 
-        if self._server_learning_rate != 1.0 and result_arrays is not None and self._current_arrays is not None:
+        if result_arrays is not None and self._current_arrays is not None:
             global_keys = list(self._current_arrays.keys())
             scaled: dict[str, Array] = {}
             for k in global_keys:

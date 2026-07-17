@@ -93,7 +93,11 @@ def cmd_single(
     elif cfg_tracking_uri:
         tracking_uri = cfg_tracking_uri
     else:
-        single_dir = pathlib.Path(f"mlruns/single/{path.stem}")
+        try:
+            name = str(path.relative_to(CONFIG_DIR)).replace("/", "_").replace(path.suffix, "")
+        except ValueError:
+            name = f"{path.stem}_{hash(path.resolve()) & 0xFFFFFFFF:08x}"
+        single_dir = pathlib.Path(f"mlruns/single/{name}")
         single_dir.mkdir(parents=True, exist_ok=True)
         tracking_uri = f"sqlite:///{single_dir}/mlflow.db"
 
