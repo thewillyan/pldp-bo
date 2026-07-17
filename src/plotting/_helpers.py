@@ -41,15 +41,37 @@ def get_run_name(run: Run) -> str:
 # third is a positive integer). This avoids false positives on user names that use
 # underscores (common in this project's configs: "pldp_bo_mnist_iid_nun").
 _AUTO_NAME_RE = re.compile(r"^[a-z]+-[a-z]+-\d+$")
-_per_client_key_re = re.compile(r"_client_\d+_")
+_per_client_key_re = re.compile(r"(?:^|_)client_\d+_")
 
 def _is_mlflow_auto_name(name: str) -> bool:
     return bool(_AUTO_NAME_RE.match(name))
 
 
+def _get_metric_history(run_id: str, metric_name: str) -> list[tuple[int, float]]:
+    client = get_client()
+    try:
+        metrics = client.get_metric_history(run_id, metric_name)
+    except Exception:
+        return []
+    return [(m.step, m.value) for m in metrics]
+
+
+def _dedup_by_step(pairs: list[tuple[int, float]]) -> list[tuple[int, float]]:
+    seen: dict[int, float] = {}
+    for step, value in pairs:
+        seen[step] = value
+    return sorted(seen.items())
+
+
 def extract_metrics_by_round(
     run: Run, metric_name: str,
 ) -> tuple[list[int], list[float]]:
+    history = _get_metric_history(run.info.run_id, metric_name)
+    if history:
+        deduped = _dedup_by_step(history)
+        rds, vals = zip(*deduped, strict=True) if deduped else ([], [])
+        return list(rds), list(vals)
+
     rounds: dict[int, float] = {}
     prefix = "round_"
     suffix = f"_{metric_name}"
@@ -75,20 +97,39 @@ def extract_metrics_by_round(
     return list(rds), list(vals)
 
 
-_ROUND_METRIC_RE = re.compile(r"^round_(\d+)_(?!client_\d+_)(.+)$")
-
 def extract_all_round_metrics(
     run: Run,
 ) -> dict[str, tuple[list[int], list[float]]]:
+    run_id = run.info.run_id
+    result: dict[str, tuple[list[int], list[float]]] = {}
+
+    for key in run.data.metrics:
+        if (
+            key.startswith("round_")
+            or key.endswith("_mean")
+            or key.endswith("_std")
+            or _per_client_key_re.search(key)
+        ):
+            continue
+        history = _get_metric_history(run_id, key)
+        if history:
+            deduped = _dedup_by_step(history)
+            if deduped:
+                rds, vals = zip(*deduped, strict=True)
+                result[key] = (list(rds), list(vals))
+
+    if result:
+        return result
+
     pairs: dict[str, dict[int, float]] = {}
+    _round_metric_re = re.compile(r"^round_(\d+)_(?!client_\d+_)(.+)$")
     for key, value in run.data.metrics.items():
-        m = _ROUND_METRIC_RE.match(key)
+        m = _round_metric_re.match(key)
         if m:
             round_num = int(m.group(1))
             metric_name = m.group(2)
             pairs.setdefault(metric_name, {})[round_num] = float(value)
 
-    result: dict[str, tuple[list[int], list[float]]] = {}
     for name in sorted(pairs):
         sorted_items = sorted(pairs[name].items())
         rds, vals = zip(*sorted_items, strict=True)
@@ -101,6 +142,12 @@ def extract_per_client_metric(
     client_id: int,
     metric_name: str,
 ) -> tuple[list[int], list[float]]:
+    history = _get_metric_history(run.info.run_id, f"client_{client_id}_{metric_name}")
+    if history:
+        deduped = _dedup_by_step(history)
+        rds, vals = zip(*deduped, strict=True) if deduped else ([], [])
+        return list(rds), list(vals)
+
     rounds: dict[int, float] = {}
     prefix = "round_"
     pattern = f"_client_{client_id}_{metric_name}"
@@ -128,7 +175,29 @@ def extract_round_stats(
     stat_name: str,
     aggs: tuple[str, ...] = ("mean", "std", "min", "max", "median"),
 ) -> tuple[list[int], dict[str, list[float]]]:
+    run_id = run.info.run_id
     result: dict[str, dict[int, float]] = {agg: {} for agg in aggs}
+    has_new_format = False
+
+    for agg in aggs:
+        key = f"{stat_name}_{agg}"
+        history = _get_metric_history(run_id, key)
+        if history:
+            has_new_format = True
+            for step, value in history:
+                result[agg][step] = value
+
+    if has_new_format:
+        all_rounds: set[int] = set()
+        for agg_data in result.values():
+            all_rounds.update(agg_data.keys())
+        if not all_rounds:
+            return [], {}
+        sorted_rounds = sorted(all_rounds)
+        output: dict[str, list[float]] = {}
+        for agg in aggs:
+            output[agg] = [result[agg].get(r, float("nan")) for r in sorted_rounds]
+        return sorted_rounds, output
 
     for key, value in run.data.metrics.items():
         if not key.startswith("round_"):
@@ -148,7 +217,7 @@ def extract_round_stats(
         except (ValueError, IndexError):
             continue
 
-    all_rounds: set[int] = set()
+    all_rounds = set()
     for agg_data in result.values():
         all_rounds.update(agg_data.keys())
 
@@ -156,7 +225,7 @@ def extract_round_stats(
         return [], {}
 
     sorted_rounds = sorted(all_rounds)
-    output: dict[str, list[float]] = {}
+    output = {}
     for agg in aggs:
         output[agg] = [result[agg].get(r, float("nan")) for r in sorted_rounds]
 

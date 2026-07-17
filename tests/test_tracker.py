@@ -36,8 +36,7 @@ class TestExperimentTracker:
 
         with patch("src.tracking.tracker.mlflow") as mock_mlflow:
             tracker.log_round_metrics(5, {"loss": 0.5, "accuracy": 0.9})
-            expected = {"round_5_loss": 0.5, "round_5_accuracy": 0.9}
-            mock_mlflow.log_metrics.assert_called_once_with(expected, step=5)
+            mock_mlflow.log_metrics.assert_called_once_with({"loss": 0.5, "accuracy": 0.9}, step=5)
 
     def test_log_final_metrics(self) -> None:
         tracker = self._make_tracker()

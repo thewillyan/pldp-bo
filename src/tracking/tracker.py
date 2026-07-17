@@ -12,8 +12,9 @@ from src.config.loader import ExperimentConfig
 class ExperimentTracker:
     def __init__(self, config: ExperimentConfig) -> None:
         self._config = config
-        uri = os.environ.get("MLFLOW_TRACKING_URI") or config.logging.tracking_uri
-        mlflow.set_tracking_uri(uri)
+        mlflow.set_tracking_uri(
+            os.environ.get("MLFLOW_TRACKING_URI") or config.logging.tracking_uri
+        )
         mlflow.set_experiment(config.logging.experiment_name)
 
     def start_run(self) -> None:
@@ -58,8 +59,7 @@ class ExperimentTracker:
         mlflow.log_params(params)
 
     def log_round_metrics(self, round_num: int, metrics: dict[str, Any]) -> None:
-        prefixed = {f"round_{round_num}_{k}": v for k, v in metrics.items()}
-        mlflow.log_metrics(prefixed, step=round_num)
+        mlflow.log_metrics(metrics, step=round_num)
 
     def log_final_metrics(self, metrics: dict[str, Any]) -> None:
         prefixed = {f"final_{k}": v for k, v in metrics.items()}
