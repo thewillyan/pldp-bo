@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pytest
 from flwr.app import Array, ArrayRecord, ConfigRecord, RecordDict
 from flwr.common import Message
+from flwr.serverapp.strategy import FedAvg
 
 from src.config.loader import load_config
-from src.server.strategy import _add_budgets_to_messages, _is_budget_exhausted
+from src.server.strategy import (
+    MedianRobustAggregation,
+    SafeFedAvg,
+    _add_budgets_to_messages,
+    _is_budget_exhausted,
+)
+from src.server_app import _compute_per_client_budgets
 
 
 class TestComputePerClientBudgets:
@@ -167,3 +176,176 @@ class TestIsBudgetExhausted:
             message_type="train",
         )
         assert _is_budget_exhausted(msg) is False
+
+
+class TestComputePerClientBudgetsIntegration:
+    """Integration tests for _compute_per_client_budgets with mocked Grid."""
+
+    def _make_query_reply(self, node_id: int, **config_kwargs: object) -> MagicMock:
+        reply = MagicMock()
+        reply.metadata.src_node_id = node_id
+        reply.content.config_records = RecordDict({
+            "config": ConfigRecord(config_kwargs),
+        })
+        return reply
+
+    def test_none_when_no_budget(self) -> None:
+        grid = MagicMock()
+        grid.get_node_ids.return_value = [1001]
+        config = load_config("config/default.yaml", overrides={
+            "privacy.enabled": True,
+        })
+        assert config.privacy.total_budget is None
+        budgets, n2p = _compute_per_client_budgets(grid, config)
+        assert budgets is None
+        assert n2p is None
+
+    def test_none_when_no_nodes(self) -> None:
+        grid = MagicMock()
+        grid.get_node_ids.return_value = []
+        config = load_config("config/default.yaml", overrides={
+            "privacy.enabled": True,
+            "privacy.total_budget": 10.0,
+        })
+        budgets, n2p = _compute_per_client_budgets(grid, config)
+        assert budgets is None
+        assert n2p is None
+
+    def test_equal_division(self) -> None:
+        grid = MagicMock()
+        grid.get_node_ids.return_value = [1001, 1002, 1003]
+        config = load_config("config/default.yaml", overrides={
+            "privacy.enabled": True,
+            "privacy.total_budget": 9.0,
+        })
+        budgets, n2p = _compute_per_client_budgets(grid, config)
+        assert budgets is not None
+        assert len(budgets) == 3
+        for nid in [1001, 1002, 1003]:
+            assert budgets[nid] == pytest.approx(3.0)
+        assert n2p is None
+
+    def test_custom_strategy_path(self) -> None:
+        grid = MagicMock()
+        grid.get_node_ids.return_value = [1001, 1002]
+        grid.send_and_receive.return_value = [
+            self._make_query_reply(1001, partition_id=0),
+            self._make_query_reply(1002, partition_id=1),
+        ]
+        config = load_config("config/default.yaml", overrides={
+            "privacy.enabled": True,
+            "privacy.total_budget": 8.0,
+            "personalization.enabled": True,
+            "personalization.strategy": "custom",
+            "personalization.client_epsilon_map": {"0": 1.0, "3": 3.0},
+        })
+        budgets, n2p = _compute_per_client_budgets(grid, config)
+        assert budgets == {0: 2.0, 3: 6.0}
+        assert n2p == {1001: 0, 1002: 1}
+
+    def test_custom_fallback_equal_on_zero_weight(self) -> None:
+        grid = MagicMock()
+        grid.get_node_ids.return_value = [1001, 1002]
+        config = load_config("config/default.yaml", overrides={
+            "privacy.enabled": True,
+            "privacy.total_budget": 10.0,
+            "personalization.enabled": True,
+            "personalization.strategy": "custom",
+            "personalization.client_epsilon_map": {"0": 0.0, "1": 0.0},
+        })
+        budgets, n2p = _compute_per_client_budgets(grid, config)
+        assert budgets is not None
+        assert len(budgets) == 2
+        for nid in [1001, 1002]:
+            assert budgets[nid] == pytest.approx(5.0)
+        assert n2p is None
+
+
+class TestAddBudgetsToMessagesWithMapping:
+    def _make_train_message(self, dst: int) -> Message:
+        return Message(
+            content=RecordDict({
+                "config": ConfigRecord({"server-round": 1}),
+            }),
+            message_type="train",
+            dst_node_id=dst,
+        )
+
+    def test_node_to_partition_routes_budget(self) -> None:
+        budgets = {0: 1.0, 1: 3.0}
+        node_to_partition = {1001: 0, 1002: 1}
+        messages = [self._make_train_message(1001), self._make_train_message(1002)]
+        result = list(_add_budgets_to_messages(
+            messages, budgets, "config", node_to_partition=node_to_partition,
+        ))
+        assert len(result) == 2
+        assert result[0].content.config_records["config"]["per_client_budget"] == pytest.approx(1.0)
+        assert result[1].content.config_records["config"]["per_client_budget"] == pytest.approx(3.0)
+
+    def test_node_to_partition_missing_node_passes_through(self) -> None:
+        budgets = {0: 1.0}
+        node_to_partition = {1001: 0}
+        messages = [self._make_train_message(1001), self._make_train_message(999)]
+        result = list(_add_budgets_to_messages(
+            messages, budgets, "config", node_to_partition=node_to_partition,
+        ))
+        assert "per_client_budget" in result[0].content.config_records["config"]
+        assert "per_client_budget" not in result[1].content.config_records["config"]
+
+
+class TestStrategyConfigureTrain:
+    def test_median_robust_injects_budgets(self) -> None:
+        base_msg = Message(
+            content=RecordDict({
+                "config": ConfigRecord({"server-round": 1}),
+            }),
+            message_type="train",
+            dst_node_id=1001,
+        )
+        grid = MagicMock()
+
+        with patch.object(FedAvg, "configure_train", return_value=[base_msg]):
+            strategy = MedianRobustAggregation(
+                server_learning_rate=1.0,
+                fraction_train=1.0,
+                fraction_evaluate=0.0,
+                min_train_nodes=1,
+                min_evaluate_nodes=0,
+                min_available_nodes=1,
+                per_client_budgets={0: 2.5},
+                node_to_partition={1001: 0},
+            )
+            arrays = ArrayRecord({})
+            config = ConfigRecord({})
+            result = list(strategy.configure_train(1, arrays, config, grid))
+
+        assert len(result) == 1
+        assert result[0].content.config_records["config"]["per_client_budget"] == pytest.approx(2.5)
+
+    def test_safe_fedavg_injects_budgets(self) -> None:
+        base_msg = Message(
+            content=RecordDict({
+                "config": ConfigRecord({"server-round": 1}),
+            }),
+            message_type="train",
+            dst_node_id=1001,
+        )
+        grid = MagicMock()
+
+        with patch.object(FedAvg, "configure_train", return_value=[base_msg]):
+            strategy = SafeFedAvg(
+                server_learning_rate=1.0,
+                fraction_train=1.0,
+                fraction_evaluate=0.0,
+                min_train_nodes=1,
+                min_evaluate_nodes=0,
+                min_available_nodes=1,
+                per_client_budgets={0: 3.0},
+                node_to_partition={1001: 0},
+            )
+            arrays = ArrayRecord({})
+            config = ConfigRecord({})
+            result = list(strategy.configure_train(1, arrays, config, grid))
+
+        assert len(result) == 1
+        assert result[0].content.config_records["config"]["per_client_budget"] == pytest.approx(3.0)

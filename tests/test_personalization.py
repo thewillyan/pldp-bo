@@ -334,6 +334,36 @@ class TestAssignEpsilonBounds:
         assert eps_min == pytest.approx(1.0)
         assert eps_max == pytest.approx(3.0)
 
+    def test_custom_strategy_with_global_bounds(self) -> None:
+        pc = _make_personalization_config(
+            strategy="custom", client_epsilon_map={0: 10.0, 1: 2.0},
+        )
+        bc = _make_bo_config(
+            bounds_strategy="global", epsilon_min=0.5, epsilon_max=8.0,
+        )
+        dataset = _make_dataset([0, 1, 2])
+        eps_min_0, eps_max_0, _ = assign_epsilon_bounds(0, dataset, pc, bc)
+        eps_min_1, eps_max_1, _ = assign_epsilon_bounds(1, dataset, pc, bc)
+        # global bounds ignore personalization weights
+        assert eps_min_0 == pytest.approx(0.5)
+        assert eps_max_0 == pytest.approx(8.0)
+        assert eps_min_1 == pytest.approx(0.5)
+        assert eps_max_1 == pytest.approx(8.0)
+
+    def test_from_epsilon_custom_zero_weight(self) -> None:
+        pc = _make_personalization_config(
+            strategy="custom", client_epsilon_map={0: 0.0},
+        )
+        bc = _make_bo_config(
+            bounds_strategy="from_epsilon",
+            bounds_ratio_min=0.1,
+            bounds_ratio_max=1.0,
+        )
+        dataset = _make_dataset([0, 1, 2])
+        eps_min, eps_max, warmup = assign_epsilon_bounds(0, dataset, pc, bc)
+        assert eps_min == pytest.approx(1e-6)
+        assert eps_max == pytest.approx(0.0)
+
     def test_unknown_strategy_raises(self) -> None:
         pc = _make_personalization_config(enabled=False)
         bc = _make_bo_config(bounds_strategy="unknown")
