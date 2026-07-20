@@ -575,10 +575,14 @@ class TestPlotComparisonPrivacy:
             fig = plot_comparison_privacy(
                 ["run1", "run2"], labels=["A", "B"]
             )
-        assert len(fig.axes) == 1
+        # Two axes: primary + twinx for cumulative (even if no cumulative data)
+        assert len(fig.axes) == 2
         assert fig.axes[0].get_xlabel() == "Round"
+        assert fig.axes[0].get_ylabel() == "Per-Round Epsilon (ε)"
+        assert fig.axes[1].get_ylabel() == "Cumulative Epsilon (ε)"
         legends = fig.axes[0].get_legend()
         assert legends is not None
+        # Only per-round data present (no cumulative_epsilon in test metrics)
         assert len(legends.get_texts()) == 2
         assert len(fig.axes[0].collections) == 2
         plt.close(fig)
@@ -600,7 +604,7 @@ class TestPlotComparisonPrivacy:
             fig = plot_comparison_privacy(
                 ["run1"], labels=["A"], show_std=False
             )
-        assert len(fig.axes) == 1
+        assert len(fig.axes) == 2
         assert len(fig.axes[0].collections) == 0
         plt.close(fig)
 
@@ -609,7 +613,7 @@ class TestPlotComparisonPrivacy:
         with patch("src.plotting.comparison.get_run_by_id", return_value=empty):
             from src.plotting.comparison import plot_comparison_privacy
 
-            with pytest.raises(ValueError, match="No epsilon metrics found"):
+            with pytest.raises(ValueError, match="No epsilon or cumulative_epsilon metrics found"):
                 plot_comparison_privacy(["run1"], labels=["A"])
 
     def test_save_path(self, tmp_path: Path) -> None:

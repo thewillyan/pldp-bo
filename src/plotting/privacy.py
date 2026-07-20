@@ -90,16 +90,20 @@ def plot_client_epsilon_distribution(
         width = 0.35
 
         ax1.bar(x - width / 2, allocated_vals, width,
-                label="Allocated", color="#4A90D9", edgecolor="black", linewidth=0.5)
+                label="Initial Budget", color="#4A90D9", edgecolor="black", linewidth=0.5)
         ax1.bar(x + width / 2, used_vals, width,
-                label="Used", color="#1A5276", edgecolor="black", linewidth=0.5)
+                label="Cumulative Used", color="#1A5276", edgecolor="black", linewidth=0.5)
         ax1.set_xlabel("Client ID")
         ax1.set_ylabel("Epsilon (ε)")
-        ax1.set_title("Privacy Budget: Allocated vs Used")
+        ax1.set_title("Privacy Budget: Initial Allocation vs Cumulative Spend")
         ax1.set_xticks(x)
         ax1.set_xticklabels(all_ids)
         ax1.legend(frameon=True, framealpha=0.9, edgecolor="gray")
         ax1.grid(True, alpha=0.3, axis="y")
+        ax1.text(0.5, -0.22,
+                 "Initial Budget = Remaining Budget + Cumulative Used",
+                 transform=ax1.transAxes, ha="center", fontsize=8,
+                 style="italic", color="gray")
 
         total_rounds_str = run.data.params.get("federated.num_rounds", "0")
         total_rounds = int(total_rounds_str) if total_rounds_str else 0
@@ -143,7 +147,8 @@ def plot_client_epsilon_distribution(
             f"Personalized Privacy Budgets (n={len(all_ids)} clients)",
             fontsize=13,
         )
-        plt.tight_layout()
+        plt.subplots_adjust(bottom=0.12)
+        plt.tight_layout(rect=(0, 0.06, 1, 1))
 
         if save_path:
             fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
@@ -234,16 +239,20 @@ def _plot_client_epsilon_legacy(
         width = 0.35
 
         ax1.bar(x - width / 2, allocated_vals, width,
-                label="Allocated", color="#4A90D9", edgecolor="black", linewidth=0.5)
+                label="Initial Budget", color="#4A90D9", edgecolor="black", linewidth=0.5)
         ax1.bar(x + width / 2, used_vals, width,
-                label="Used", color="#1A5276", edgecolor="black", linewidth=0.5)
+                label="Cumulative Used", color="#1A5276", edgecolor="black", linewidth=0.5)
         ax1.set_xlabel("Client ID")
         ax1.set_ylabel("Epsilon (ε)")
-        ax1.set_title("Privacy Budget: Allocated vs Used")
+        ax1.set_title("Privacy Budget: Initial Allocation vs Cumulative Spend")
         ax1.set_xticks(x)
         ax1.set_xticklabels(all_ids)
         ax1.legend(frameon=True, framealpha=0.9, edgecolor="gray")
         ax1.grid(True, alpha=0.3, axis="y")
+        ax1.text(0.5, -0.22,
+                 "Initial Budget = Remaining Budget + Cumulative Used",
+                 transform=ax1.transAxes, ha="center", fontsize=8,
+                 style="italic", color="gray")
 
         total_rounds_str = run.data.params.get("federated.num_rounds", "0")
         total_rounds = int(total_rounds_str) if total_rounds_str else 0
@@ -287,7 +296,8 @@ def _plot_client_epsilon_legacy(
             f"Personalized Privacy Budgets (n={len(all_ids)} clients)",
             fontsize=13,
         )
-        plt.tight_layout()
+        plt.subplots_adjust(bottom=0.12)
+        plt.tight_layout(rect=(0, 0.06, 1, 1))
 
         if save_path:
             fig.savefig(save_path, dpi=dpi, bbox_inches="tight")

@@ -139,10 +139,14 @@ def plot_comparison_privacy(
     resolved_labels = _resolve_labels(run_ids, labels)
     palette = sns.color_palette(PALETTE, n_colors=len(run_ids))
 
-    fig, axes = _setup_figure(1, len(run_ids))
-    ax = axes[0]
+    fig, ax1 = plt.subplots(figsize=(10, 6))
+    ax2 = ax1.twinx()
 
-    has_data = False
+    has_per_round = False
+    has_cumulative = False
+    lines: list = []
+    legend_labels: list[str] = []
+
     for i, (run_id, label) in enumerate(
         zip(run_ids, resolved_labels, strict=True),
     ):
@@ -151,31 +155,58 @@ def plot_comparison_privacy(
         ls = LINE_STYLES[i % len(LINE_STYLES)]
 
         aggs = ("mean", "std") if show_std else ("mean",)
-        rounds, eps_stats = extract_round_stats(run, "epsilon", aggs=aggs)
+
+        rounds_per, eps_stats = extract_round_stats(run, "epsilon", aggs=aggs)
         epsilons = eps_stats.get("mean", [])
-        if not epsilons:
-            continue
+        if epsilons:
+            (line_per,) = ax1.plot(
+                rounds_per, epsilons, color=color, linestyle=ls,
+                linewidth=2, label=f"{label} (ε/round)",
+            )
+            lines.append(line_per)
+            legend_labels.append(f"{label} (ε/round)")
+            has_per_round = True
 
-        ax.plot(
-            rounds, epsilons, color=color, linestyle=ls, linewidth=2, label=label,
-        )
-        has_data = True
+            if show_std:
+                stds = eps_stats.get("std", [])
+                if stds and len(stds) == len(epsilons):
+                    upper = [m + s for m, s in zip(epsilons, stds)]
+                    lower = [m - s for m, s in zip(epsilons, stds)]
+                    ax1.fill_between(rounds_per, lower, upper, alpha=0.1, color=color)
 
-        if show_std:
-            stds = eps_stats.get("std", [])
-            if stds and len(stds) == len(epsilons):
-                upper = [m + s for m, s in zip(epsilons, stds)]
-                lower = [m - s for m, s in zip(epsilons, stds)]
-                ax.fill_between(rounds, lower, upper, alpha=0.1, color=color)
+        rounds_cum, cum_stats = extract_round_stats(run, "cumulative_epsilon", aggs=aggs)
+        cum_epsilons = cum_stats.get("mean", [])
+        if cum_epsilons:
+            (line_cum,) = ax2.plot(
+                rounds_cum, cum_epsilons, color=color,
+                linestyle="--", linewidth=2, label=f"{label} (cumulative ε)",
+            )
+            lines.append(line_cum)
+            legend_labels.append(f"{label} (cumulative ε)")
+            has_cumulative = True
 
-    if not has_data:
-        msg = "No epsilon metrics found in any of the specified runs."
+    if not has_per_round and not has_cumulative:
+        msg = "No epsilon or cumulative_epsilon metrics found in any of the specified runs."
         raise ValueError(msg)
 
-    ax.set_xlabel("Round")
-    ax.set_ylabel("Epsilon (ε)")
-    ax.set_title("Privacy Budget (ε) vs Round")
-    ax.legend(frameon=True, framealpha=0.9, edgecolor="gray")
+    ax1.set_xlabel("Round")
+    ax1.set_ylabel("Per-Round Epsilon (ε)")
+    ax2.set_ylabel("Cumulative Epsilon (ε)")
+
+    title = "Privacy Budget vs Round"
+    if has_per_round and has_cumulative:
+        title += " — Per-Round (left) & Cumulative (right)"
+    elif has_per_round:
+        title += " — Per-Round Epsilon"
+    else:
+        title += " — Cumulative Epsilon"
+    ax1.set_title(title)
+
+    if lines:
+        ax1.legend(
+            lines, legend_labels,
+            frameon=True, framealpha=0.9, edgecolor="gray",
+        )
 
     fig.tight_layout()
 
