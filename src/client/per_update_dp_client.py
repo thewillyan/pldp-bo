@@ -100,6 +100,11 @@ class PerUpdateDPClient(FlowerClient):
                     loss = loss + (proximal_mu / 2) * proximal_term
 
                 loss.backward()
+                if self.config.optimizer.gradient_clip_norm > 0:
+                    torch.nn.utils.clip_grad_norm_(
+                        net.parameters(),
+                        self.config.optimizer.gradient_clip_norm,
+                    )
                 optimizer.step()
 
         if self._client_epsilon is not None:

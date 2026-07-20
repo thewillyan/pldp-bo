@@ -10,7 +10,7 @@ model:
   num_classes: 10
 
 federated:
-  num_rounds: 50
+  num_rounds: 100
   fraction_fit: 0.5
   fraction_evaluate: 0.2
   local_epochs: 5
@@ -25,6 +25,7 @@ optimizer:
   lr: 0.01
   momentum: 0.9
   weight_decay: 0.0
+  gradient_clip_norm: 1.0
 
 privacy:
   enabled: true
@@ -45,9 +46,12 @@ bo:
   optimization_metric: utility
   bounds_strategy: from_epsilon
   bounds_ratio_min: 0.5
-  bounds_ratio_max: 1.5
-  max_warmup_ratio: 0.2
-  min_warmup: 3
+  bounds_ratio_max: 8.0
+  max_warmup_ratio: 0.4
+  min_warmup: 10
+  acquisition_penalty: 0.0
+  budget_margin: 0.0
+  observation_noise: 0.1
 
 logging:
   tracker: mlflow

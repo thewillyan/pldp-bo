@@ -48,6 +48,7 @@ class OptimizerConfig:
     lr: float = 0.01
     momentum: float = 0.9
     weight_decay: float = 0.0
+    gradient_clip_norm: float = 0.0
 
 
 @dataclass

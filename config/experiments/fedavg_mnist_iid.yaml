@@ -9,7 +9,7 @@ model:
   num_classes: 10
 
 federated:
-  num_rounds: 50
+  num_rounds: 100
   fraction_fit: 0.5
   fraction_evaluate: 0.2
   local_epochs: 5
@@ -24,6 +24,7 @@ optimizer:
   lr: 0.01
   momentum: 0.9
   weight_decay: 0.0
+  gradient_clip_norm: 1.0
 
 privacy:
   enabled: true

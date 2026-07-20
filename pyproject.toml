@@ -60,3 +60,9 @@ clientapp = "src.client_app:app"
 
 [tool.flwr.app.config]
 config-path = "config/default.yaml"
+
+[tool.flwr.app.config.data]
+num_clients = 10
+
+[tool.flwr.app.config.federated]
+min_available_nodes = 10
