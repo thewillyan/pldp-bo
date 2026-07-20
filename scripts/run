@@ -119,6 +119,8 @@ def cmd_single(
             run_config_parts.append(f"{key}='{val}'")
         else:
             run_config_parts.append(f"{key}={val}")
+        if key == "logging.run_name":
+            run_name = val
 
     cmd = [
         "flwr", "run", ".",
@@ -173,7 +175,24 @@ def cmd_single(
     return run_id, tracking_uri
 
 
-def cmd_group(group_name: str, num_clients: int, overrides: list[str]) -> None:
+def cmd_group(group_name: str, num_clients: int, overrides: list[str], num_runs: int = 1) -> None:
+    if group_name == "all":
+        groups: set[str] = set()
+        for f in sorted(CONFIG_DIR.glob("*.yaml")):
+            cfg = yaml.safe_load(f.read_text())
+            g = cfg.get("logging", {}).get("group")
+            if g and g != "all":
+                groups.add(g)
+        if not groups:
+            print("No groups found.", file=sys.stderr)
+            sys.exit(1)
+        for g in sorted(groups):
+            print(f"\n{'='*60}")
+            print(f"Running group: {g}")
+            print(f"{'='*60}")
+            cmd_group(g, num_clients, overrides, num_runs)
+        return
+
     if num_clients < 2:
         print("Error: num_clients must be an integer >= 2", file=sys.stderr)
         sys.exit(1)
@@ -189,7 +208,7 @@ def cmd_group(group_name: str, num_clients: int, overrides: list[str]) -> None:
             f"No experiments found with logging.group='{group_name}'",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return
 
     group_dir = pathlib.Path(f"mlruns/group/{group_name}")
     plots_dir = group_dir / "plots"
@@ -208,35 +227,106 @@ def cmd_group(group_name: str, num_clients: int, overrides: list[str]) -> None:
 
         print(f"\n--- {config_name} ---")
 
-        result = cmd_single(str(config_path), num_clients, overrides)
-        if result is None:
-            print("  ERROR: Experiment failed.", file=sys.stderr)
+        cfg = yaml.safe_load(config_path.read_text())
+        base_seed = cfg.get("seed", 42)
+        base_run_name = cfg.get("logging", {}).get("run_name", config_name)
+
+        config_run_ids: list[str] = []
+
+        if num_runs > 1:
+            effective_base_seed = base_seed
+            effective_base_run_name = base_run_name
+            filtered_ov: list[str] = []
+            for ov in overrides:
+                if ov.startswith("seed="):
+                    effective_base_seed = int(ov.split("=", 1)[1])
+                elif ov.startswith("logging.run_name="):
+                    effective_base_run_name = ov.split("=", 1)[1]
+                else:
+                    filtered_ov.append(ov)
+
+            for run_idx in range(num_runs):
+                seed = effective_base_seed + run_idx
+                run_name = f"{effective_base_run_name}_seed{seed}"
+                run_ov = filtered_ov + [
+                    f"seed={seed}", f"logging.run_name={run_name}",
+                ]
+
+                result = cmd_single(str(config_path), num_clients, run_ov)
+                if result is None:
+                    print(f"  ERROR: Run {run_idx} (seed={seed}) failed.", file=sys.stderr)
+                    continue
+
+                run_id, _ = result
+                config_run_ids.append(run_id)
+
+                seed_plots = exp_plots / f"seed{seed}"
+                seed_plots.mkdir(parents=True, exist_ok=True)
+                plot_proc = subprocess.run(
+                    [sys.executable, _PLOT_SCRIPT, "--tracking-uri", tracking_uri,
+                     "plot", run_id, "--type", "all", "--save-dir", str(seed_plots)],
+                    capture_output=True, text=True,
+                )
+                for line in plot_proc.stdout.splitlines():
+                    if line.strip():
+                        print(f"  {line}")
+                for line in plot_proc.stderr.splitlines():
+                    if line.strip():
+                        print(f"  {line}", file=sys.stderr)
+                if plot_proc.returncode != 0:
+                    print(f"  WARNING: Plot generation failed for seed {seed}", file=sys.stderr)
+        else:
+            for run_idx in range(num_runs):
+                seed = base_seed + run_idx
+                run_ov = overrides + [f"seed={seed}"]
+
+                result = cmd_single(str(config_path), num_clients, run_ov)
+                if result is None:
+                    print(f"  ERROR: Run {run_idx} (seed={seed}) failed.", file=sys.stderr)
+                    continue
+
+                run_id, _ = result
+                config_run_ids.append(run_id)
+
+                plot_proc = subprocess.run(
+                    [sys.executable, _PLOT_SCRIPT, "--tracking-uri", tracking_uri,
+                     "plot", run_id, "--type", "all", "--save-dir", str(exp_plots)],
+                    capture_output=True, text=True,
+                )
+                for line in plot_proc.stdout.splitlines():
+                    if line.strip():
+                        print(f"  {line}")
+                for line in plot_proc.stderr.splitlines():
+                    if line.strip():
+                        print(f"  {line}", file=sys.stderr)
+                if plot_proc.returncode != 0:
+                    print("  WARNING: Plot generation failed", file=sys.stderr)
+
+        if not config_run_ids:
+            print("  ERROR: All runs failed for this config.", file=sys.stderr)
             failed.append(config_name)
             continue
 
-        run_id, _ = result
-        run_ids.append(run_id)
-        run_labels.append(config_name)
+        if num_runs > 1:
+            mean_plots = exp_plots / "mean"
+            mean_plots.mkdir(parents=True, exist_ok=True)
+            plot_proc = subprocess.run(
+                [sys.executable, _PLOT_SCRIPT, "--tracking-uri", tracking_uri,
+                 "compare", "--runs", *config_run_ids, "--mean",
+                 "--type", "convergence", "--save-dir", str(mean_plots)],
+                capture_output=True, text=True,
+            )
+            for line in plot_proc.stdout.splitlines():
+                if line.strip():
+                    print(f"  {line}")
+            for line in plot_proc.stderr.splitlines():
+                if line.strip():
+                    print(f"  {line}", file=sys.stderr)
+            if plot_proc.returncode != 0:
+                print("  WARNING: Mean plot generation failed", file=sys.stderr)
 
-        plot_proc = subprocess.run(
-            [
-                sys.executable, _PLOT_SCRIPT,
-                "--tracking-uri", tracking_uri,
-                "plot", run_id,
-                "--type", "all",
-                "--save-dir", str(exp_plots),
-            ],
-            capture_output=True,
-            text=True,
-        )
-        for line in plot_proc.stdout.splitlines():
-            if line.strip():
-                print(f"  {line}")
-        for line in plot_proc.stderr.splitlines():
-            if line.strip():
-                print(f"  {line}", file=sys.stderr)
-        if plot_proc.returncode != 0:
-            print("  WARNING: Plot generation failed", file=sys.stderr)
+        run_ids.append(config_run_ids[0])
+        run_labels.append(config_name)
 
     if len(run_ids) > 1:
         comp_dir = plots_dir / "comparison"
@@ -307,11 +397,19 @@ def main() -> None:
     p_single.add_argument("config_path", type=str)
     p_single.add_argument("num_clients", type=int)
     p_single.add_argument("overrides", nargs="*", help="KEY=VALUE overrides")
+    p_single.add_argument(
+        "--num-runs", "-n", type=int, default=1,
+        help="Number of runs with different seeds (default: 1)",
+    )
 
     p_group = sub.add_parser("group", help="Run all experiments in a group")
     p_group.add_argument("group_name", type=str)
     p_group.add_argument("num_clients", type=int)
     p_group.add_argument("overrides", nargs="*", help="KEY=VALUE overrides")
+    p_group.add_argument(
+        "--num-runs", "-n", type=int, default=1,
+        help="Number of runs per config with different seeds (default: 1)",
+    )
 
     p_list = sub.add_parser("list", help="List available groups and configs")
     p_list.add_argument("--groups", action="store_true", help="Show only group names")
@@ -320,36 +418,115 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "single":
-        result = cmd_single(args.config_path, args.num_clients, args.overrides)
-        if result is not None:
-            run_id, tracking_uri = result
-            print(run_id)
+        if args.num_runs > 1:
+            path = pathlib.Path(args.config_path)
+            cfg = yaml.safe_load(path.read_text())
+            base_seed = cfg.get("seed", 42)
+            base_run_name = cfg.get("logging", {}).get("run_name", path.stem)
 
-            config_stem = pathlib.Path(args.config_path).stem
-            plots_dir = pathlib.Path(f"mlruns/single/{config_stem}/plots")
-            plots_dir.mkdir(parents=True, exist_ok=True)
+            effective_base_seed = base_seed
+            effective_base_run_name = base_run_name
+            filtered_overrides: list[str] = []
+            for ov in args.overrides:
+                if ov.startswith("seed="):
+                    effective_base_seed = int(ov.split("=", 1)[1])
+                elif ov.startswith("logging.run_name="):
+                    effective_base_run_name = ov.split("=", 1)[1]
+                else:
+                    filtered_overrides.append(ov)
 
-            plot_proc = subprocess.run(
-                [
-                    sys.executable, _PLOT_SCRIPT,
-                    "--tracking-uri", tracking_uri,
-                    "plot", run_id,
-                    "--type", "all",
-                    "--save-dir", str(plots_dir),
-                ],
-                capture_output=True,
-                text=True,
-            )
-            for line in plot_proc.stdout.splitlines():
-                if line.strip():
-                    print(line)
-            for line in plot_proc.stderr.splitlines():
-                if line.strip():
-                    print(line, file=sys.stderr)
-            if plot_proc.returncode != 0:
-                print("WARNING: Plot generation failed", file=sys.stderr)
+            first_seed = effective_base_seed
+            first_run_name = f"{effective_base_run_name}_seed{first_seed}"
+            first_overrides = filtered_overrides + [
+                f"seed={first_seed}", f"logging.run_name={first_run_name}",
+            ]
+            first_result = cmd_single(args.config_path, args.num_clients, first_overrides)
+            if first_result is None:
+                sys.exit(1)
+            run_id_first, tracking_uri = first_result
+
+            os.environ["MLFLOW_TRACKING_URI"] = tracking_uri
+            run_ids = [run_id_first]
+
+            for i in range(1, args.num_runs):
+                seed = effective_base_seed + i
+                run_name = f"{effective_base_run_name}_seed{seed}"
+                overrides = filtered_overrides + [
+                    f"seed={seed}", f"logging.run_name={run_name}",
+                ]
+                result = cmd_single(args.config_path, args.num_clients, overrides)
+                if result is not None:
+                    run_ids.append(result[0])
+
+            config_stem = path.stem
+            for i, rid in enumerate(run_ids):
+                seed = effective_base_seed + i
+                seed_dir = pathlib.Path(f"mlruns/single/{config_stem}/plots/seed{seed}")
+                seed_dir.mkdir(parents=True, exist_ok=True)
+                plot_proc = subprocess.run(
+                    [sys.executable, _PLOT_SCRIPT, "--tracking-uri", tracking_uri,
+                     "plot", rid, "--type", "all", "--save-dir", str(seed_dir)],
+                    capture_output=True, text=True,
+                )
+                for line in plot_proc.stdout.splitlines():
+                    if line.strip():
+                        print(line)
+                for line in plot_proc.stderr.splitlines():
+                    if line.strip():
+                        print(line, file=sys.stderr)
+                if plot_proc.returncode != 0:
+                    print(f"  WARNING: Plot generation failed for seed {seed}", file=sys.stderr)
+
+            if len(run_ids) > 1:
+                mean_dir = pathlib.Path(f"mlruns/single/{config_stem}/plots/mean")
+                mean_dir.mkdir(parents=True, exist_ok=True)
+                plot_proc = subprocess.run(
+                    [sys.executable, _PLOT_SCRIPT, "--tracking-uri", tracking_uri,
+                     "compare", "--runs", *run_ids, "--mean",
+                     "--type", "convergence", "--save-dir", str(mean_dir)],
+                    capture_output=True, text=True,
+                )
+                for line in plot_proc.stdout.splitlines():
+                    if line.strip():
+                        print(line)
+                for line in plot_proc.stderr.splitlines():
+                    if line.strip():
+                        print(line, file=sys.stderr)
+                if plot_proc.returncode != 0:
+                    print("WARNING: Mean plot generation failed", file=sys.stderr)
+
+            print(f"Completed {len(run_ids)}/{args.num_runs} runs")
+        else:
+            result = cmd_single(args.config_path, args.num_clients, args.overrides)
+            if result is not None:
+                run_id, tracking_uri = result
+                print(run_id)
+
+                config_stem = pathlib.Path(args.config_path).stem
+                plots_dir = pathlib.Path(f"mlruns/single/{config_stem}/plots")
+                plots_dir.mkdir(parents=True, exist_ok=True)
+
+                plot_proc = subprocess.run(
+                    [
+                        sys.executable, _PLOT_SCRIPT,
+                        "--tracking-uri", tracking_uri,
+                        "plot", run_id,
+                        "--type", "all",
+                        "--save-dir", str(plots_dir),
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                for line in plot_proc.stdout.splitlines():
+                    if line.strip():
+                        print(line)
+                for line in plot_proc.stderr.splitlines():
+                    if line.strip():
+                        print(line, file=sys.stderr)
+                if plot_proc.returncode != 0:
+                    print("WARNING: Plot generation failed", file=sys.stderr)
     elif args.command == "group":
-        cmd_group(args.group_name, args.num_clients, args.overrides)
+        cmd_group(args.group_name, args.num_clients, args.overrides, num_runs=args.num_runs)
     elif args.command == "list":
         cmd_list(groups_only=args.groups, configs_only=args.configs)
 

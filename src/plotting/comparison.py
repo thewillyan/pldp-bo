@@ -5,6 +5,7 @@ from pathlib import Path
 import matplotlib.axes
 import matplotlib.figure
 import matplotlib.pyplot as plt
+import numpy
 import seaborn as sns
 
 from src.plotting._helpers import (
@@ -129,6 +130,106 @@ def plot_comparison_convergence(
     return fig
 
 
+def plot_mean_convergence(
+    run_ids: Sequence[str],
+    labels: Sequence[str] | None = None,  # noqa: ARG001
+    save_path: Path | None = None,
+    dpi: int = 150,
+) -> matplotlib.figure.Figure:
+
+    all_loss: list[list[float]] = []
+    all_acc: list[list[float]] = []
+    common_rounds_loss: list[int] = []
+    common_rounds_acc: list[int] = []
+
+    for run_id in run_ids:
+        run = get_run_by_id(run_id)
+        loss_rounds, losses = extract_metrics_by_round(run, "server_loss")
+        acc_rounds, accuracies = extract_metrics_by_round(run, "accuracy")
+        if loss_rounds and not common_rounds_loss:
+            common_rounds_loss = loss_rounds
+        if acc_rounds and not common_rounds_acc:
+            common_rounds_acc = acc_rounds
+
+        if losses and len(losses) == len(common_rounds_loss):
+            all_loss.append(losses)
+        if accuracies and len(accuracies) == len(common_rounds_acc):
+            all_acc.append(accuracies)
+
+    has_loss = len(all_loss) > 0
+    has_acc = len(all_acc) > 0
+
+    if not has_loss and not has_acc:
+        msg = "No convergence metrics (server_loss, accuracy) found in any run."
+        raise ValueError(msg)
+    if not has_loss:
+        warnings.warn("No server_loss data; plotting accuracy only", stacklevel=2)
+    if not has_acc:
+        warnings.warn("No accuracy data; plotting loss only", stacklevel=2)
+
+    ncols = int(has_loss) + int(has_acc)
+    if ncols == 1:
+        fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+        axes = [ax]
+    else:
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+        axes = [ax1, ax2]
+
+    x_min, x_max = 0, 0
+    if has_loss and common_rounds_loss:
+        x_min, x_max = min(common_rounds_loss), max(common_rounds_loss)
+    if has_acc and common_rounds_acc:
+        acc_min, acc_max = min(common_rounds_acc), max(common_rounds_acc)
+        x_min = min(x_min, acc_min) if has_loss else acc_min
+        x_max = max(x_max, acc_max) if has_loss else acc_max
+    pad = 0.02 * (x_max - x_min) or 0.5
+
+    ax_idx = 0
+    if has_loss:
+        ax = axes[ax_idx]
+        losses_arr = numpy.array(all_loss)
+        mean = numpy.mean(losses_arr, axis=0)
+        n_contrib = len(all_loss)
+        ax.plot(common_rounds_loss, mean, color="steelblue", linewidth=2,
+                label=f"Mean (N={n_contrib})")
+        if n_contrib > 1:
+            std = numpy.std(losses_arr, axis=0, ddof=1)
+            ax.fill_between(common_rounds_loss, mean - std, mean + std,
+                            alpha=0.3, color="steelblue")
+        ax.set_xlabel("Round")
+        ax.set_ylabel("Loss")
+        ax.set_title("Server Loss vs Round (Mean ± Std)")
+        ax.grid(True, alpha=0.3)
+        ax.set_xlim(x_min - pad, x_max + pad)
+        ax.legend(frameon=True, framealpha=0.9, edgecolor="gray")
+        ax_idx += 1
+
+    if has_acc:
+        ax = axes[ax_idx]
+        acc_arr = numpy.array(all_acc)
+        mean = numpy.mean(acc_arr, axis=0)
+        n_contrib = len(all_acc)
+        ax.plot(common_rounds_acc, mean, color="green", linewidth=2,
+                label=f"Mean (N={n_contrib})")
+        if n_contrib > 1:
+            std = numpy.std(acc_arr, axis=0, ddof=1)
+            ax.fill_between(common_rounds_acc, mean - std, mean + std,
+                            alpha=0.3, color="green")
+        ax.set_xlabel("Round")
+        ax.set_ylabel("Accuracy")
+        ax.set_title("Accuracy vs Round (Mean ± Std)")
+        ax.grid(True, alpha=0.3)
+        ax.set_xlim(x_min - pad, x_max + pad)
+        ax.legend(frameon=True, framealpha=0.9, edgecolor="gray")
+
+    fig.tight_layout()
+
+    if save_path:
+        fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
+
+    return fig
+
+
 def plot_comparison_privacy(
     run_ids: Sequence[str],
     labels: Sequence[str] | None = None,
@@ -170,8 +271,8 @@ def plot_comparison_privacy(
             if show_std:
                 stds = eps_stats.get("std", [])
                 if stds and len(stds) == len(epsilons):
-                    upper = [m + s for m, s in zip(epsilons, stds)]
-                    lower = [m - s for m, s in zip(epsilons, stds)]
+                    upper = [m + s for m, s in zip(epsilons, stds, strict=True)]
+                    lower = [m - s for m, s in zip(epsilons, stds, strict=True)]
                     ax1.fill_between(rounds_per, lower, upper, alpha=0.1, color=color)
 
         rounds_cum, cum_stats = extract_round_stats(run, "cumulative_epsilon", aggs=aggs)

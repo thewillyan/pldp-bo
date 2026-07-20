@@ -18,6 +18,7 @@ from src.plotting import get_run_name, get_run_params, list_runs
 from src.plotting.comparison import (
     plot_comparison_convergence,
     plot_comparison_privacy,
+    plot_mean_convergence,
 )
 from src.plotting.convergence import plot_convergence
 from src.plotting.privacy import (
@@ -213,10 +214,16 @@ def cmd_compare(args: argparse.Namespace) -> None:
     if args.type in ("convergence", "all"):
         path = save_dir / "comparison_convergence.png"
         try:
-            fig = plot_comparison_convergence(
-                run_ids, labels=labels, save_path=path
-            )
-            print(f"Saved comparison convergence plot to {path}")
+            if args.mean:
+                fig = plot_mean_convergence(
+                    run_ids, labels=labels, save_path=path
+                )
+                print(f"Saved mean convergence plot to {path}")
+            else:
+                fig = plot_comparison_convergence(
+                    run_ids, labels=labels, save_path=path
+                )
+                print(f"Saved comparison convergence plot to {path}")
             plt.close(fig)
         except ValueError as e:
             print(f"Warning: {e}", file=sys.stderr)
@@ -299,6 +306,10 @@ def main() -> None:
         default="all",
     )
     compare_parser.add_argument("--save-dir", type=str, default="./plots")
+    compare_parser.add_argument(
+        "--mean", action="store_true",
+        help="Plot mean ± std across runs (convergence only)",
+    )
 
     args = parser.parse_args()
 
