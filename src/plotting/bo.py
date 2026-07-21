@@ -32,6 +32,13 @@ def plot_metric_vs_epsilon(
         msg = f"No data for client {client_id} metric '{metric}'"
         raise ValueError(msg)
 
+    if len(epsilons) != len(metric_vals):
+        msg = (
+            f"Length mismatch for client {client_id}: "
+            f"{len(epsilons)} epsilon values vs {len(metric_vals)} {metric} values"
+        )
+        raise ValueError(msg)
+
     fig, ax = plt.subplots(figsize=(8, 6))
 
     rds_arr = np.array(rounds)
@@ -60,7 +67,8 @@ def plot_metric_vs_epsilon(
 
         ax.legend(framealpha=0.9)
     else:
-        ax.scatter(eps_arr, met_arr, c=rds_arr, cmap="viridis", marker="o", s=50, alpha=0.7)
+        sc = ax.scatter(eps_arr, met_arr, c=rds_arr, cmap="viridis", marker="o", s=50, alpha=0.7)
+        fig.colorbar(sc, ax=ax, label="Round")
 
     ax.set_xlabel("Epsilon (ε)")
     ax.set_ylabel(metric.replace("_", " ").title())

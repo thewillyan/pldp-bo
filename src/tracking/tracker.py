@@ -60,10 +60,6 @@ class ExperimentTracker:
     def log_round_metrics(self, round_num: int, metrics: dict[str, Any]) -> None:
         mlflow.log_metrics(metrics, step=round_num)
 
-    def log_final_metrics(self, metrics: dict[str, Any]) -> None:
-        prefixed = {f"final_{k}": v for k, v in metrics.items()}
-        mlflow.log_metrics(prefixed)
-
     def log_metrics(self, metrics: dict[str, Any], step: int | None = None) -> None:
         mlflow.log_metrics(metrics, step=step)
 

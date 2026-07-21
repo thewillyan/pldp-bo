@@ -108,6 +108,7 @@ class MetricLoggingMixin:
         update_norms: list[float] = []
         utility_losses: list[float] = []
         cumulative_epsilons: list[float] = []
+        sigmas: list[float] = []
 
         for content in reply_contents:
             m = content.metric_records.get("metrics")
@@ -145,6 +146,11 @@ class MetricLoggingMixin:
                 client_epsilons.append(float(client_eps))
                 self._log_metric(f"client_{cid}_client_epsilon", float(client_eps), step=server_round)
 
+            sigma = m.get("sigma")
+            if sigma is not None:
+                sigmas.append(float(sigma))
+                self._log_metric(f"client_{cid}_sigma", float(sigma), step=server_round)
+
             if self._per_client_budgets is not None and cum_eps is not None:
                 budget = self._per_client_budgets.get(cid)
                 if budget is None and self._node_to_partition:
@@ -159,6 +165,7 @@ class MetricLoggingMixin:
         self._log_metric_stats("update_norm", update_norms, server_round)
         self._log_metric_stats("utility_loss", utility_losses, server_round)
         self._log_metric_stats("cumulative_epsilon", cumulative_epsilons, server_round)
+        self._log_metric_stats("sigma", sigmas, server_round)
 
 
 class MedianRobustAggregation(MetricLoggingMixin, FedAvg):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import warnings
 
 import mlflow
 from mlflow.entities import Run
@@ -51,7 +52,12 @@ def _get_metric_history(run_id: str, metric_name: str) -> list[tuple[int, float]
     client = get_client()
     try:
         metrics = client.get_metric_history(run_id, metric_name)
-    except Exception:
+    except Exception as e:
+        warnings.warn(
+            f"Failed to fetch metric history for '{metric_name}' "
+            f"(run {run_id[:8]}): {e}",
+            stacklevel=2,
+        )
         return []
     return [(m.step, m.value) for m in metrics]
 

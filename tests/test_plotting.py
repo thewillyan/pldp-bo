@@ -499,7 +499,9 @@ class TestPlotComparisonConvergence:
 
             with pytest.warns(UserWarning, match="No server_loss data"):
                 fig = plot_comparison_convergence(["run1"], labels=["A"])
-        assert len(fig.axes) == 2
+        # Only accuracy data → 1 subplot
+        assert len(fig.axes) == 1
+        assert fig.axes[0].get_title() == "Accuracy vs Round"
         plt.close(fig)
 
     def test_partial_accuracy(self) -> None:
@@ -512,7 +514,9 @@ class TestPlotComparisonConvergence:
 
             with pytest.warns(UserWarning, match="No accuracy data"):
                 fig = plot_comparison_convergence(["run1"], labels=["A"])
-        assert len(fig.axes) == 2
+        # Only loss data → 1 subplot
+        assert len(fig.axes) == 1
+        assert fig.axes[0].get_title() == "Server Loss vs Round"
         plt.close(fig)
 
     def test_custom_labels(self) -> None:
@@ -575,16 +579,52 @@ class TestPlotComparisonPrivacy:
             fig = plot_comparison_privacy(
                 ["run1", "run2"], labels=["A", "B"]
             )
-        # Two axes: primary + twinx for cumulative (even if no cumulative data)
-        assert len(fig.axes) == 2
-        assert fig.axes[0].get_xlabel() == "Round"
-        assert fig.axes[0].get_ylabel() == "Per-Round Epsilon (ε)"
-        assert fig.axes[1].get_ylabel() == "Cumulative Epsilon (ε)"
-        legends = fig.axes[0].get_legend()
+        # Only per-round data present → 1 subplot
+        assert len(fig.axes) == 1
+        ax = fig.axes[0]
+        assert ax.get_xlabel() == "Round"
+        assert ax.get_ylabel() == "Per-Round Epsilon (ε)"
+        assert ax.get_title() == "Per-Round Epsilon"
+        legends = ax.get_legend()
         assert legends is not None
-        # Only per-round data present (no cumulative_epsilon in test metrics)
         assert len(legends.get_texts()) == 2
-        assert len(fig.axes[0].collections) == 2
+        assert len(ax.collections) == 2
+        plt.close(fig)
+
+    def test_success_both_metrics(self) -> None:
+        run1 = make_run(metrics={
+            "round_0_epsilon_mean": 1.0,
+            "round_0_epsilon_std": 0.2,
+            "round_1_epsilon_mean": 2.0,
+            "round_1_epsilon_std": 0.3,
+            "round_0_cumulative_epsilon_mean": 1.0,
+            "round_1_cumulative_epsilon_mean": 3.0,
+        })
+        run2 = make_run(metrics={
+            "round_0_epsilon_mean": 1.5,
+            "round_0_epsilon_std": 0.1,
+            "round_1_epsilon_mean": 2.5,
+            "round_1_epsilon_std": 0.4,
+            "round_0_cumulative_epsilon_mean": 1.5,
+            "round_1_cumulative_epsilon_mean": 4.0,
+        })
+        fake_runs = {"run1": run1, "run2": run2}
+        with patch(
+            "src.plotting.comparison.get_run_by_id",
+            side_effect=lambda rid: fake_runs[rid],
+        ):
+            from src.plotting.comparison import plot_comparison_privacy
+
+            fig = plot_comparison_privacy(
+                ["run1", "run2"], labels=["A", "B"]
+            )
+        assert len(fig.axes) == 2
+        ax_per, ax_cum = fig.axes
+        assert ax_per.get_ylabel() == "Per-Round Epsilon (ε)"
+        assert ax_per.get_title() == "Per-Round Epsilon"
+        assert ax_cum.get_ylabel() == "Cumulative Epsilon (ε)"
+        assert ax_cum.get_title() == "Cumulative Epsilon"
+        assert len(ax_per.collections) == 2
         plt.close(fig)
 
     def test_no_std(self) -> None:
@@ -604,7 +644,7 @@ class TestPlotComparisonPrivacy:
             fig = plot_comparison_privacy(
                 ["run1"], labels=["A"], show_std=False
             )
-        assert len(fig.axes) == 2
+        assert len(fig.axes) == 1
         assert len(fig.axes[0].collections) == 0
         plt.close(fig)
 
@@ -646,7 +686,8 @@ class TestPlotMetricVsEpsilon:
             from src.plotting.bo import plot_metric_vs_epsilon
 
             fig = plot_metric_vs_epsilon("test_id", client_id=0)
-        assert len(fig.axes) == 1
+        # Main scatter + colorbar
+        assert len(fig.axes) == 2
         assert fig.axes[0].get_xlabel() == "Epsilon (\u03b5)"
         plt.close(fig)
 

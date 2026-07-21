@@ -49,21 +49,23 @@ def plot_convergence(
     ax_idx = 0
     if has_loss:
         ax = axes[ax_idx]
-        ax.plot(rounds, losses, marker="o", markersize=3)
+        ax.plot(rounds, losses, marker="o", markersize=3, label="Loss")
         ax.set_xlabel("Round")
         ax.set_ylabel("Loss")
         ax.set_title("Server Loss vs Round")
         ax.grid(True, alpha=0.3)
+        ax.legend(frameon=True, framealpha=0.9, edgecolor="gray")
         ax.set_xlim(x_min - pad, x_max + pad)
         ax_idx += 1
 
     if has_acc:
         ax = axes[ax_idx]
-        ax.plot(acc_rounds, accuracies, marker="o", markersize=3, color="green")
+        ax.plot(acc_rounds, accuracies, marker="o", markersize=3, color="green", label="Accuracy")
         ax.set_xlabel("Round")
         ax.set_ylabel("Accuracy")
         ax.set_title("Accuracy vs Round")
         ax.grid(True, alpha=0.3)
+        ax.legend(frameon=True, framealpha=0.9, edgecolor="gray")
         ax.set_xlim(x_min - pad, x_max + pad)
 
     plt.tight_layout()
