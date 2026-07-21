@@ -105,22 +105,25 @@ def cmd_single(
         single_dir.mkdir(parents=True, exist_ok=True)
         tracking_uri = f"sqlite:///{single_dir}/mlflow.db"
 
-    run_config_parts = [
-        f"config-path='{config_path}'",
-        f"data.num_clients={num_clients}",
-        f"federated.min_available_nodes={num_clients}",
-    ]
+    app_overrides: dict[str, str] = {}
     for ov in overrides:
         if "=" not in ov:
             print(f"Warning: ignoring invalid override '{ov}'", file=sys.stderr)
             continue
         key, val = ov.split("=", 1)
-        if _needs_quoting(val):
-            run_config_parts.append(f"{key}='{val}'")
-        else:
-            run_config_parts.append(f"{key}={val}")
+        app_overrides[key] = val
         if key == "logging.run_name":
             run_name = val
+
+    run_config_parts = [
+        f"config-path='{config_path}'",
+        f"data.num_clients={num_clients}",
+        f"federated.min_available_nodes={num_clients}",
+    ]
+    if app_overrides:
+        run_config_parts.append(
+            f"app_config_overrides='{json.dumps(app_overrides)}'"
+        )
 
     cmd = [
         "flwr", "run", ".",

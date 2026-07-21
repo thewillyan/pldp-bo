@@ -60,6 +60,7 @@ clientapp = "src.client_app:app"
 
 [tool.flwr.app.config]
 config-path = "config/default.yaml"
+app_config_overrides = "{}"
 
 [tool.flwr.app.config.data]
 num_clients = 10
