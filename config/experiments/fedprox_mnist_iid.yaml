@@ -1,6 +1,6 @@
 data:
   name: mnist
-  num_clients: 10
+  num_clients: 8
   partition_type: iid
   batch_size: 64
 
@@ -9,14 +9,14 @@ model:
   num_classes: 10
 
 federated:
-  num_rounds: 100
+  num_rounds: 150
   fraction_fit: 0.5
   fraction_evaluate: 0.2
   local_epochs: 5
   strategy: fedprox
   min_fit_clients: 2
   min_evaluate_clients: 2
-  min_available_nodes: 10
+  min_available_nodes: 8
   server_learning_rate: 0.1
   proximal_mu: 0.1
 
@@ -33,7 +33,7 @@ privacy:
   update_clip_norm: 1.0
   delta: 1e-5
   accountant: rdp
-  total_budget: 5000.0
+  total_budget: 6000.0
 
 personalization:
   enabled: true
