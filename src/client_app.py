@@ -42,6 +42,7 @@ _OPTIMIZATION_METRIC_KEY_MAP: dict[str, str] = {
     "nun": "update_norm",
     "utility": "utility_loss",
     "utility_efficiency": "utility_efficiency",
+    "snr": "snr",
 }
 
 
@@ -120,7 +121,7 @@ def train(msg: Message, context: Context) -> Message:
     config = load_config(config_path, overrides=overrides)
 
     if config.bo.enabled:
-        _VALID_BO_METRICS = {"nun", "utility", "utility_efficiency"}
+        _VALID_BO_METRICS = {"nun", "utility", "utility_efficiency", "snr"}
         if config.bo.optimization_metric not in _VALID_BO_METRICS:
             raise ValueError(
                 f"Invalid bo.optimization_metric='{config.bo.optimization_metric}'. "

@@ -70,6 +70,7 @@ class PerUpdateDPClient(FlowerClient):
                 "update_norm": 0.0,
                 "utility_loss": 0.0,
                 "utility_efficiency": 0.0,
+                "snr": 0.0,
                 "sigma": 0.0,
                 "budget_exhausted": True,
             }
@@ -125,6 +126,10 @@ class PerUpdateDPClient(FlowerClient):
         flat_delta = np.concatenate([d.ravel() for d in delta])
         noisy_flat, sigma = self._mechanism.apply(flat_delta, epsilon, sigma=self._computed_sigma)
 
+        delta_norm = float(np.linalg.norm(flat_delta))
+        clipped_norm = min(delta_norm, self._mechanism.clipping_norm)
+        snr = (clipped_norm ** 2) / max(sigma ** 2, 1e-12)
+
         if self._accountant is not None:
             self._accountant.step(
                 sigma=sigma,
@@ -161,6 +166,7 @@ class PerUpdateDPClient(FlowerClient):
             "update_norm": update_norm,
             "utility_loss": utility_loss,
             "utility_efficiency": utility_efficiency,
+            "snr": snr,
             "sigma": sigma,
             "budget_exhausted": False,
         }
