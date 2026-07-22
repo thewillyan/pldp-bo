@@ -69,6 +69,7 @@ class PerUpdateDPClient(FlowerClient):
                 "client_epsilon": self._client_epsilon or 0.0,
                 "update_norm": 0.0,
                 "utility_loss": 0.0,
+                "utility_efficiency": 0.0,
                 "sigma": 0.0,
                 "budget_exhausted": True,
             }
@@ -77,13 +78,14 @@ class PerUpdateDPClient(FlowerClient):
         self.model.set_weights(parameters)
         global_weights = self.model.get_weights()
         net = self.model.get_model().to(get_device())
+        criterion = nn.CrossEntropyLoss()
+        loss_global = compute_utility_loss(net, self.valloader, criterion)
         net.train()
 
         proximal_mu = self.config.federated.proximal_mu
         global_params = copy.deepcopy(list(net.parameters())) if proximal_mu > 0 else []
 
         optimizer = _get_optimizer(net, self.config)
-        criterion = nn.CrossEntropyLoss()
 
         for _ in range(self.config.federated.local_epochs):
             for batch in self.trainloader:
@@ -150,12 +152,15 @@ class PerUpdateDPClient(FlowerClient):
             self.model.get_model(), self.valloader, criterion,
         )
 
+        utility_efficiency = -(loss_global - utility_loss) / max(epsilon, 1e-12)
+
         metrics = {
             "epsilon": epsilon,
             "cumulative_epsilon": cumulative_epsilon,
             "client_epsilon": self._client_epsilon or 0.0,
             "update_norm": update_norm,
             "utility_loss": utility_loss,
+            "utility_efficiency": utility_efficiency,
             "sigma": sigma,
             "budget_exhausted": False,
         }

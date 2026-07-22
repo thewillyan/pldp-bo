@@ -107,6 +107,7 @@ class MetricLoggingMixin:
         client_epsilons: list[float] = []
         update_norms: list[float] = []
         utility_losses: list[float] = []
+        utility_efficiencies: list[float] = []
         cumulative_epsilons: list[float] = []
         sigmas: list[float] = []
 
@@ -134,6 +135,11 @@ class MetricLoggingMixin:
             if utility_loss is not None:
                 utility_losses.append(float(utility_loss))
                 self._log_metric(f"client_{cid}_utility_loss", float(utility_loss), step=server_round)
+
+            utility_eff = m.get("utility_efficiency")
+            if utility_eff is not None:
+                utility_efficiencies.append(float(utility_eff))
+                self._log_metric(f"client_{cid}_utility_efficiency", float(utility_eff), step=server_round)
 
             cum_eps_val = m.get("cumulative_epsilon")
             cum_eps = float(cum_eps_val) if cum_eps_val is not None else None
@@ -164,6 +170,7 @@ class MetricLoggingMixin:
         self._log_metric_stats("client_epsilon", client_epsilons, server_round)
         self._log_metric_stats("update_norm", update_norms, server_round)
         self._log_metric_stats("utility_loss", utility_losses, server_round)
+        self._log_metric_stats("utility_efficiency", utility_efficiencies, server_round)
         self._log_metric_stats("cumulative_epsilon", cumulative_epsilons, server_round)
         self._log_metric_stats("sigma", sigmas, server_round)
 
