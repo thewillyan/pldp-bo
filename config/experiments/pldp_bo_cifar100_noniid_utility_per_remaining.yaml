@@ -47,11 +47,12 @@ bo:
   bounds_strategy: from_epsilon
   bounds_ratio_min: 0.5
   bounds_ratio_max: 6.0
-  max_warmup_ratio: 0.4
+  max_warmup_ratio: 0.2
   min_warmup: 10
   acquisition_penalty: 0.1
-  budget_margin: 0.0
-  observation_noise: 0.1
+  budget_margin: 0.05
+  observation_noise: 0.01
+  ema_alpha: 0.3
 
 logging:
   tracker: mlflow
