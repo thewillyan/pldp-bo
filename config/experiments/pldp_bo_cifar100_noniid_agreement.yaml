@@ -13,19 +13,19 @@ federated:
   num_rounds: 100
   fraction_fit: 0.5
   fraction_evaluate: 0.2
-  local_epochs: 5
+  local_epochs: 10
   strategy: pldp_bo
   min_fit_clients: 2
   min_evaluate_clients: 2
   min_available_nodes: 8
-  server_learning_rate: 0.1
+  server_learning_rate: 0.01
 
 optimizer:
   name: sgd
   lr: 0.01
   momentum: 0.9
   weight_decay: 0.001
-  gradient_clip_norm: 1.0
+  gradient_clip_norm: 3.0
 
 privacy:
   enabled: true
