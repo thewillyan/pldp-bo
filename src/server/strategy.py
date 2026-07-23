@@ -109,6 +109,10 @@ class MetricLoggingMixin:
         utility_losses: list[float] = []
         utility_efficiencies: list[float] = []
         snrs: list[float] = []
+        utility_losses_clean: list[float] = []
+        utility_retentions: list[float] = []
+        utility_per_remainings: list[float] = []
+        agreements: list[float] = []
         cumulative_epsilons: list[float] = []
         sigmas: list[float] = []
 
@@ -147,6 +151,26 @@ class MetricLoggingMixin:
                 snrs.append(float(snr_val))
                 self._log_metric(f"client_{cid}_snr", float(snr_val), step=server_round)
 
+            utility_loss_clean = m.get("utility_loss_clean")
+            if utility_loss_clean is not None:
+                utility_losses_clean.append(float(utility_loss_clean))
+                self._log_metric(f"client_{cid}_utility_loss_clean", float(utility_loss_clean), step=server_round)
+
+            utility_ret = m.get("utility_retention")
+            if utility_ret is not None:
+                utility_retentions.append(float(utility_ret))
+                self._log_metric(f"client_{cid}_utility_retention", float(utility_ret), step=server_round)
+
+            utility_per_rem = m.get("utility_per_remaining")
+            if utility_per_rem is not None:
+                utility_per_remainings.append(float(utility_per_rem))
+                self._log_metric(f"client_{cid}_utility_per_remaining", float(utility_per_rem), step=server_round)
+
+            agreement_val = m.get("agreement")
+            if agreement_val is not None:
+                agreements.append(float(agreement_val))
+                self._log_metric(f"client_{cid}_agreement", float(agreement_val), step=server_round)
+
             cum_eps_val = m.get("cumulative_epsilon")
             cum_eps = float(cum_eps_val) if cum_eps_val is not None else None
             if cum_eps is not None:
@@ -178,6 +202,10 @@ class MetricLoggingMixin:
         self._log_metric_stats("utility_loss", utility_losses, server_round)
         self._log_metric_stats("utility_efficiency", utility_efficiencies, server_round)
         self._log_metric_stats("snr", snrs, server_round)
+        self._log_metric_stats("utility_loss_clean", utility_losses_clean, server_round)
+        self._log_metric_stats("utility_retention", utility_retentions, server_round)
+        self._log_metric_stats("utility_per_remaining", utility_per_remainings, server_round)
+        self._log_metric_stats("agreement", agreements, server_round)
         self._log_metric_stats("cumulative_epsilon", cumulative_epsilons, server_round)
         self._log_metric_stats("sigma", sigmas, server_round)
 

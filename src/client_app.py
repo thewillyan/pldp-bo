@@ -43,6 +43,9 @@ _OPTIMIZATION_METRIC_KEY_MAP: dict[str, str] = {
     "utility": "utility_loss",
     "utility_efficiency": "utility_efficiency",
     "snr": "snr",
+    "utility_retention": "utility_retention",
+    "utility_per_remaining": "utility_per_remaining",
+    "agreement": "agreement",
 }
 
 
@@ -121,7 +124,10 @@ def train(msg: Message, context: Context) -> Message:
     config = load_config(config_path, overrides=overrides)
 
     if config.bo.enabled:
-        _VALID_BO_METRICS = {"nun", "utility", "utility_efficiency", "snr"}
+        _VALID_BO_METRICS = {
+            "nun", "utility", "utility_efficiency", "snr",
+            "utility_retention", "utility_per_remaining", "agreement",
+        }
         if config.bo.optimization_metric not in _VALID_BO_METRICS:
             raise ValueError(
                 f"Invalid bo.optimization_metric='{config.bo.optimization_metric}'. "
@@ -194,10 +200,11 @@ def train(msg: Message, context: Context) -> Message:
     if server_budget is not None:
         total_budget = float(server_budget)
 
+    remaining_budget: float | None = None
     if scheduler is not None and accountant is not None and total_budget is not None:
-        remaining = max(0.0, total_budget - accountant.get_epsilon())
+        remaining_budget = max(0.0, total_budget - accountant.get_epsilon())
         if hasattr(scheduler, "set_remaining_budget"):
-            scheduler.set_remaining_budget(remaining)
+            scheduler.set_remaining_budget(remaining_budget)
 
     epsilon, computed_sigma = _resolve_epsilon(
         scheduler, accountant, config, total_budget,
@@ -225,6 +232,7 @@ def train(msg: Message, context: Context) -> Message:
         accountant=accountant,
         seed=client_seed,
         mechanism_state=mechanism_state,
+        remaining_budget=remaining_budget,
     )
 
     arrays_raw = msg.content.get("arrays")

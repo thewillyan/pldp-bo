@@ -14,7 +14,7 @@ from src.config.loader import ExperimentConfig
 from src.device import get_device, to_device
 from src.models.base import BaseModel
 from src.privacy.accountant import RDPAccountant
-from src.privacy.metrics import compute_utility_loss
+from src.privacy.metrics import compute_utility_loss, compute_validation_stats
 from src.privacy.per_update_dp import PerUpdateGaussianMechanism
 
 logger = logging.getLogger(__name__)
@@ -32,11 +32,13 @@ class PerUpdateDPClient(FlowerClient):
         accountant: RDPAccountant | None = None,
         seed: int | None = None,
         mechanism_state: dict | None = None,
+        remaining_budget: float | None = None,
     ) -> None:
         super().__init__(model, trainloader, valloader, config)
         self._client_epsilon = client_epsilon
         self._computed_sigma = computed_sigma
         self._accountant = accountant
+        self._remaining_budget = remaining_budget
         if mechanism_state:
             self._mechanism = PerUpdateGaussianMechanism.from_state(
                 mechanism_state,
@@ -72,6 +74,10 @@ class PerUpdateDPClient(FlowerClient):
                 "utility_efficiency": 0.0,
                 "snr": 0.0,
                 "sigma": 0.0,
+                "utility_loss_clean": 0.0,
+                "utility_retention": 0.0,
+                "utility_per_remaining": 0.0,
+                "agreement": 0.0,
                 "budget_exhausted": True,
             }
             return parameters, 0, metrics
@@ -121,6 +127,11 @@ class PerUpdateDPClient(FlowerClient):
             )
 
         local_weights = self.model.get_weights()
+        net = self.model.get_model().to(get_device())
+        utility_loss_clean, clean_logits = compute_validation_stats(
+            net, self.valloader, criterion,
+        )
+
         delta = [lw - gw for lw, gw in zip(local_weights, global_weights, strict=True)]
 
         flat_delta = np.concatenate([d.ravel() for d in delta])
@@ -153,21 +164,38 @@ class PerUpdateDPClient(FlowerClient):
             offset += size
 
         self.model.set_weights(noisy_weights)
-        utility_loss = compute_utility_loss(
+        utility_loss_noisy, noisy_logits = compute_validation_stats(
             self.model.get_model(), self.valloader, criterion,
         )
 
-        utility_efficiency = -(loss_global - utility_loss) / max(epsilon, 1e-12)
+        utility_efficiency = -(loss_global - utility_loss_noisy) / max(epsilon, 1e-12)
+        utility_retention = utility_loss_noisy / max(utility_loss_clean, 1e-12)
+
+        epsilon_remaining = (
+            self._remaining_budget
+            if self._remaining_budget is not None and self._remaining_budget > 0
+            else epsilon
+        )
+        utility_per_remaining = -(loss_global - utility_loss_noisy) / max(epsilon_remaining, 1e-12)
+
+        clean_flat = clean_logits.view(clean_logits.size(0), -1)
+        noisy_flat_logits = noisy_logits.view(noisy_logits.size(0), -1)
+        cos_sim = torch.nn.functional.cosine_similarity(clean_flat, noisy_flat_logits, dim=1)
+        agreement = 1.0 - cos_sim.mean().item()
 
         metrics = {
             "epsilon": epsilon,
             "cumulative_epsilon": cumulative_epsilon,
             "client_epsilon": self._client_epsilon or 0.0,
             "update_norm": update_norm,
-            "utility_loss": utility_loss,
+            "utility_loss": utility_loss_noisy,
             "utility_efficiency": utility_efficiency,
             "snr": snr,
             "sigma": sigma,
+            "utility_loss_clean": utility_loss_clean,
+            "utility_retention": utility_retention,
+            "utility_per_remaining": utility_per_remaining,
+            "agreement": agreement,
             "budget_exhausted": False,
         }
 
