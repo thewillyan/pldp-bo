@@ -1,15 +1,16 @@
 data:
-  name: mnist
+  name: cifar100
   num_clients: 8
-  partition_type: iid
+  partition_type: noniid
+  partition_alpha: 0.5
   batch_size: 64
 
 model:
-  name: mlp
-  num_classes: 10
+  name: cnn
+  num_classes: 100
 
 federated:
-  num_rounds: 150
+  num_rounds: 100
   fraction_fit: 0.5
   fraction_evaluate: 0.2
   local_epochs: 5
@@ -23,16 +24,16 @@ optimizer:
   name: sgd
   lr: 0.01
   momentum: 0.9
-  weight_decay: 0.0
+  weight_decay: 0.001
   gradient_clip_norm: 1.0
 
 privacy:
   enabled: true
   mechanism: gaussian
-  update_clip_norm: 1.0
+  update_clip_norm: 5.0
   delta: 1e-5
   accountant: rdp
-  total_budget: 6000.0
+  total_budget: 4800.0
 
 personalization:
   enabled: true
@@ -44,8 +45,8 @@ bo:
   enabled: true
   optimization_metric: utility_efficiency
   bounds_strategy: from_epsilon
-  bounds_ratio_min: 0.5
-  bounds_ratio_max: 6.0
+  bounds_ratio_min: 4.0
+  bounds_ratio_max: 8.0
   max_warmup_ratio: 0.2
   min_warmup: 10
   acquisition_penalty: 0.1
@@ -56,9 +57,9 @@ bo:
 logging:
   tracker: mlflow
   experiment_name: pldp-bo
-  run_name: pldp-bo-mnist-iid-utility-efficiency
+  run_name: pldp-bo-cifar100-noniid-utility-efficiency
   tracking_uri: sqlite:///./mlflow.db
-  group: mnist_iid
+  group: cifar100_noniid
 
 seed: 42
 deterministic: false

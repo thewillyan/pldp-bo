@@ -121,7 +121,7 @@ class PLDPBOScheduler(EpsilonScheduler):
         self._ema_alpha = ema_alpha
 
         self._warmup_epsilons = np.linspace(
-            epsilon_max, epsilon_min, warmup_rounds,
+            epsilon_min, epsilon_max, warmup_rounds,
         )
         self._phase: str = "warmup"
         self._round: int = 0
