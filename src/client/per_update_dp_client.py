@@ -14,7 +14,7 @@ from src.config.loader import ExperimentConfig
 from src.device import get_device, to_device
 from src.models.base import BaseModel
 from src.privacy.accountant import RDPAccountant
-from src.privacy.metrics import compute_utility_loss, compute_validation_stats
+from src.privacy.metrics import compute_validation_stats
 from src.privacy.per_update_dp import PerUpdateGaussianMechanism
 
 logger = logging.getLogger(__name__)
@@ -86,7 +86,6 @@ class PerUpdateDPClient(FlowerClient):
         global_weights = self.model.get_weights()
         net = self.model.get_model().to(get_device())
         criterion = nn.CrossEntropyLoss()
-        loss_global = compute_utility_loss(net, self.valloader, criterion)
         net.train()
 
         proximal_mu = self.config.federated.proximal_mu
@@ -168,15 +167,17 @@ class PerUpdateDPClient(FlowerClient):
             self.model.get_model(), self.valloader, criterion,
         )
 
-        utility_efficiency = -(loss_global - utility_loss_noisy) / max(epsilon, 1e-12)
-        utility_retention = utility_loss_noisy / max(utility_loss_clean, 1e-12)
+        loss_degradation = max(0.0, utility_loss_noisy - utility_loss_clean)
+        inv_loss_clean = 1.0 / max(utility_loss_clean, 1e-12)
+        utility_efficiency = -loss_degradation * inv_loss_clean / max(epsilon, 1e-12)
+        utility_retention = utility_loss_noisy * inv_loss_clean
 
         epsilon_remaining = (
             self._remaining_budget
             if self._remaining_budget is not None and self._remaining_budget > 0
             else epsilon
         )
-        utility_per_remaining = -(loss_global - utility_loss_noisy) / max(epsilon_remaining, 1e-12)
+        utility_per_remaining = -loss_degradation * inv_loss_clean / max(epsilon_remaining, 1e-12)
 
         clean_flat = clean_logits.view(clean_logits.size(0), -1)
         noisy_flat_logits = noisy_logits.view(noisy_logits.size(0), -1)
