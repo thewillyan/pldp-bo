@@ -74,6 +74,7 @@ def _make_scheduler(
             gp_kernel=config.bo.gp_kernel,
             observation_noise=config.bo.observation_noise,
             budget_margin=config.bo.budget_margin,
+            ema_alpha=config.bo.ema_alpha,
             seed=config.seed + partition_id,
         )
     if config.personalization.enabled:

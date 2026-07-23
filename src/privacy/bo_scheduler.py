@@ -90,6 +90,7 @@ class PLDPBOScheduler(EpsilonScheduler):
         gp_kernel: str = "matern52",
         observation_noise: float = 0.01,
         budget_margin: float = 0.1,
+        ema_alpha: float = 1.0,
         seed: int | None = None,
     ) -> None:
         if epsilon_min <= 0:
@@ -104,6 +105,8 @@ class PLDPBOScheduler(EpsilonScheduler):
             raise ValueError("grid_points must be at least 10")
         if not 0.0 <= budget_margin <= 1.0:
             raise ValueError("budget_margin must be in [0, 1]")
+        if not 0.0 <= ema_alpha <= 1.0:
+            raise ValueError(f"ema_alpha must be in [0, 1]; got {ema_alpha}")
 
         self._epsilon_min = epsilon_min
         self._epsilon_max = epsilon_max
@@ -115,6 +118,7 @@ class PLDPBOScheduler(EpsilonScheduler):
         self._budget_margin = budget_margin
         self._seed = seed
         self._rng = np.random.RandomState(seed)
+        self._ema_alpha = ema_alpha
 
         self._warmup_epsilons = np.linspace(
             epsilon_min, epsilon_max, warmup_rounds,
@@ -126,6 +130,8 @@ class PLDPBOScheduler(EpsilonScheduler):
         self._f_best: float = float("inf")
         self._remaining_budget: float | None = None
         self._restored_kernel: Kernel | None = None
+        self._prev_smoothed: float | None = None
+        self._ema_t: int = 0
 
     def set_remaining_budget(self, remaining: float | None) -> None:
         self._remaining_budget = remaining
@@ -138,8 +144,18 @@ class PLDPBOScheduler(EpsilonScheduler):
         return self._select_bo_epsilon()
 
     def step(self, epsilon: float, metric: float) -> None:
-        self._observations.append((epsilon, metric))
-        self._f_best = min(self._f_best, metric)
+        if self._prev_smoothed is None:
+            smoothed = metric
+            self._ema_t = 1
+        else:
+            self._ema_t += 1
+            raw = self._ema_alpha * metric + (1 - self._ema_alpha) * self._prev_smoothed
+            bias_correction = 1 - self._ema_alpha ** self._ema_t
+            smoothed = raw / max(bias_correction, 1e-12)
+        self._prev_smoothed = smoothed
+
+        self._observations.append((epsilon, smoothed))
+        self._f_best = min(self._f_best, smoothed)
 
         if self._phase == "warmup" and len(self._observations) >= self._warmup_rounds:
             self._fit_gp()
@@ -203,12 +219,16 @@ class PLDPBOScheduler(EpsilonScheduler):
             "gp_kernel": self._gp_kernel_name,
             "observation_noise": self._observation_noise,
             "budget_margin": self._budget_margin,
+            "ema_alpha": self._ema_alpha,
             "phase": self._phase,
             "round": self._round,
             "observations": json.dumps(self._observations),
             "f_best": self._f_best,
             "rng_state": serialize_rng(self._rng),
+            "ema_t": self._ema_t,
         }
+        if self._prev_smoothed is not None:
+            state["prev_smoothed"] = self._prev_smoothed
         if self._remaining_budget is not None:
             state["remaining_budget"] = self._remaining_budget
         if self._restored_kernel is not None:
@@ -230,12 +250,16 @@ class PLDPBOScheduler(EpsilonScheduler):
             gp_kernel=state["gp_kernel"],
             observation_noise=state["observation_noise"],
             budget_margin=state.get("budget_margin", 0.1),
+            ema_alpha=state.get("ema_alpha", 1.0),
             seed=state.get("seed"),
         )
         scheduler._phase = state["phase"]
         scheduler._round = state["round"]
         scheduler._observations = [tuple(obs) for obs in json.loads(state["observations"])]
         scheduler._f_best = state["f_best"]
+        scheduler._ema_t = state.get("ema_t", 0)
+        if "prev_smoothed" in state:
+            scheduler._prev_smoothed = state["prev_smoothed"]
         if "rng_state" in state:
             scheduler._rng.set_state(deserialize_rng(state["rng_state"]))
         if "remaining_budget" in state:

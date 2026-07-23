@@ -84,6 +84,7 @@ class BOConfig:
     gp_kernel: str = "matern52"
     observation_noise: float = 0.01
     budget_margin: float = 0.1  # fraction of remaining budget reserved when masking grid points
+    ema_alpha: float = 1.0  # EMA smoothing factor for metric observations (1.0 = no smoothing)
 
     # Per-client bounds personalization
     bounds_strategy: str = "global"
