@@ -89,3 +89,25 @@ def test_bo_config_override() -> None:
     assert config.bo.min_warmup == 10
     assert config.bo.epsilon_budget == 5.0
     assert config.bo.optimization_metric == "utility"
+
+
+def test_clipping_mode_default() -> None:
+    config = ExperimentConfig()
+    assert config.privacy.clipping_mode == "per_update"
+
+
+def test_clipping_mode_from_yaml(tmp_path: Path) -> None:
+    cfg_file = tmp_path / "test.yaml"
+    cfg_file.write_text(
+        yaml.dump({"privacy": {"enabled": True, "clipping_mode": "per_example"}})
+    )
+    config = load_config(str(cfg_file))
+    assert config.privacy.clipping_mode == "per_example"
+
+
+def test_clipping_mode_from_override() -> None:
+    config = load_config(
+        "config/default.yaml",
+        overrides={"privacy.clipping_mode": "per_example"},
+    )
+    assert config.privacy.clipping_mode == "per_example"

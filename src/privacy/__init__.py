@@ -14,6 +14,8 @@ from src.privacy.metrics import compute_utility_loss
 from src.privacy.per_update_dp import (
     PerUpdateGaussianMechanism,
     calibrate_sigma,
+    calibrate_sigma_dp_sgd,
+    compute_rdp_cost_dp_sgd,
     enforce_epsilon_budget,
 )
 from src.privacy.personalization import assign_epsilon_bounds, compute_budget_weight
@@ -27,7 +29,9 @@ __all__ = [
     "UniformRandomEpsilonScheduler",
     "assign_epsilon_bounds",
     "calibrate_sigma",
+    "calibrate_sigma_dp_sgd",
     "compute_budget_weight",
+    "compute_rdp_cost_dp_sgd",
     "compute_utility_loss",
     "enforce_epsilon_budget",
     "expected_improvement",

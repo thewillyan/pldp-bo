@@ -210,6 +210,7 @@ def train(msg: Message, context: Context) -> Message:
     epsilon, computed_sigma = _resolve_epsilon(
         scheduler, accountant, config, total_budget,
         eps_min=eps_min_per_client,
+        total_train_size=total_train_size,
     )
     if epsilon < 0:
         logger.info(
@@ -255,7 +256,7 @@ def train(msg: Message, context: Context) -> Message:
     if scheduler is not None and config.privacy.enabled:
         context.state[SCHEDULER_STATE_KEY] = ConfigRecord(scheduler.get_state())
 
-    if config.privacy.enabled:
+    if config.privacy.enabled and config.privacy.clipping_mode != "per_example":
         context.state[MECHANISM_STATE_KEY] = ConfigRecord(client.get_mechanism_state())  # type: ignore[union-attr]
 
     model_record = ArrayRecord(client_model.get_model().state_dict())
@@ -275,6 +276,7 @@ def _resolve_epsilon(
     config: ExperimentConfig,
     total_budget: float | None = None,
     eps_min: float | None = None,
+    total_train_size: int | None = None,
 ) -> tuple[float, float]:
     """Return (epsilon, sigma) where sigma is None if no budget enforcement applies."""
     if scheduler is not None:
@@ -301,13 +303,23 @@ def _resolve_epsilon(
         return 0.0, 0.0
 
     if accountant is not None and total_budget is not None:
-        c = config.privacy.update_clip_norm
         delta = config.privacy.delta
         lower_bound = eps_min if eps_min is not None else 1e-6
-        candidate, computed_sigma = enforce_epsilon_budget(
-            candidate, accountant.rdp_per_alpha, total_budget,
-            lower_bound, c, delta,
-        )
+        clipping_mode = config.privacy.clipping_mode
+
+        if clipping_mode == "per_example" and total_train_size is not None:
+            sampling_rate = config.data.batch_size / total_train_size
+            candidate, computed_sigma = enforce_epsilon_budget(
+                candidate, accountant.rdp_per_alpha, total_budget,
+                lower_bound, sampling_rate, delta,
+                clipping_mode="per_example",
+            )
+        else:
+            c = config.privacy.update_clip_norm
+            candidate, computed_sigma = enforce_epsilon_budget(
+                candidate, accountant.rdp_per_alpha, total_budget,
+                lower_bound, c, delta,
+            )
         return candidate, computed_sigma
 
     return candidate, 0.0

@@ -55,11 +55,12 @@ class OptimizerConfig:
 class PrivacyConfig:
     enabled: bool = False
     mechanism: str = "gaussian"
+    clipping_mode: str = "per_update"  # "per_update" | "per_example"
     update_clip_norm: float = 1.0
     delta: float = 1e-5
     target_epsilon: float | None = None
     accountant: str = "rdp"
-    total_budget: float | None = None  # total epsilon budget across ALL clients (divided per-client)
+    total_budget: float | None = None  # epsilon budget across ALL clients
 
 
 @dataclass

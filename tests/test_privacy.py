@@ -17,7 +17,9 @@ from src.privacy.per_update_dp import (
     _clip_update,
     add_gaussian_noise,
     calibrate_sigma,
+    calibrate_sigma_dp_sgd,
     compute_rdp_cost,
+    compute_rdp_cost_dp_sgd,
     enforce_epsilon_budget,
 )
 
@@ -303,6 +305,112 @@ class TestEnforceEpsilonBudget:
         )
         eps_from_sigma = _rdp_epsilon_for_sigma(result_sigma, 1.0, 1e-5)
         assert result_eps == pytest.approx(eps_from_sigma, rel=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# DP-SGD RDP cost and sigma calibration
+# ---------------------------------------------------------------------------
+
+
+class TestComputeRdpCostDpSgd:
+    def test_basic(self) -> None:
+        cost = compute_rdp_cost_dp_sgd(alpha=2.0, sigma=1.0, sampling_rate=0.1)
+        # alpha * q^2 / (2 * sigma^2) = 2 * 0.01 / 2 = 0.01
+        assert cost == pytest.approx(0.01)
+
+    def test_doubles_sigma_quarters_cost(self) -> None:
+        c1 = compute_rdp_cost_dp_sgd(alpha=2.0, sigma=1.0, sampling_rate=0.1)
+        c2 = compute_rdp_cost_dp_sgd(alpha=2.0, sigma=2.0, sampling_rate=0.1)
+        assert c2 == pytest.approx(c1 / 4)
+
+    def test_invalid_sigma(self) -> None:
+        with pytest.raises(ValueError, match="sigma must be positive"):
+            compute_rdp_cost_dp_sgd(alpha=2.0, sigma=0.0, sampling_rate=0.1)
+
+    def test_invalid_sampling_rate_zero(self) -> None:
+        with pytest.raises(ValueError, match="sampling_rate must be in"):
+            compute_rdp_cost_dp_sgd(alpha=2.0, sigma=1.0, sampling_rate=0.0)
+
+    def test_invalid_sampling_rate_above_one(self) -> None:
+        with pytest.raises(ValueError, match="sampling_rate must be in"):
+            compute_rdp_cost_dp_sgd(alpha=2.0, sigma=1.0, sampling_rate=1.5)
+
+
+class TestCalibrateSigmaDpSgd:
+    def test_basic(self) -> None:
+        sigma = calibrate_sigma_dp_sgd(epsilon=1.0, sampling_rate=0.1, delta=1e-5)
+        assert sigma > 0
+        assert np.isfinite(sigma)
+
+    def test_larger_epsilon_gives_smaller_sigma(self) -> None:
+        s1 = calibrate_sigma_dp_sgd(epsilon=0.5, sampling_rate=0.1, delta=1e-5)
+        s2 = calibrate_sigma_dp_sgd(epsilon=2.0, sampling_rate=0.1, delta=1e-5)
+        assert s1 > s2
+
+    def test_invalid_epsilon(self) -> None:
+        with pytest.raises(ValueError, match="epsilon must be positive"):
+            calibrate_sigma_dp_sgd(epsilon=0.0, sampling_rate=0.1, delta=1e-5)
+
+    def test_invalid_sampling_rate(self) -> None:
+        with pytest.raises(ValueError, match="sampling_rate must be in"):
+            calibrate_sigma_dp_sgd(epsilon=1.0, sampling_rate=0.0, delta=1e-5)
+
+
+class TestRdpAccountantPerExampleMode:
+    def test_step_per_example(self) -> None:
+        accountant = RDPAccountant(delta=1e-5)
+        accountant.step(sigma=1.0, clipping_norm=0.1, num_steps=10, mode="per_example")
+        eps = accountant.get_epsilon()
+        assert eps > 0
+
+    def test_per_example_costs_less_than_per_update(self) -> None:
+        """Per-example with small sampling rate should cost less than per-update."""
+        acc_update = RDPAccountant(delta=1e-5)
+        acc_update.step(sigma=1.0, clipping_norm=1.0, num_steps=1, mode="per_update")
+
+        acc_example = RDPAccountant(delta=1e-5)
+        acc_example.step(sigma=1.0, clipping_norm=0.01, num_steps=1, mode="per_example")
+
+        assert acc_example.get_epsilon() < acc_update.get_epsilon()
+
+    def test_state_roundtrip_preserves_mode(self) -> None:
+        accountant = RDPAccountant(delta=1e-5)
+        accountant.step(sigma=1.0, clipping_norm=0.1, num_steps=5, mode="per_example")
+        state = accountant.get_state()
+        restored = RDPAccountant.from_state(state)
+        assert restored.get_epsilon() == pytest.approx(accountant.get_epsilon())
+        assert restored._steps[0]["mode"] == "per_example"
+
+
+class TestEnforceBudgetPerExample:
+    def test_per_example_mode(self) -> None:
+        accountant = RDPAccountant(delta=1e-5)
+        result_eps, result_sigma = enforce_epsilon_budget(
+            candidate_epsilon=2.0,
+            current_rdp=accountant.rdp_per_alpha,
+            epsilon_budget=8.0,
+            epsilon_min=0.1,
+            clipping_norm=0.1,  # sampling rate
+            delta=1e-5,
+            clipping_mode="per_example",
+        )
+        assert result_eps == pytest.approx(2.0, rel=1e-3)
+        assert result_sigma > 0
+
+    def test_per_example_budget_violated(self) -> None:
+        accountant = RDPAccountant(delta=1e-5)
+        accountant.step(sigma=0.1, clipping_norm=0.1, num_steps=200, mode="per_example")
+        result_eps, result_sigma = enforce_epsilon_budget(
+            candidate_epsilon=1.0,
+            current_rdp=accountant.rdp_per_alpha,
+            epsilon_budget=0.5,
+            epsilon_min=0.5,
+            clipping_norm=0.1,
+            delta=1e-5,
+            clipping_mode="per_example",
+        )
+        assert result_eps == pytest.approx(-1.0)
+        assert result_sigma == pytest.approx(0.0)
 
 
 class TestResolveEpsilon:

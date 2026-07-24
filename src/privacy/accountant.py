@@ -6,7 +6,7 @@ import math
 import numpy as np
 
 from src.privacy.constants import RDP_ALPHAS
-from src.privacy.per_update_dp import compute_rdp_cost
+from src.privacy.per_update_dp import compute_rdp_cost, compute_rdp_cost_dp_sgd
 
 
 class RDPAccountant:
@@ -15,16 +15,24 @@ class RDPAccountant:
         self._rdp_per_alpha: np.ndarray = np.zeros_like(RDP_ALPHAS)
         self._steps: list[dict] = []
 
-    def step(self, *, sigma: float, clipping_norm: float, num_steps: int = 1) -> None:
-        cost = np.array(
-            [compute_rdp_cost(float(a), sigma, clipping_norm) for a in RDP_ALPHAS],
-            dtype=np.float64,
-        )
+    def step(self, *, sigma: float, clipping_norm: float, num_steps: int = 1,
+             mode: str = "per_update") -> None:
+        if mode == "per_example":
+            cost = np.array(
+                [compute_rdp_cost_dp_sgd(float(a), sigma, clipping_norm) for a in RDP_ALPHAS],
+                dtype=np.float64,
+            )
+        else:
+            cost = np.array(
+                [compute_rdp_cost(float(a), sigma, clipping_norm) for a in RDP_ALPHAS],
+                dtype=np.float64,
+            )
         self._rdp_per_alpha += cost * num_steps
         self._steps.append({
             "sigma": sigma,
             "clipping_norm": clipping_norm,
             "num_steps": num_steps,
+            "mode": mode,
         })
 
     def get_epsilon(self, delta: float | None = None) -> float:
@@ -89,5 +97,6 @@ class RDPAccountant:
                 "sigma": step_info["sigma"],
                 "clipping_norm": step_info["clipping_norm"],
                 "num_steps": step_info["num_steps"],
+                "mode": step_info.get("mode", "per_update"),
             })
         return accountant
