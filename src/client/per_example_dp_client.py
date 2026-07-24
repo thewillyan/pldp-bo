@@ -135,6 +135,13 @@ class PerExampleDPClient(FlowerClient):
                 "Momentum is not compatible with per-example DP-SGD."
             )
 
+        if config.federated.proximal_mu > 0:
+            raise ValueError(
+                "PerExampleDPClient does not support proximal_mu (FedProx). "
+                f"Got proximal_mu={config.federated.proximal_mu}. "
+                "Use clipping_mode='per_update' with FedProx, or set proximal_mu=0."
+            )
+
         self._client_epsilon = client_epsilon
         self._computed_sigma = computed_sigma
         self._accountant = accountant
@@ -181,10 +188,42 @@ class PerExampleDPClient(FlowerClient):
             }
             return parameters, 0, metrics
 
+        if len(self.trainloader) == 0:
+            logger.warning("Client has empty trainloader; skipping training")
+            metrics = {
+                "epsilon": 0.0,
+                "cumulative_epsilon": self._accountant.get_epsilon() if self._accountant else 0.0,
+                "client_epsilon": self._client_epsilon or 0.0,
+                "update_norm": 0.0,
+                "utility_loss": 0.0,
+                "utility_efficiency": 0.0,
+                "snr": 0.0,
+                "sigma": 0.0,
+                "utility_loss_clean": 0.0,
+                "utility_retention": 0.0,
+                "utility_per_remaining": 0.0,
+                "agreement": 0.0,
+                "budget_exhausted": False,
+                "per_example_clip_fraction": 0.0,
+                "grad_norm_before_clip": 0.0,
+                "grad_norm_after_clip": 0.0,
+                "num_opt_steps": 0,
+            }
+            return parameters, 0, metrics
+
         self.model.set_weights(parameters)
         net = self.model.get_model().to(get_device())
         criterion = nn.CrossEntropyLoss()
         net.train()
+
+        utility_loss_clean, clean_logits = compute_validation_stats(
+            net, self.valloader, criterion,
+        )
+        net.train()
+
+        initial_flat = np.concatenate(
+            [p.detach().cpu().numpy().ravel() for p in net.parameters()],
+        )
 
         if self._client_epsilon is not None:
             epsilon = self._client_epsilon
@@ -246,10 +285,6 @@ class PerExampleDPClient(FlowerClient):
                 optimizer.step()
 
         local_weights = self.model.get_weights()
-        net_eval = self.model.get_model().to(get_device())
-        utility_loss_clean, clean_logits = compute_validation_stats(
-            net_eval, self.valloader, criterion,
-        )
 
         if self._accountant is not None:
             self._accountant.step(
@@ -262,7 +297,10 @@ class PerExampleDPClient(FlowerClient):
         else:
             cumulative_epsilon = 0.0
 
-        update_norm = 0.0
+        final_flat = np.concatenate(
+            [p.detach().cpu().numpy().ravel() for p in net.parameters()],
+        )
+        update_norm = float(np.linalg.norm(final_flat - initial_flat))
         noisy_weights = local_weights
 
         utility_loss_noisy, noisy_logits = compute_validation_stats(

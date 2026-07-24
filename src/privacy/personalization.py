@@ -18,6 +18,7 @@ def compute_budget_weight(
     num_clients: int = 1,
     total_train_size: int | None = None,
     rng: np.random.RandomState | None = None,
+    total_num_classes: int | None = None,
 ) -> float:
     strategy = config.strategy
     if strategy == "custom":
@@ -30,7 +31,7 @@ def compute_budget_weight(
             )
         return _weight_data_proportional(train_dataset, num_clients, total_train_size=total_train_size)
     if strategy == "heterogeneity":
-        return _weight_heterogeneity(train_dataset)
+        return _weight_heterogeneity(train_dataset, total_num_classes=total_num_classes)
     if strategy == "uniform":
         return _weight_uniform(rng=rng)
     raise ValueError(f"Unknown personalization strategy: {strategy}")
@@ -71,9 +72,11 @@ def _weight_data_proportional(
 
 def _weight_heterogeneity(
     dataset: Dataset | Subset,
+    total_num_classes: int | None = None,
 ) -> float:
     entropy = _compute_label_entropy(dataset)
-    normalized_entropy = entropy / math.log(max(_get_num_classes(dataset), 2)) if entropy > 0 else 0.0
+    norm_classes = total_num_classes if total_num_classes is not None else _get_num_classes(dataset)
+    normalized_entropy = entropy / math.log(max(norm_classes, 2)) if entropy > 0 else 0.0
     return 1.0 - normalized_entropy
 
 
@@ -133,6 +136,7 @@ def assign_epsilon_bounds(
     num_clients: int = 1,
     total_train_size: int | None = None,
     num_rounds: int = 50,
+    total_num_classes: int | None = None,
 ) -> tuple[float, float, int]:
     strategy = bo_config.bounds_strategy
     if strategy == "global":
@@ -140,6 +144,7 @@ def assign_epsilon_bounds(
             weight = compute_budget_weight(
                 partition_id, train_dataset, personalization_config, num_clients,
                 total_train_size=total_train_size,
+                total_num_classes=total_num_classes,
             )
         except (ValueError, KeyError):
             weight = float(num_clients)
@@ -170,6 +175,7 @@ def assign_epsilon_bounds(
         weight = compute_budget_weight(
             partition_id, train_dataset, personalization_config, num_clients,
             total_train_size=total_train_size,
+            total_num_classes=total_num_classes,
         )
         eps_min = max(weight * bo_config.bounds_ratio_min, 1e-6)
         eps_max = weight * bo_config.bounds_ratio_max

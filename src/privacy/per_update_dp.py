@@ -248,6 +248,7 @@ def _hypothetical_epsilon(
     clipping_norm: float,
     delta: float,
     clipping_mode: str = "per_update",
+    num_steps: int = 1,
 ) -> float:
     if clipping_mode == "per_example":
         cost = np.array(
@@ -259,7 +260,7 @@ def _hypothetical_epsilon(
             [compute_rdp_cost(float(a), sigma, clipping_norm) for a in RDP_ALPHAS],
             dtype=np.float64,
         )
-    total_rdp = current_rdp + cost
+    total_rdp = current_rdp + cost * num_steps
     log_one_over_delta = math.log(1.0 / delta)
     with np.errstate(divide="ignore", invalid="ignore"):
         epsilons = total_rdp + log_one_over_delta / (RDP_ALPHAS - 1.0)
@@ -276,13 +277,15 @@ def _is_epsilon_within_budget(
     clipping_norm: float,
     delta: float,
     clipping_mode: str = "per_update",
+    num_steps: int = 1,
 ) -> bool:
     if clipping_mode == "per_example":
         sigma = calibrate_sigma_dp_sgd(epsilon, clipping_norm, delta)
     else:
         sigma = calibrate_sigma(epsilon, clipping_norm, delta)
     projected = _hypothetical_epsilon(
-        current_rdp, sigma, clipping_norm, delta, clipping_mode=clipping_mode,
+        current_rdp, sigma, clipping_norm, delta,
+        clipping_mode=clipping_mode, num_steps=num_steps,
     )
     return projected <= epsilon_budget
 
@@ -295,6 +298,7 @@ def enforce_epsilon_budget(
     clipping_norm: float,
     delta: float,
     clipping_mode: str = "per_update",
+    num_steps: int = 1,
 ) -> tuple[float, float]:
     """Return (ε, σ) where ε is the largest epsilon ≤ candidate_epsilon that fits the budget,
     and σ is the corresponding noise scale.
@@ -305,6 +309,11 @@ def enforce_epsilon_budget(
     When *clipping_mode* is ``"per_example"``, *clipping_norm* is interpreted as
     the sampling rate (batch_size / dataset_size) and the DP-SGD RDP cost
     formula is used.
+
+    *num_steps* is the number of optimization steps per round (e.g.
+    ``local_epochs × len(trainloader)``).  For ``per_update`` mode this is
+    always 1; for ``per_example`` (DP-SGD) it must be passed to account for
+    the accumulated per-step RDP cost within a round.
 
     Returns (-1.0, 0.0) if even *epsilon_min* would exceed the remaining budget,
     signalling that the client's privacy budget is exhausted.
@@ -317,7 +326,8 @@ def enforce_epsilon_budget(
     if candidate_epsilon <= epsilon_min:
         if _is_epsilon_within_budget(candidate_epsilon, current_rdp,
                                      epsilon_budget, clipping_norm, delta,
-                                     clipping_mode=clipping_mode):
+                                     clipping_mode=clipping_mode,
+                                     num_steps=num_steps):
             sigma = _calibrate(candidate_epsilon, clipping_norm, delta)
             return candidate_epsilon, sigma
         return -1.0, 0.0
@@ -325,7 +335,7 @@ def enforce_epsilon_budget(
     sigma_candidate = _calibrate(candidate_epsilon, clipping_norm, delta)
     hypothetical = _hypothetical_epsilon(
         current_rdp, sigma_candidate, clipping_norm, delta,
-        clipping_mode=clipping_mode,
+        clipping_mode=clipping_mode, num_steps=num_steps,
     )
 
     if hypothetical <= epsilon_budget:
@@ -333,7 +343,8 @@ def enforce_epsilon_budget(
 
     if not _is_epsilon_within_budget(epsilon_min, current_rdp, epsilon_budget,
                                      clipping_norm, delta,
-                                     clipping_mode=clipping_mode):
+                                     clipping_mode=clipping_mode,
+                                     num_steps=num_steps):
         return -1.0, 0.0
 
     # Binary search over σ (monotonic: larger σ → smaller ε → lower RDP cost).
@@ -344,7 +355,7 @@ def enforce_epsilon_budget(
         mid_sigma = (lo_sigma + hi_sigma) / 2.0
         projected = _hypothetical_epsilon(
             current_rdp, mid_sigma, clipping_norm, delta,
-            clipping_mode=clipping_mode,
+            clipping_mode=clipping_mode, num_steps=num_steps,
         )
         if projected <= epsilon_budget:
             hi_sigma = mid_sigma  # this σ fits; try smaller σ (larger ε)

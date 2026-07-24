@@ -108,7 +108,11 @@ def _compute_per_client_budgets(
             if pid not in budgets:
                 if nid not in node_to_partition:
                     node_to_partition[nid] = nid
-                budgets[pid] = total_budget / len(node_ids)
+                logger.warning(
+                    "Partition %d (node %d) not in client_epsilon_map; assigning zero budget",
+                    pid, nid,
+                )
+                budgets[pid] = 0.0
         return budgets, node_to_partition
 
     # Other personalization strategies: discover budget weights in a single QUERY round
@@ -148,7 +152,11 @@ def _compute_per_client_budgets(
                 if pid not in budgets:
                     if nid not in node_to_partition:
                         node_to_partition[nid] = nid
-                    budgets[pid] = total_budget / len(node_ids)
+                    logger.warning(
+                        "Partition %d (node %d) not in weight map; assigning zero budget",
+                        pid, nid,
+                    )
+                    budgets[pid] = 0.0
             return budgets, node_to_partition
         logger.warning(
             "No clients returned budget weights; falling back to equal division",

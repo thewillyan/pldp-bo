@@ -240,7 +240,7 @@ class TestComputePerClientBudgetsIntegration:
             "personalization.client_epsilon_map": {"0": 1.0, "3": 3.0},
         })
         budgets, n2p = _compute_per_client_budgets(grid, config)
-        assert budgets == {0: 2.0, 3: 6.0, 1: 4.0}
+        assert budgets == {0: 2.0, 3: 6.0, 1: 0.0}
         assert n2p == {1001: 0, 1002: 1}
 
     def test_custom_fallback_equal_on_zero_weight(self) -> None:
@@ -349,3 +349,72 @@ class TestStrategyConfigureTrain:
 
         assert len(result) == 1
         assert result[0].content.config_records["config"]["per_client_budget"] == pytest.approx(3.0)
+
+
+class TestBudgetOverflowPrevention:
+    """Tests that fallback budget assignments never cause total > total_budget."""
+
+    def test_custom_strategy_no_overflow_with_missing_partition(self) -> None:
+        grid = MagicMock()
+        grid.get_node_ids.return_value = [1001, 1002, 1003]
+        grid.send_and_receive.return_value = [
+            MagicMock(
+                metadata=MagicMock(src_node_id=1001),
+                content=RecordDict({"config": ConfigRecord({"partition_id": 0})}),
+            ),
+            MagicMock(
+                metadata=MagicMock(src_node_id=1002),
+                content=RecordDict({"config": ConfigRecord({"partition_id": 1})}),
+            ),
+            MagicMock(
+                metadata=MagicMock(src_node_id=1003),
+                content=RecordDict({"config": ConfigRecord({"partition_id": 2})}),
+            ),
+        ]
+        config = load_config("config/default.yaml", overrides={
+            "privacy.enabled": True,
+            "privacy.total_budget": 10.0,
+            "personalization.enabled": True,
+            "personalization.strategy": "custom",
+            "personalization.client_epsilon_map": {"0": 3.0, "1": 7.0},
+        })
+        budgets, _ = _compute_per_client_budgets(grid, config)
+        assert budgets is not None
+        total = sum(budgets.values())
+        assert total == pytest.approx(10.0)
+        assert budgets[2] == 0.0
+
+    def test_noncustom_strategy_no_overflow_with_missing_weight(self) -> None:
+        grid = MagicMock()
+        grid.get_node_ids.return_value = [1001, 1002, 1003]
+        grid.send_and_receive.return_value = [
+            MagicMock(
+                metadata=MagicMock(src_node_id=1001),
+                content=RecordDict({"config": ConfigRecord({
+                    "partition_id": 0, "budget_weight": 2.0,
+                })}),
+            ),
+            MagicMock(
+                metadata=MagicMock(src_node_id=1002),
+                content=RecordDict({"config": ConfigRecord({
+                    "partition_id": 1, "budget_weight": 3.0,
+                })}),
+            ),
+            MagicMock(
+                metadata=MagicMock(src_node_id=1003),
+                content=RecordDict({"config": ConfigRecord({
+                    "partition_id": 2,
+                })}),
+            ),
+        ]
+        config = load_config("config/default.yaml", overrides={
+            "privacy.enabled": True,
+            "privacy.total_budget": 10.0,
+            "personalization.enabled": True,
+            "personalization.strategy": "data_proportional",
+        })
+        budgets, _ = _compute_per_client_budgets(grid, config)
+        assert budgets is not None
+        total = sum(budgets.values())
+        assert total <= 10.0 + 1e-9
+        assert budgets[2] == 0.0

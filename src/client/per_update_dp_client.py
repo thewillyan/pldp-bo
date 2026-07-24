@@ -82,6 +82,25 @@ class PerUpdateDPClient(FlowerClient):
             }
             return parameters, 0, metrics
 
+        if len(self.trainloader) == 0:
+            logger.warning("Client has empty trainloader; skipping training")
+            metrics = {
+                "epsilon": 0.0,
+                "cumulative_epsilon": self._accountant.get_epsilon() if self._accountant else 0.0,
+                "client_epsilon": self._client_epsilon or 0.0,
+                "update_norm": 0.0,
+                "utility_loss": 0.0,
+                "utility_efficiency": 0.0,
+                "snr": 0.0,
+                "sigma": 0.0,
+                "utility_loss_clean": 0.0,
+                "utility_retention": 0.0,
+                "utility_per_remaining": 0.0,
+                "agreement": 0.0,
+                "budget_exhausted": False,
+            }
+            return parameters, 0, metrics
+
         self.model.set_weights(parameters)
         global_weights = self.model.get_weights()
         net = self.model.get_model().to(get_device())

@@ -158,6 +158,7 @@ def train(msg: Message, context: Context) -> Message:
                 config.personalization, config.bo, config.data.num_clients,
                 total_train_size=total_train_size,
                 num_rounds=config.federated.num_rounds,
+                total_num_classes=config.model.num_classes,
             )
             eps_min_per_client = bounds_min
         else:
@@ -207,10 +208,17 @@ def train(msg: Message, context: Context) -> Message:
         if hasattr(scheduler, "set_remaining_budget"):
             scheduler.set_remaining_budget(remaining_budget)
 
+    if remaining_budget is not None and eps_min_per_client is not None:
+        eps_min_per_client = min(eps_min_per_client, remaining_budget)
+
+    total_steps_per_round = config.federated.local_epochs * len(trainloader)
+    local_train_size = len(client_subset)
+
     epsilon, computed_sigma = _resolve_epsilon(
         scheduler, accountant, config, total_budget,
         eps_min=eps_min_per_client,
-        total_train_size=total_train_size,
+        total_steps_per_round=total_steps_per_round,
+        local_train_size=local_train_size,
     )
     if epsilon < 0:
         logger.info(
@@ -276,7 +284,8 @@ def _resolve_epsilon(
     config: ExperimentConfig,
     total_budget: float | None = None,
     eps_min: float | None = None,
-    total_train_size: int | None = None,
+    total_steps_per_round: int | None = None,
+    local_train_size: int | None = None,
 ) -> tuple[float, float]:
     """Return (epsilon, sigma) where sigma is None if no budget enforcement applies."""
     if scheduler is not None:
@@ -307,12 +316,18 @@ def _resolve_epsilon(
         lower_bound = eps_min if eps_min is not None else 1e-6
         clipping_mode = config.privacy.clipping_mode
 
-        if clipping_mode == "per_example" and total_train_size is not None:
-            sampling_rate = config.data.batch_size / total_train_size
+        if clipping_mode == "per_example":
+            if local_train_size is None:
+                raise ValueError(
+                    "clipping_mode='per_example' requires local_train_size "
+                    "to compute sampling rate for budget enforcement."
+                )
+            sampling_rate = config.data.batch_size / local_train_size
+            num_steps = total_steps_per_round if total_steps_per_round is not None else 1
             candidate, computed_sigma = enforce_epsilon_budget(
                 candidate, accountant.rdp_per_alpha, total_budget,
                 lower_bound, sampling_rate, delta,
-                clipping_mode="per_example",
+                clipping_mode="per_example", num_steps=num_steps,
             )
         else:
             c = config.privacy.update_clip_norm
@@ -346,6 +361,7 @@ def query(msg: Message, context: Context) -> Message:
             num_clients=config.data.num_clients,
             total_train_size=total_train_size,
             rng=np.random.RandomState(config.seed + partition_id),
+            total_num_classes=config.model.num_classes,
         )
 
         return Message(

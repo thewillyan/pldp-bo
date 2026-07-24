@@ -412,6 +412,79 @@ class TestEnforceBudgetPerExample:
         assert result_eps == pytest.approx(-1.0)
         assert result_sigma == pytest.approx(0.0)
 
+    def test_per_example_num_steps_makes_budget_more_conservative(self) -> None:
+        """Budget enforcement with num_steps > 1 should return a smaller (more
+        conservative) epsilon or a larger sigma than without num_steps, because
+        the actual per-round RDP cost is num_steps × per-step cost."""
+        sampling_rate = 0.1
+        budget = 10.0
+        accountant = RDPAccountant(delta=1e-5)
+
+        eps_no_steps, sigma_no_steps = enforce_epsilon_budget(
+            candidate_epsilon=5.0,
+            current_rdp=accountant.rdp_per_alpha,
+            epsilon_budget=budget,
+            epsilon_min=0.1,
+            clipping_norm=sampling_rate,
+            delta=1e-5,
+            clipping_mode="per_example",
+            num_steps=1,
+        )
+
+        eps_with_steps, sigma_with_steps = enforce_epsilon_budget(
+            candidate_epsilon=5.0,
+            current_rdp=accountant.rdp_per_alpha,
+            epsilon_budget=budget,
+            epsilon_min=0.1,
+            clipping_norm=sampling_rate,
+            delta=1e-5,
+            clipping_mode="per_example",
+            num_steps=10,
+        )
+
+        # With num_steps=10, the enforcement sees 10× the cost, so it must
+        # either reduce epsilon or increase sigma (more noise).
+        assert sigma_with_steps >= sigma_no_steps
+        if eps_no_steps > 0 and eps_with_steps > 0:
+            assert eps_with_steps <= eps_no_steps
+
+    def test_per_example_num_steps_exhausts_budget_faster(self) -> None:
+        """After accumulating actual steps (accountant), enforce with num_steps
+        should detect budget exhaustion earlier than without num_steps."""
+        sampling_rate = 0.1
+        accountant = RDPAccountant(delta=1e-5)
+        # Accumulate 5 rounds × 10 steps = 50 actual steps
+        for _ in range(5):
+            accountant.step(sigma=0.5, clipping_norm=sampling_rate,
+                            num_steps=10, mode="per_example")
+
+        eps_no_steps, _ = enforce_epsilon_budget(
+            candidate_epsilon=1.0,
+            current_rdp=accountant.rdp_per_alpha,
+            epsilon_budget=100.0,
+            epsilon_min=0.1,
+            clipping_norm=sampling_rate,
+            delta=1e-5,
+            clipping_mode="per_example",
+            num_steps=1,
+        )
+
+        eps_with_steps, _ = enforce_epsilon_budget(
+            candidate_epsilon=1.0,
+            current_rdp=accountant.rdp_per_alpha,
+            epsilon_budget=100.0,
+            epsilon_min=0.1,
+            clipping_norm=sampling_rate,
+            delta=1e-5,
+            clipping_mode="per_example",
+            num_steps=10,
+        )
+
+        # Both may succeed with a large budget, but with_steps should be
+        # more constrained (smaller or equal epsilon).
+        if eps_no_steps > 0 and eps_with_steps > 0:
+            assert eps_with_steps <= eps_no_steps
+
 
 class TestResolveEpsilon:
     """Tests for _resolve_epsilon in client_app.py."""

@@ -115,6 +115,10 @@ class MetricLoggingMixin:
         agreements: list[float] = []
         cumulative_epsilons: list[float] = []
         sigmas: list[float] = []
+        per_example_clip_fractions: list[float] = []
+        grad_norms_before_clip: list[float] = []
+        grad_norms_after_clip: list[float] = []
+        num_opt_steps_list: list[float] = []
 
         for content in reply_contents:
             m = content.metric_records.get("metrics")
@@ -187,6 +191,38 @@ class MetricLoggingMixin:
                 sigmas.append(float(sigma))
                 self._log_metric(f"client_{cid}_sigma", float(sigma), step=server_round)
 
+            pe_clip = m.get("per_example_clip_fraction")
+            if pe_clip is not None:
+                per_example_clip_fractions.append(float(pe_clip))
+                self._log_metric(
+                    f"client_{cid}_per_example_clip_fraction",
+                    float(pe_clip), step=server_round,
+                )
+
+            gn_before = m.get("grad_norm_before_clip")
+            if gn_before is not None:
+                grad_norms_before_clip.append(float(gn_before))
+                self._log_metric(
+                    f"client_{cid}_grad_norm_before_clip",
+                    float(gn_before), step=server_round,
+                )
+
+            gn_after = m.get("grad_norm_after_clip")
+            if gn_after is not None:
+                grad_norms_after_clip.append(float(gn_after))
+                self._log_metric(
+                    f"client_{cid}_grad_norm_after_clip",
+                    float(gn_after), step=server_round,
+                )
+
+            nos = m.get("num_opt_steps")
+            if nos is not None:
+                num_opt_steps_list.append(float(nos))
+                self._log_metric(
+                    f"client_{cid}_num_opt_steps",
+                    float(nos), step=server_round,
+                )
+
             if self._per_client_budgets is not None and cum_eps is not None:
                 budget = self._per_client_budgets.get(cid)
                 if budget is None and self._node_to_partition:
@@ -208,6 +244,10 @@ class MetricLoggingMixin:
         self._log_metric_stats("agreement", agreements, server_round)
         self._log_metric_stats("cumulative_epsilon", cumulative_epsilons, server_round)
         self._log_metric_stats("sigma", sigmas, server_round)
+        self._log_metric_stats("per_example_clip_fraction", per_example_clip_fractions, server_round)
+        self._log_metric_stats("grad_norm_before_clip", grad_norms_before_clip, server_round)
+        self._log_metric_stats("grad_norm_after_clip", grad_norms_after_clip, server_round)
+        self._log_metric_stats("num_opt_steps", num_opt_steps_list, server_round)
 
 
 class MedianRobustAggregation(MetricLoggingMixin, FedAvg):

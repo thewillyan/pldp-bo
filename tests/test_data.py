@@ -151,3 +151,8 @@ class TestPartitionSingle:
         assert len(subset) > 0
         assert len(subset) < 200
         assert all(0 <= idx < 200 for idx in subset.indices)
+
+    def test_noniid_extreme_alpha_nonempty(self) -> None:
+        dataset = _make_toy_dataset_with_classes(50, 10)
+        subset = partition_single(dataset, 50, 0, partition_type="noniid", alpha=0.001, seed=42)
+        assert len(subset) >= 1

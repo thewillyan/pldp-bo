@@ -46,6 +46,8 @@ class FlowerClient(fl.client.NumPyClient):
     def fit(
         self, parameters: list[Any], config: dict[str, Any],
     ) -> tuple[list[Any], int, dict[str, Any]]:
+        if len(self.trainloader) == 0:
+            return parameters, 0, {}
         self.model.set_weights(parameters)
         net = self.model.get_model().to(get_device())
         net.train()

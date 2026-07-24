@@ -115,6 +115,30 @@ def test_weight_heterogeneity_strategy() -> None:
     assert uniform_weight < single_class_weight
 
 
+def test_weight_heterogeneity_with_total_num_classes() -> None:
+    config = PersonalizationConfig(
+        enabled=True,
+        strategy="heterogeneity",
+    )
+
+    client_with_3_classes = _make_dataset([0, 1, 2] * 10)
+    client_with_4_classes = _make_dataset([0, 1, 2, 3] * 10)
+
+    w3_observed = compute_budget_weight(0, client_with_3_classes, config)
+    w4_observed = compute_budget_weight(0, client_with_4_classes, config)
+
+    w3_total10 = compute_budget_weight(
+        0, client_with_3_classes, config, total_num_classes=10,
+    )
+    w4_total10 = compute_budget_weight(
+        0, client_with_4_classes, config, total_num_classes=10,
+    )
+
+    assert w3_observed != w3_total10 or w4_observed != w4_total10
+
+    assert w3_total10 > w4_total10
+
+
 def test_compute_label_entropy_uniform() -> None:
     dataset = _make_dataset([0, 1, 2, 3] * 25)
     entropy = _compute_label_entropy(dataset)
