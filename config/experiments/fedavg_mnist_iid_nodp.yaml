@@ -13,21 +13,20 @@ federated:
   fraction_fit: 0.5
   fraction_evaluate: 0.2
   local_epochs: 8
-  strategy: pldp_bo
+  strategy: fedavg
   min_fit_clients: 2
   min_evaluate_clients: 2
   min_available_nodes: 8
-  server_learning_rate: 0.5
+  server_learning_rate: 1.0
 
 optimizer:
   name: sgd
   lr: 0.01
   momentum: 0.9
   weight_decay: 0.001
-  gradient_clip_norm: 3.0
 
 privacy:
-  enabled: true
+  enabled: false
   mechanism: gaussian
   update_clip_norm: 5.0
   delta: 1e-5
@@ -35,28 +34,15 @@ privacy:
   total_budget: 5120.0
 
 personalization:
-  enabled: true
+  enabled: false
   strategy: data_proportional
   client_epsilon_map: {}
   track_cumulative: true
 
-bo:
-  enabled: true
-  optimization_metric: utility_retention
-  bounds_strategy: from_epsilon
-  bounds_ratio_min: 5.0
-  bounds_ratio_max: 10.0
-  max_warmup_ratio: 0.2
-  min_warmup: 10
-  acquisition_penalty: 0.1
-  budget_margin: 0.05
-  observation_noise: 0.01
-  ema_alpha: 0.3
-
 logging:
   tracker: mlflow
   experiment_name: pldp-bo
-  run_name: pldp-bo-mnist-iid-utility-retention
+  run_name: fedavg-mnist-iid-nodp
   tracking_uri: sqlite:///./mlflow.db
   group: mnist_iid
 

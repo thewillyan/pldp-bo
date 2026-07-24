@@ -18,7 +18,7 @@ federated:
   min_fit_clients: 2
   min_evaluate_clients: 2
   min_available_nodes: 8
-  server_learning_rate: 0.01
+  server_learning_rate: 0.5
 
 optimizer:
   name: sgd
