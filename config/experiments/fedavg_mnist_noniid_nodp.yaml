@@ -1,7 +1,8 @@
 data:
   name: mnist
   num_clients: 8
-  partition_type: iid
+  partition_type: noniid
+  partition_alpha: 0.5
   batch_size: 64
 
 model:
@@ -44,9 +45,9 @@ personalization:
 logging:
   tracker: mlflow
   experiment_name: pldp-bo
-  run_name: fedavg-mnist-iid-nodp
+  run_name: fedavg-mnist-noniid-nodp
   tracking_uri: sqlite:///./mlflow.db
-  group: mnist_iid
+  group: mnist_noniid
 
 seed: 42
 deterministic: false

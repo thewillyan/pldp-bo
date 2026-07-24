@@ -1,12 +1,12 @@
 data:
-  name: mnist
+  name: cifar100
   num_clients: 8
   partition_type: iid
   batch_size: 64
 
 model:
-  name: mlp
-  num_classes: 10
+  name: cnn
+  num_classes: 100
 
 federated:
   num_rounds: 80
@@ -44,9 +44,9 @@ personalization:
 logging:
   tracker: mlflow
   experiment_name: pldp-bo
-  run_name: fedavg-mnist-iid-nodp
+  run_name: fedavg-cifar100-iid-nodp
   tracking_uri: sqlite:///./mlflow.db
-  group: mnist_iid
+  group: cifar100_iid
 
 seed: 42
 deterministic: false
