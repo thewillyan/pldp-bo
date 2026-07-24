@@ -147,6 +147,9 @@ class PLDPBOScheduler(EpsilonScheduler):
         if self._prev_smoothed is None:
             smoothed = metric
             self._ema_t = 1
+        elif self._ema_alpha >= 1.0:
+            smoothed = metric
+            self._ema_t += 1
         else:
             self._ema_t += 1
             raw = self._ema_alpha * metric + (1 - self._ema_alpha) * self._prev_smoothed

@@ -24,24 +24,24 @@ _OPTIMIZATION_METRIC_KEY_MAP: dict[str, str] = {
 
 class TestConfigLoading:
     def test_pldp_bo_nun_config_loads(self) -> None:
-        config = load_config("config/experiments/pldp_bo_mnist_iid_nun.yaml")
+        config = load_config("config/experiments/pldp_bo_mnist_iid_agreement.yaml")
         assert config.federated.strategy == "pldp_bo"
         assert config.bo.enabled
-        assert config.bo.optimization_metric == "nun"
+        assert config.bo.optimization_metric == "agreement"
         assert config.personalization.enabled
         assert config.personalization.strategy == "data_proportional"
-        assert config.federated.server_learning_rate == 0.1
+        assert config.federated.server_learning_rate == 0.5
         assert config.data.name == "mnist"
         assert config.model.name == "mlp"
 
     def test_pldp_bo_utility_config_loads(self) -> None:
-        config = load_config("config/experiments/pldp_bo_mnist_iid_utility.yaml")
+        config = load_config("config/experiments/pldp_bo_mnist_iid_utility_retention.yaml")
         assert config.federated.strategy == "pldp_bo"
         assert config.bo.enabled
-        assert config.bo.optimization_metric == "utility"
+        assert config.bo.optimization_metric == "utility_retention"
 
     def test_pldp_bo_noniid_config_loads(self) -> None:
-        config = load_config("config/experiments/pldp_bo_cifar100_noniid_nun.yaml")
+        config = load_config("config/experiments/pldp_bo_cifar100_noniid_agreement.yaml")
         assert config.data.partition_type == "noniid"
         assert config.data.partition_alpha == 0.5
         assert config.model.name == "cnn"
@@ -55,14 +55,14 @@ class TestConfigLoading:
 
     def test_all_pldp_bo_configs_load(self) -> None:
         paths = [
-            "config/experiments/pldp_bo_mnist_iid_nun.yaml",
-            "config/experiments/pldp_bo_mnist_noniid_nun.yaml",
-            "config/experiments/pldp_bo_cifar100_iid_nun.yaml",
-            "config/experiments/pldp_bo_cifar100_noniid_nun.yaml",
-            "config/experiments/pldp_bo_mnist_iid_utility.yaml",
-            "config/experiments/pldp_bo_mnist_noniid_utility.yaml",
-            "config/experiments/pldp_bo_cifar100_iid_utility.yaml",
-            "config/experiments/pldp_bo_cifar100_noniid_utility.yaml",
+            "config/experiments/pldp_bo_mnist_iid_agreement.yaml",
+            "config/experiments/pldp_bo_mnist_noniid_agreement.yaml",
+            "config/experiments/pldp_bo_cifar100_iid_agreement.yaml",
+            "config/experiments/pldp_bo_cifar100_noniid_agreement.yaml",
+            "config/experiments/pldp_bo_mnist_iid_utility_retention.yaml",
+            "config/experiments/pldp_bo_mnist_noniid_utility_retention.yaml",
+            "config/experiments/pldp_bo_cifar100_iid_utility_retention.yaml",
+            "config/experiments/pldp_bo_cifar100_noniid_utility_retention.yaml",
         ]
         for path in paths:
             config = load_config(path)
