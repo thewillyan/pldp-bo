@@ -16,7 +16,12 @@
 7. [Optimization Metric](#7-optimization-metric)
     - [Variant A: Noisy Update Norm (NUN)](#variant-a-noisy-update-norm-nun)
     - [Variant B: Model Utility Metric](#variant-b-model-utility-metric)
-8. [Server Aggregation](#8-server-aggregation)
+    - [Variant C: Utility Retention](#variant-c-utility-retention)
+    - [Variant D: Utility Efficiency](#variant-d-utility-efficiency)
+    - [Variant E: Utility per Remaining Budget](#variant-e-utility-per-remaining-budget)
+    - [Variant F: Signal-to-Noise Ratio (SNR)](#variant-f-signal-to-noise-ratio-snr)
+    - [Variant G: Logit Agreement](#variant-g-logit-agreement)
+ 8. [Server Aggregation](#8-server-aggregation)
 9. [Complete Client Algorithm](#9-complete-client-algorithm)
 10. [Experimental Variants](#10-experimental-variants)
 
@@ -24,12 +29,17 @@
 
 PLDP-BO is a Federated Learning (FL) algorithm that continuously personalizes the Local Differential Privacy (LDP) parameter $\varepsilon$ of each participating client throughout the training process. Each client independently runs a Bayesian Optimization (BO) process, preceded by a systematic warm-up exploration phase, to search for the most suitable privacy parameter according to a locally computed objective. The optimization is performed under a hard Rényi Differential Privacy (RDP) budget, ensuring that the cumulative privacy loss never exceeds a predefined limit.
 
-The framework is metric-agnostic: BO only requires a scalar objective to optimize. Consequently, different optimization goals can be adopted without changing the remainder of the algorithm. The experimental evaluation will consider two objective variants:
+The framework is metric-agnostic: BO only requires a scalar objective to optimize. Consequently, different optimization goals can be adopted without changing the remainder of the algorithm. The implementation supports seven objective variants:
 
 1. Noisy Update Norm (NUN)
 2. Model Utility (Local validation loss)
+3. Utility Retention
+4. Utility Efficiency
+5. Utility per Remaining Budget
+6. Signal-to-Noise Ratio (SNR)
+7. Logit Agreement
 
-The remainder of the algorithm is identical for both variants.
+The remainder of the algorithm is identical for all variants.
 
 ## 2. Notation
 
@@ -68,6 +78,15 @@ The remainder of the algorithm is identical for both variants.
 | $\text{EI}(\varepsilon)$ | Expected Improvement acquisition function |
 | $\text{EI}_{\text{norm}}(\varepsilon)$ | Normalized Expected Improvement |
 | $\alpha(\varepsilon)$ | Acquisition function with privacy penalty |
+| $\varepsilon_{\text{remaining}}$ | Remaining privacy budget at a given round |
+| $L_{\text{clean}}$ | Validation loss of the clean (pre-DP) model |
+| $L_{\text{noisy}}$ | Validation loss of the noisy (post-DP) model (same as $m_{\text{utility}}$) |
+| $m_{\text{snr}}$ | Signal-to-Noise Ratio (SNR) metric |
+| $m_{\text{ret}}$ | Utility Retention metric |
+| $m_{\text{eff}}$ | Utility Efficiency metric |
+| $m_{\text{rem}}$ | Utility per Remaining Budget metric |
+| $m_{\text{agr}}$ | Logit Agreement metric |
+| $\cos(\cdot, \cdot)$ | Cosine similarity |
 
 ## 3. Federated Learning Workflow
 
@@ -87,7 +106,7 @@ Each communication round proceeds as follows.
 7. Generate Gaussian noise according to the selected privacy level $z_t \sim \mathcal{N}(0, \sigma_t^2 I)$.
 8. Produce the DP update $\tilde{\Delta}_t = \hat{\Delta}_t + z_t$.
 9. Send only the noisy update $\tilde{\Delta}_t$ to the server.
-10. Compute the chosen optimization metric $m_t$ (NUN or Utility).
+10. Compute the chosen optimization metric $m_t$ (see Section 7 for available variants).
 11. Store the observation $(\varepsilon_t, m_t)$.
     - If the client is in the BO phase, update the Gaussian Process with the new observation.
     - During warm-up, observations are only collected; the GP is fitted once after the warm-up period.
@@ -294,7 +313,7 @@ where the first $L$ values are determined by systematic exploration and the rema
 
 ## 7. Optimization Metric
 
-The BO framework is independent of the objective function. The experiments will evaluate two metric variants, both of which are scalar functions of $\varepsilon$ and the training outcome.
+The BO framework is independent of the objective function. The implementation supports seven metric variants, all of which are scalar functions of $\varepsilon$ and the training outcome. Variants A and B require a single validation evaluation after DP perturbation. Variants C through G additionally require a clean (pre-DP) validation evaluation to compute reference loss and logits.
 
 ### Variant A: Noisy Update Norm (NUN)
 
@@ -367,6 +386,104 @@ $$
 
 Unlike the NUN metric, this objective directly targets the model's performance on held-out local data.
 
+### Variant C: Utility Retention
+
+**Motivation.** Utility Retention measures how much the DP perturbation degrades the model's validation performance relative to the clean (unperturbed) model. A value close to 1 indicates that privacy noise did not harm accuracy; larger values indicate degradation. This metric isolates the cost of privacy from the absolute loss, making it comparable across different loss scales.
+
+**Metric.** The client computes the validation loss before and after adding DP noise. The utility retention is the ratio of noisy to clean loss:
+
+$$
+m_{\text{ret}} = \frac{L_{\text{noisy}}}{L_{\text{clean}}}.
+$$
+
+**Optimization Objective.** BO minimizes
+
+$$
+\min_\varepsilon \; m_{\text{ret}} .
+$$
+
+**Interpretation.** Values near 1.0 indicate that the DP perturbation introduced negligible degradation. Values above 1.0 indicate increasing loss due to noise. By minimizing $m_{\text{ret}}$, BO seeks privacy levels where the noisy model retains the clean model's predictive performance. Unlike the NUN metric, this objective directly captures utility rather than update magnitude.
+
+### Variant D: Utility Efficiency
+
+**Motivation.** Utility Efficiency measures the fractional loss increase per unit of privacy budget spent. This captures how efficiently each unit of $\varepsilon$ is used: a small loss increase per $\varepsilon$ means the client obtains strong privacy at little cost to model quality. The denominator $\varepsilon$ intrinsically penalizes larger $\varepsilon$, encoding a privacy-utility trade-off without requiring the acquisition penalty $\lambda_{\text{aq}}$.
+
+**Metric.** The client computes the loss degradation due to DP noise and normalizes it by the clean loss and the privacy parameter:
+
+$$
+m_{\text{eff}} = -\frac{\max(0, L_{\text{noisy}} - L_{\text{clean}})}{L_{\text{clean}} \cdot \varepsilon}.
+$$
+
+The numerator is zero when the noisy loss is not larger than the clean loss, making $m_{\text{eff}}$ non-positive.
+
+**Optimization Objective.** BO minimizes
+
+$$
+\min_\varepsilon \; m_{\text{eff}} .
+$$
+
+**Interpretation.** Because $m_{\text{eff}}$ is negative (or zero), minimizing it drives toward more negative values, corresponding to lower fractional degradation per unit $\varepsilon$. The BO naturally favors combinations of small $\varepsilon$ (strong privacy) and low degradation. The privacy preference arises intrinsically from the $\varepsilon$ denominator, unlike NUN and Utility which rely on the explicit penalty $\lambda_{\text{aq}}$.
+
+### Variant E: Utility per Remaining Budget
+
+**Motivation.** Utility per Remaining Budget extends the efficiency concept by normalizing degradation by the remaining privacy budget rather than the per-round epsilon. This makes the metric budget-aware: when little budget remains, the client is penalized more heavily for wasteful spending. The goal is to allocate limited budget across the remaining rounds as efficiently as possible.
+
+**Metric.** The metric is identical to utility efficiency but uses the remaining budget instead of the per-round epsilon:
+
+$$
+m_{\text{rem}} = -\frac{\max(0, L_{\text{noisy}} - L_{\text{clean}})}{L_{\text{clean}} \cdot \varepsilon_{\text{remaining}}},
+$$
+
+where $\varepsilon_{\text{remaining}}$ is the client's remaining privacy budget for future rounds.
+
+**Optimization Objective.** BO minimizes
+
+$$
+\min_\varepsilon \; m_{\text{rem}} .
+$$
+
+**Interpretation.** As the remaining budget shrinks, the denominator shrinks, making the metric more sensitive to any loss degradation. This encourages the BO to select more conservative $\varepsilon$ values when budget is scarce, and to explore more freely when budget is abundant.
+
+### Variant F: Signal-to-Noise Ratio (SNR)
+
+**Motivation.** The Signal-to-Noise Ratio (SNR) measures the relative power of the learning signal to the DP noise before perturbation. A high SNR means the update is large relative to the noise scale, indicating that the signal is likely to survive the noise addition. A low SNR means the update will be dominated by noise. By minimizing SNR, the BO drives the system toward a noise-dominated regime, corresponding to stronger privacy.
+
+**Metric.** The client computes the squared L2 norm of the local model update relative to the noise variance:
+
+$$
+m_{\text{snr}} = \frac{\|\Delta_t\|_2^2}{\sigma_t^2}.
+$$
+
+Since $\sigma_t \propto 1/\varepsilon_t$, SNR grows quadratically with $\varepsilon$: larger $\varepsilon$ yields less noise, hence higher SNR.
+
+**Optimization Objective.** BO minimizes
+
+$$
+\min_\varepsilon \; m_{\text{snr}} .
+$$
+
+**Interpretation.** Larger $\varepsilon$ (weaker privacy) produces less noise and therefore higher SNR. By minimizing SNR, the BO naturally favors smaller $\varepsilon$ (stronger privacy), providing an intrinsic privacy preference without relying on the acquisition penalty $\lambda_{\text{aq}}$.
+
+### Variant G: Logit Agreement
+
+**Motivation.** Logit Agreement measures how much the model's predictions (in logit space) change after DP perturbation. Small changes mean the noisy model produces similar class scores to the clean model, indicating that privacy noise did not distort the learned representations. This metric captures prediction-level stability rather than just loss magnitude.
+
+**Metric.** The client computes the average cosine similarity between clean and noisy logit vectors across all validation samples, then defines agreement as the complement:
+
+$$
+m_{\text{agr}} = 1 - \frac{1}{N} \sum_{i=1}^N \cos\bigl(z_i^{\text{(clean)}}, z_i^{\text{(noisy)}}\bigr),
+$$
+
+where $z_i^{\text{(clean)}}$ and $z_i^{\text{(noisy)}}$ are the logit vectors for validation sample $i$ from the clean and noisy models respectively, and $\cos(\cdot, \cdot)$ is the cosine similarity. The range is $[0, 2]$, where 0 indicates identical logit directions and 2 indicates opposite directions.
+
+**Optimization Objective.** BO minimizes
+
+$$
+\min_\varepsilon \; m_{\text{agr}} .
+$$
+
+**Interpretation.** Lower values indicate better agreement between the clean and noisy model predictions. A value near 0 means the DP perturbation did not meaningfully alter the model's output distribution. By minimizing agreement, BO seeks privacy levels where the model's predictions remain stable despite the added noise.
+
 ## 8. Server Aggregation
 
 The server performs weighted aggregation to mitigate the impact of potentially harmful or extremely large updates.
@@ -374,7 +491,7 @@ The server performs weighted aggregation to mitigate the impact of potentially h
 For every received noisy update $\tilde{\Delta}_i$:
 
 1. Compute its L2 norm: $r_i = \| \tilde{\Delta}_i \|_2$.
-2. Compute a robust baseline as the median of all received norms: $b = \operatorname{median}(\{r_i\})$.
+2. Compute a robust baseline as the median of all received norms: $b = \mathrm{median}(\{r_i\})$.
 3. Assign an attenuation weight: $w_i = \min\left(1, \frac{b}{r_i}\right)$.
 
 The aggregated update is
@@ -442,5 +559,10 @@ To isolate the effect of the optimization objective, the implementation should s
 |---|---|---|
 | PLDP-BO-NUN | $m_{\text{nun}} = \|\tilde{\Delta}\|_2$ | Minimize the noisy update norm, balancing signal preservation against privacy noise. |
 | PLDP-BO-Utility | $m_{\text{utility}} = \mathcal{L}_{\text{validation}}(w_{\text{DP}})$ | Maximize predictive performance for a given privacy budget. |
+| PLDP-BO-UtilityRetention | $m_{\text{ret}} = L_{\text{noisy}} / L_{\text{clean}}$ | Minimize the noisy-to-clean loss ratio, preserving validation performance under DP. |
+| PLDP-BO-UtilityEfficiency | $m_{\text{eff}}$ | Minimize fractional loss increase per unit $\varepsilon$, encoding an intrinsic privacy preference. |
+| PLDP-BO-UtilityPerRemaining | $m_{\text{rem}}$ | Minimize fractional loss increase per unit remaining budget, adapting to budget scarcity. |
+| PLDP-BO-SNR | $m_{\text{snr}} = \|\Delta_t\|_2^2 / \sigma_t^2$ | Minimize signal-to-noise ratio, driving toward a noise-dominated privacy regime. |
+| PLDP-BO-Agreement | $m_{\text{agr}}$ | Minimize logit cosine dissimilarity, preserving prediction stability under DP. |
 
 This design enables a direct comparison of how different optimization objectives influence the learned privacy schedules, convergence behavior, and final model performance, while demonstrating that PLDP-BO itself is a general framework whose optimization criterion can be changed without altering its privacy mechanism, Bayesian optimization procedure, or federated learning workflow.
