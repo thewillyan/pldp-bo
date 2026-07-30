@@ -557,12 +557,12 @@ To isolate the effect of the optimization objective, the implementation should s
 
 | Variant | BO Objective | Purpose |
 |---|---|---|
-| PLDP-BO-NUN | $m_{\text{nun}} = \|\tilde{\Delta}\|_2$ | Minimize the noisy update norm, balancing signal preservation against privacy noise. |
+| PLDP-BO-NUN | $m_{\text{nun}} = \lVert\tilde{\Delta}\rVert_2$ | Minimize the noisy update norm, balancing signal preservation against privacy noise. |
 | PLDP-BO-Utility | $m_{\text{utility}} = \mathcal{L}_{\text{validation}}(w_{\text{DP}})$ | Maximize predictive performance for a given privacy budget. |
 | PLDP-BO-UtilityRetention | $m_{\text{ret}} = L_{\text{noisy}} / L_{\text{clean}}$ | Minimize the noisy-to-clean loss ratio, preserving validation performance under DP. |
 | PLDP-BO-UtilityEfficiency | $m_{\text{eff}}$ | Minimize fractional loss increase per unit $\varepsilon$, encoding an intrinsic privacy preference. |
 | PLDP-BO-UtilityPerRemaining | $m_{\text{rem}}$ | Minimize fractional loss increase per unit remaining budget, adapting to budget scarcity. |
-| PLDP-BO-SNR | $m_{\text{snr}} = \|\Delta_t\|_2^2 / \sigma_t^2$ | Minimize signal-to-noise ratio, driving toward a noise-dominated privacy regime. |
+| PLDP-BO-SNR | $m_{\text{snr}} = \lVert\Delta_t\rVert_2^2 / \sigma_t^2$ | Minimize signal-to-noise ratio, driving toward a noise-dominated privacy regime. |
 | PLDP-BO-Agreement | $m_{\text{agr}}$ | Minimize logit cosine dissimilarity, preserving prediction stability under DP. |
 
 This design enables a direct comparison of how different optimization objectives influence the learned privacy schedules, convergence behavior, and final model performance, while demonstrating that PLDP-BO itself is a general framework whose optimization criterion can be changed without altering its privacy mechanism, Bayesian optimization procedure, or federated learning workflow.
