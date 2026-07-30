@@ -47,45 +47,45 @@ The remainder of the algorithm is identical for all variants.
 |---|---|
 | $\varepsilon$ | Privacy parameter (Local DP) |
 | $\varepsilon_{\min}, \varepsilon_{\max}$ | Bounds of the privacy search interval |
-| $\varepsilon_{\mathrm{budget}}$ | Total $(\varepsilon,\delta)$-DP budget per client |
-| $\varepsilon_{\mathrm{candidate}}$ | Candidate $\varepsilon$ before budget verification |
+| $\varepsilon_{budget}$ | Total $(\varepsilon,\delta)$-DP budget per client |
+| $\varepsilon_{candidate}$ | Candidate $\varepsilon$ before budget verification |
 | $\delta$ | Target delta parameter for DP |
 | $\alpha$ | RDP order; evaluated over $\alpha \in \{2, 3, \dots, 100\}$ |
 | $C$ | L2 clipping norm |
 | $L$ | Number of warm-up exploration rounds |
 | $G$ | Number of grid points for EI normalization |
-| $\lambda_{\mathrm{aq}}$ | Privacy penalty coefficient in the acquisition function |
+| $\lambda_{aq}$ | Privacy penalty coefficient in the acquisition function |
 | $E$ | Number of local training epochs |
 | $T$ | Total number of communication rounds |
 | $\eta$ | Server learning rate |
 | $w_g$ | Global model parameters |
-| $w_{\mathrm{local}}$ | Local model parameters after training |
-| $w_{\mathrm{DP}}$ | Noisy local model after DP perturbation |
+| $w_{local}$ | Local model parameters after training |
+| $w_{DP}$ | Noisy local model after DP perturbation |
 | $\tilde{\Delta}_t$ | Noisy DP update at round $t$ |
-| $\tilde{\Delta}_{\mathrm{agg}}$ | Aggregated noisy update at the server |
+| $\tilde{\Delta}_{agg}$ | Aggregated noisy update at the server |
 | $\Delta_t$ | Local update before clipping and noise |
 | $\hat{\Delta}_t$ | Clipped local update |
 | $z_t$ | Gaussian noise vector at round $t$ |
 | $\sigma_t^2$ | Noise variance at round $t$ |
 | $\sigma$ | Noise standard deviation (DP mechanism) |
 | $\sigma_n^2$ | Observation noise variance (GP model) |
-| $m_{\mathrm{nun}}$ | Noisy Update Norm (NUN) metric |
-| $m_{\mathrm{utility}}$ | Utility optimization metric |
+| $m_{nun}$ | Noisy Update Norm (NUN) metric |
+| $m_{utility}$ | Utility optimization metric |
 | $b$ | Median of all received update norms (server) |
 | $r_i$ | L2 norm of client $i$'s noisy update |
 | $w_i$ | Attenuation weight for client $i$'s update |
 | $\mathcal{GP}(\mu, k)$ | Gaussian Process with mean function $\mu$ and kernel $k$ |
-| $\mathrm{EI}(\varepsilon)$ | Expected Improvement acquisition function |
-| $\mathrm{EI}_{\mathrm{norm}}(\varepsilon)$ | Normalized Expected Improvement |
+| $EI(\varepsilon)$ | Expected Improvement acquisition function |
+| $EI_{norm}(\varepsilon)$ | Normalized Expected Improvement |
 | $\alpha(\varepsilon)$ | Acquisition function with privacy penalty |
-| $\varepsilon_{\mathrm{remaining}}$ | Remaining privacy budget at a given round |
-| $L_{\mathrm{clean}}$ | Validation loss of the clean (pre-DP) model |
-| $L_{\mathrm{noisy}}$ | Validation loss of the noisy (post-DP) model (same as $m_{\mathrm{utility}}$) |
-| $m_{\mathrm{snr}}$ | Signal-to-Noise Ratio (SNR) metric |
-| $m_{\mathrm{ret}}$ | Utility Retention metric |
-| $m_{\mathrm{eff}}$ | Utility Efficiency metric |
-| $m_{\mathrm{rem}}$ | Utility per Remaining Budget metric |
-| $m_{\mathrm{agr}}$ | Logit Agreement metric |
+| $\varepsilon_{remaining}$ | Remaining privacy budget at a given round |
+| $L_{clean}$ | Validation loss of the clean (pre-DP) model |
+| $L_{noisy}$ | Validation loss of the noisy (post-DP) model (same as $m_{utility}$) |
+| $m_{snr}$ | Signal-to-Noise Ratio (SNR) metric |
+| $m_{ret}$ | Utility Retention metric |
+| $m_{eff}$ | Utility Efficiency metric |
+| $m_{rem}$ | Utility per Remaining Budget metric |
+| $m_{agr}$ | Logit Agreement metric |
 | $\cos(\cdot, \cdot)$ | Cosine similarity |
 
 ## 3. Federated Learning Workflow
@@ -101,7 +101,7 @@ Each communication round proceeds as follows.
 3. Verify that using $\varepsilon_t$ does not exceed the client's remaining privacy budget.
    If the budget is violated, reduce $\varepsilon_t$ to the largest $\varepsilon \le \varepsilon_t$ that satisfies the budget (see Section 5).
 4. Train locally for $E$ epochs.
-5. Compute the local update $\Delta_t = w_{\mathrm{local}}^{(t)} - w_g^{(t)}$.
+5. Compute the local update $\Delta_t = w_{local}^{(t)} - w_g^{(t)}$.
 6. Clip the update $\hat{\Delta}_t = \Delta_t \cdot \min\left(1, \frac{C}{\|\Delta_t\|_2}\right)$.
 7. Generate Gaussian noise according to the selected privacy level $z_t \sim \mathcal{N}(0, \sigma_t^2 I)$.
 8. Produce the DP update $\tilde{\Delta}_t = \hat{\Delta}_t + z_t$.
@@ -145,7 +145,7 @@ This is a **per-update** privacy mechanism: the client clips the model delta onc
 
 Each client maintains an independent Rényi Differential Privacy (RDP) accountant evaluated over a discrete set of RDP orders $\alpha \in \{2, 3, \dots, 100\}$.
 
-The total privacy budget is specified as a target $(\varepsilon_{\mathrm{budget}}, \delta)$-DP guarantee. The accountant tracks whether the cumulative privacy loss remains within this bound.
+The total privacy budget is specified as a target $(\varepsilon_{budget}, \delta)$-DP guarantee. The accountant tracks whether the cumulative privacy loss remains within this bound.
 
 **Per-round RDP cost.** For a round with noise scale $\sigma_t$, the RDP cost at order $\alpha$ is
 
@@ -171,9 +171,9 @@ For a candidate $\varepsilon_t$ (from warm-up or BO):
 
 1. Compute $\sigma_t = C \cdot \sqrt{2 \log(1.25 / \delta)} \;/\; \varepsilon_t$.
 2. Compute candidate RDP cost $R_\alpha^{(t)} = \alpha C^2 / (2\sigma_t^2)$.
-3. Compute hypothetical total $R_\alpha^{\mathrm{(new)}} = R_\alpha^{\mathrm{(total)}} + R_\alpha^{(t)}$.
-4. Convert to $\varepsilon_{\mathrm{new}} = \min_\alpha [R_\alpha^{\mathrm{(new)}} + \log(1/\delta)/(\alpha-1)]$.
-5. If $\varepsilon_{\mathrm{new}} \le \varepsilon_{\mathrm{budget}}$, accept $\varepsilon_t$.
+3. Compute hypothetical total $R_\alpha^{(new)} = R_\alpha^{(total)} + R_\alpha^{(t)}$.
+4. Convert to $\varepsilon_{new} = \min_\alpha [R_\alpha^{(new)} + \log(1/\delta)/(\alpha-1)]$.
+5. If $\varepsilon_{new} \le \varepsilon_{budget}$, accept $\varepsilon_t$.
 6. Otherwise, perform a binary search in $[\varepsilon_{\min}, \varepsilon_t]$ to find the largest $\varepsilon \le \varepsilon_t$ satisfying the budget (e.g., 30 iterations).
 
 If the binary search reaches $\varepsilon_{\min}$ and it still violates the budget, the client's privacy budget is exhausted and it ceases participation.
@@ -275,26 +275,26 @@ $$
 
 where:
 
-- $\mathrm{EI}_{\mathrm{norm}}(\varepsilon)$ is the normalized Expected Improvement (see below),
-- $\lambda_{\mathrm{aq}} \ge 0$ controls the strength of the penalty that favors smaller $\varepsilon$ (stronger privacy),
+- $EI_{norm}(\varepsilon)$ is the normalized Expected Improvement (see below),
+- $\lambda_{aq} \ge 0$ controls the strength of the penalty that favors smaller $\varepsilon$ (stronger privacy),
 - the normalization by $\varepsilon_{\max} - \varepsilon_{\min}$ ensures consistent behavior across different search intervals.
 
-To decouple the penalty from the metric's scale, $\mathrm{EI}(\varepsilon)$ is normalized to $[0, 1]$ by evaluating over a discrete grid $\{\varepsilon_1, \dots, \varepsilon_G\} \subset [\varepsilon_{\min}, \varepsilon_{\max}]$:
+To decouple the penalty from the metric's scale, $EI(\varepsilon)$ is normalized to $[0, 1]$ by evaluating over a discrete grid $\{\varepsilon_1, \dots, \varepsilon_G\} \subset [\varepsilon_{\min}, \varepsilon_{\max}]$:
 
 $$
 \text{EI}_{\text{norm}}(\varepsilon) = \frac{\text{EI}(\varepsilon) - \text{EI}_{\min}}{\text{EI}_{\max} - \text{EI}_{\min}},
 $$
 
-where $\mathrm{EI}_{\min} = \min_j \mathrm{EI}(\varepsilon_j)$ and $\mathrm{EI}_{\max} = \max_j \mathrm{EI}(\varepsilon_j)$. The acquisition function uses this normalized form (as defined above).
+where $EI_{\min} = \min_j EI(\varepsilon_j)$ and $EI_{\max} = \max_j EI(\varepsilon_j)$. The acquisition function uses this normalized form (as defined above).
 
-Both terms now lie in $[0, 1]$, so $\lambda_{\mathrm{aq}}$ directly controls their relative weight regardless of the objective metric's magnitude.
+Both terms now lie in $[0, 1]$, so $\lambda_{aq}$ directly controls their relative weight regardless of the objective metric's magnitude.
 
-If $\mathrm{EI}_{\max} = \mathrm{EI}_{\min}$ (e.g., when the GP sees insufficient variation in the data, such as very early in training), $\mathrm{EI}_{\mathrm{norm}}$ is undefined. In this degenerate case the acquisition function reduces to $\alpha(\varepsilon) = -\lambda_{\mathrm{aq}} \cdot (\varepsilon - \varepsilon_{\min})/(\varepsilon_{\max} - \varepsilon_{\min})$, which defaults to selecting $\varepsilon_{\min}$ (strongest privacy).
+If $EI_{\max} = EI_{\min}$ (e.g., when the GP sees insufficient variation in the data, such as very early in training), $EI_{norm}$ is undefined. In this degenerate case the acquisition function reduces to $\alpha(\varepsilon) = -\lambda_{aq} \cdot (\varepsilon - \varepsilon_{\min})/(\varepsilon_{\max} - \varepsilon_{\min})$, which defaults to selecting $\varepsilon_{\min}$ (strongest privacy).
 
 **BO cycle.** For each round after warm-up:
 
 1. Use the current Gaussian Process to model $f(\varepsilon)$.
-1a. Evaluate $\mathrm{EI}(\varepsilon)$ over a fine grid in $[\varepsilon_{\min}, \varepsilon_{\max}]$ to compute the normalizing constants $\mathrm{EI}_{\min}$ and $\mathrm{EI}_{\max}$, then construct $\mathrm{EI}_{\mathrm{norm}}(\varepsilon)$ and $\alpha(\varepsilon)$.
+1a. Evaluate $EI(\varepsilon)$ over a fine grid in $[\varepsilon_{\min}, \varepsilon_{\max}]$ to compute the normalizing constants $EI_{\min}$ and $EI_{\max}$, then construct $EI_{norm}(\varepsilon)$ and $\alpha(\varepsilon)$.
 2. Maximize the acquisition function $\alpha(\varepsilon)$ over $[\varepsilon_{\min}, \varepsilon_{\max}]$ to obtain a candidate $\varepsilon^*$.
 3. Verify the RDP budget (see Section 5): if $\varepsilon^*$ would exceed the remaining budget, reduce it via binary search in $[\varepsilon_{\min}, \varepsilon^*]$ until the constraint is satisfied.
 4. Perform local training using the (possibly reduced) $\varepsilon$.
@@ -317,7 +317,7 @@ The BO framework is independent of the objective function. The implementation su
 
 ### Variant A: Noisy Update Norm (NUN)
 
-**Motivation.** The Noisy Update Norm (NUN) measures the magnitude of the private update sent to the server. This metric captures the joint effect of the client's learning signal and the privacy noise. Weaker privacy (larger $\varepsilon$) adds less noise and preserves more signal, resulting in a smaller update norm. Stronger privacy (smaller $\varepsilon$) injects more noise, increasing the norm. By minimizing $m_{\mathrm{nun}}$, the BO seeks a privacy level where the signal component dominates the noise.
+**Motivation.** The Noisy Update Norm (NUN) measures the magnitude of the private update sent to the server. This metric captures the joint effect of the client's learning signal and the privacy noise. Weaker privacy (larger $\varepsilon$) adds less noise and preserves more signal, resulting in a smaller update norm. Stronger privacy (smaller $\varepsilon$) injects more noise, increasing the norm. By minimizing $m_{nun}$, the BO seeks a privacy level where the signal component dominates the noise.
 
 **Metric.** After local training and the addition of Gaussian noise, the client constructs the private update $\tilde{\Delta}_t$. The NUN metric is defined as
 
@@ -325,7 +325,7 @@ $$
 m_{\text{nun}} = \| \tilde{\Delta}_t \|_2 .
 $$
 
-Equivalently, $m_{\mathrm{nun}} = \| w_{\mathrm{DP}} - w_g \|_2$, where $w_{\mathrm{DP}} = w_g + \tilde{\Delta}_t$ is the noisy local model.
+Equivalently, $m_{nun} = \| w_{DP} - w_g \|_2$, where $w_{DP} = w_g + \tilde{\Delta}_t$ is the noisy local model.
 
 **Expected norm.** For a model of dimension $d$, the expected squared norm is
 
@@ -352,7 +352,7 @@ $$
 
 **Interpretation.** Lower values indicate that the released update is dominated by the learning signal rather than by privacy noise. This occurs when $\varepsilon_t$ is sufficiently large that $d \cdot \sigma_t^2$ is negligible relative to $\| \hat{\Delta}_t \|_2^2$.
 
-The BO naturally drives $m_{\mathrm{nun}}$ downward by favoring larger $\varepsilon$ (weaker privacy). The acquisition function's penalty term $\lambda_{\mathrm{aq}}$ counterbalances this by penalizing large $\varepsilon$, creating a principled trade-off between update fidelity and privacy strength. Because $\mathrm{EI}_{\mathrm{norm}}$ and the penalty are both normalized to $[0, 1]$, $\lambda_{\mathrm{aq}}$ directly represents the relative weight of privacy versus update fidelity and will be tuned via grid search.
+The BO naturally drives $m_{nun}$ downward by favoring larger $\varepsilon$ (weaker privacy). The acquisition function's penalty term $\lambda_{aq}$ counterbalances this by penalizing large $\varepsilon$, creating a principled trade-off between update fidelity and privacy strength. Because $EI_{norm}$ and the penalty are both normalized to $[0, 1]$, $\lambda_{aq}$ directly represents the relative weight of privacy versus update fidelity and will be tuned via grid search.
 
 ### Variant B: Model Utility Metric
 
@@ -402,11 +402,11 @@ $$
 \min_\varepsilon \; m_{\text{ret}} .
 $$
 
-**Interpretation.** Values near 1.0 indicate that the DP perturbation introduced negligible degradation. Values above 1.0 indicate increasing loss due to noise. By minimizing $m_{\mathrm{ret}}$, BO seeks privacy levels where the noisy model retains the clean model's predictive performance. Unlike the NUN metric, this objective directly captures utility rather than update magnitude.
+**Interpretation.** Values near 1.0 indicate that the DP perturbation introduced negligible degradation. Values above 1.0 indicate increasing loss due to noise. By minimizing $m_{ret}$, BO seeks privacy levels where the noisy model retains the clean model's predictive performance. Unlike the NUN metric, this objective directly captures utility rather than update magnitude.
 
 ### Variant D: Utility Efficiency
 
-**Motivation.** Utility Efficiency measures the fractional loss increase per unit of privacy budget spent. This captures how efficiently each unit of $\varepsilon$ is used: a small loss increase per $\varepsilon$ means the client obtains strong privacy at little cost to model quality. The denominator $\varepsilon$ intrinsically penalizes larger $\varepsilon$, encoding a privacy-utility trade-off without requiring the acquisition penalty $\lambda_{\mathrm{aq}}$.
+**Motivation.** Utility Efficiency measures the fractional loss increase per unit of privacy budget spent. This captures how efficiently each unit of $\varepsilon$ is used: a small loss increase per $\varepsilon$ means the client obtains strong privacy at little cost to model quality. The denominator $\varepsilon$ intrinsically penalizes larger $\varepsilon$, encoding a privacy-utility trade-off without requiring the acquisition penalty $\lambda_{aq}$.
 
 **Metric.** The client computes the loss degradation due to DP noise and normalizes it by the clean loss and the privacy parameter:
 
@@ -414,7 +414,7 @@ $$
 m_{\text{eff}} = -\frac{\max(0, L_{\text{noisy}} - L_{\text{clean}})}{L_{\text{clean}} \cdot \varepsilon}.
 $$
 
-The numerator is zero when the noisy loss is not larger than the clean loss, making $m_{\mathrm{eff}}$ non-positive.
+The numerator is zero when the noisy loss is not larger than the clean loss, making $m_{eff}$ non-positive.
 
 **Optimization Objective.** BO minimizes
 
@@ -422,7 +422,7 @@ $$
 \min_\varepsilon \; m_{\text{eff}} .
 $$
 
-**Interpretation.** Because $m_{\mathrm{eff}}$ is negative (or zero), minimizing it drives toward more negative values, corresponding to lower fractional degradation per unit $\varepsilon$. The BO naturally favors combinations of small $\varepsilon$ (strong privacy) and low degradation. The privacy preference arises intrinsically from the $\varepsilon$ denominator, unlike NUN and Utility which rely on the explicit penalty $\lambda_{\mathrm{aq}}$.
+**Interpretation.** Because $m_{eff}$ is negative (or zero), minimizing it drives toward more negative values, corresponding to lower fractional degradation per unit $\varepsilon$. The BO naturally favors combinations of small $\varepsilon$ (strong privacy) and low degradation. The privacy preference arises intrinsically from the $\varepsilon$ denominator, unlike NUN and Utility which rely on the explicit penalty $\lambda_{aq}$.
 
 ### Variant E: Utility per Remaining Budget
 
@@ -434,7 +434,7 @@ $$
 m_{\text{rem}} = -\frac{\max(0, L_{\text{noisy}} - L_{\text{clean}})}{L_{\text{clean}} \cdot \varepsilon_{\text{remaining}}},
 $$
 
-where $\varepsilon_{\mathrm{remaining}}$ is the client's remaining privacy budget for future rounds.
+where $\varepsilon_{remaining}$ is the client's remaining privacy budget for future rounds.
 
 **Optimization Objective.** BO minimizes
 
@@ -462,7 +462,7 @@ $$
 \min_\varepsilon \; m_{\text{snr}} .
 $$
 
-**Interpretation.** Larger $\varepsilon$ (weaker privacy) produces less noise and therefore higher SNR. By minimizing SNR, the BO naturally favors smaller $\varepsilon$ (stronger privacy), providing an intrinsic privacy preference without relying on the acquisition penalty $\lambda_{\mathrm{aq}}$.
+**Interpretation.** Larger $\varepsilon$ (weaker privacy) produces less noise and therefore higher SNR. By minimizing SNR, the BO naturally favors smaller $\varepsilon$ (stronger privacy), providing an intrinsic privacy preference without relying on the acquisition penalty $\lambda_{aq}$.
 
 ### Variant G: Logit Agreement
 
@@ -474,7 +474,7 @@ $$
 m_{\text{agr}} = 1 - \frac{1}{N} \sum_{i=1}^N \cos\bigl(z_i^{\text{(clean)}}, z_i^{\text{(noisy)}}\bigr),
 $$
 
-where $z_i^{\mathrm{(clean)}}$ and $z_i^{\mathrm{(noisy)}}$ are the logit vectors for validation sample $i$ from the clean and noisy models respectively, and $\cos(\cdot, \cdot)$ is the cosine similarity. The range is $[0, 2]$, where 0 indicates identical logit directions and 2 indicates opposite directions.
+where $z_i^{(clean)}$ and $z_i^{(noisy)}$ are the logit vectors for validation sample $i$ from the clean and noisy models respectively, and $\cos(\cdot, \cdot)$ is the cosine similarity. The range is $[0, 2]$, where 0 indicates identical logit directions and 2 indicates opposite directions.
 
 **Optimization Objective.** BO minimizes
 
@@ -491,7 +491,7 @@ The server performs weighted aggregation to mitigate the impact of potentially h
 For every received noisy update $\tilde{\Delta}_i$:
 
 1. Compute its L2 norm: $r_i = \| \tilde{\Delta}_i \|_2$.
-2. Compute a robust baseline as the median of all received norms: $b = \mathrm{median}(\{r_i\})$.
+2. Compute a robust baseline as the median of all received norms: $b = median(\{r_i\})$.
 3. Assign an attenuation weight: $w_i = \min\left(1, \frac{b}{r_i}\right)$.
 
 The aggregated update is
@@ -514,10 +514,10 @@ The client does **not** send its chosen $\varepsilon_t$ to the server. Attenuati
 
 **Initialization (per client):**
 
-- Privacy bounds: $\varepsilon_{\min}$, $\varepsilon_{\max}$, target $\delta$, total budget $\varepsilon_{\mathrm{budget}}$.
+- Privacy bounds: $\varepsilon_{\min}$, $\varepsilon_{\max}$, target $\delta$, total budget $\varepsilon_{budget}$.
 - Clipping norm: $C$.
 - Warm-up length: $L$ (number of exploration rounds).
-- Acquisition penalty: $\lambda_{\mathrm{aq}}$.
+- Acquisition penalty: $\lambda_{aq}$.
 - Observation history: empty list.
 - RDP accountant: initialized.
 - Phase: Warm-up.
@@ -537,7 +537,7 @@ Training runs for a fixed number of $T$ communication rounds ($t = 1, 2, \dots, 
      - Fit the initial Gaussian Process (kernel, learn noise variance).
      - Set phase = BO.
 3. Else (phase = BO):
-   - Construct $\mathrm{EI}_{\mathrm{norm}}$ via grid evaluation (Section 6.3) and maximize $\alpha(\varepsilon)$ over $[\varepsilon_{\min}, \varepsilon_{\max}]$ $\rightarrow$ candidate $\varepsilon^*$.
+   - Construct $EI_{norm}$ via grid evaluation (Section 6.3) and maximize $\alpha(\varepsilon)$ over $[\varepsilon_{\min}, \varepsilon_{\max}]$ $\rightarrow$ candidate $\varepsilon^*$.
    - Verify budget (see Section 5): if $\varepsilon^*$ exceeds remaining budget, reduce it via binary search in $[\varepsilon_{\min}, \varepsilon^*]$ to the largest feasible $\varepsilon \le \varepsilon^*$.
    - Set $\varepsilon_t$ to the (possibly reduced) value.
    - Train locally $\rightarrow$ $\Delta_t$.
@@ -546,7 +546,7 @@ Training runs for a fixed number of $T$ communication rounds ($t = 1, 2, \dots, 
    - Compute the chosen optimization metric $m_t$.
    - Append $(\varepsilon_t, m_t)$ to the history.
    - Update the Gaussian Process with the extended history (refit or incremental update).
-4. Update the RDP accountant (Section 5) with the cost of the $\varepsilon_t$ used: $R_\alpha^{\mathrm{(total)}} \leftarrow R_\alpha^{\mathrm{(total)}} + \alpha C^2 / (2\sigma_t^2)$.
+4. Update the RDP accountant (Section 5) with the cost of the $\varepsilon_t$ used: $R_\alpha^{(total)} \leftarrow R_\alpha^{(total)} + \alpha C^2 / (2\sigma_t^2)$.
 5. If the remaining budget cannot support any positive $\varepsilon$, cease participation.
 
 The Bayesian Optimization phase continues for all subsequent rounds, providing an adaptive, personalized privacy schedule that reacts to the client's evolving data and optimization dynamics.
@@ -557,12 +557,12 @@ To isolate the effect of the optimization objective, the implementation should s
 
 | Variant | BO Objective | Purpose |
 |---|---|---|
-| PLDP-BO-NUN | $m_{\mathrm{nun}} = \lVert\tilde{\Delta}\rVert_2$ | Minimize the noisy update norm, balancing signal preservation against privacy noise. |
-| PLDP-BO-Utility | $m_{\mathrm{utility}} = \mathcal{L}_{\mathrm{validation}}(w_{\mathrm{DP}})$ | Maximize predictive performance for a given privacy budget. |
-| PLDP-BO-UtilityRetention | $m_{\mathrm{ret}} = L_{\mathrm{noisy}} / L_{\mathrm{clean}}$ | Minimize the noisy-to-clean loss ratio, preserving validation performance under DP. |
-| PLDP-BO-UtilityEfficiency | $m_{\mathrm{eff}}$ | Minimize fractional loss increase per unit $\varepsilon$, encoding an intrinsic privacy preference. |
-| PLDP-BO-UtilityPerRemaining | $m_{\mathrm{rem}}$ | Minimize fractional loss increase per unit remaining budget, adapting to budget scarcity. |
-| PLDP-BO-SNR | $m_{\mathrm{snr}} = \lVert\Delta_t\rVert_2^2 / \sigma_t^2$ | Minimize signal-to-noise ratio, driving toward a noise-dominated privacy regime. |
-| PLDP-BO-Agreement | $m_{\mathrm{agr}}$ | Minimize logit cosine dissimilarity, preserving prediction stability under DP. |
+| PLDP-BO-NUN | $m_{nun} = \lVert\tilde{\Delta}\rVert_2$ | Minimize the noisy update norm, balancing signal preservation against privacy noise. |
+| PLDP-BO-Utility | $m_{utility} = \mathcal{L}_{validation}(w_{DP})$ | Maximize predictive performance for a given privacy budget. |
+| PLDP-BO-UtilityRetention | $m_{ret} = L_{noisy} / L_{clean}$ | Minimize the noisy-to-clean loss ratio, preserving validation performance under DP. |
+| PLDP-BO-UtilityEfficiency | $m_{eff}$ | Minimize fractional loss increase per unit $\varepsilon$, encoding an intrinsic privacy preference. |
+| PLDP-BO-UtilityPerRemaining | $m_{rem}$ | Minimize fractional loss increase per unit remaining budget, adapting to budget scarcity. |
+| PLDP-BO-SNR | $m_{snr} = \lVert\Delta_t\rVert_2^2 / \sigma_t^2$ | Minimize signal-to-noise ratio, driving toward a noise-dominated privacy regime. |
+| PLDP-BO-Agreement | $m_{agr}$ | Minimize logit cosine dissimilarity, preserving prediction stability under DP. |
 
 This design enables a direct comparison of how different optimization objectives influence the learned privacy schedules, convergence behavior, and final model performance, while demonstrating that PLDP-BO itself is a general framework whose optimization criterion can be changed without altering its privacy mechanism, Bayesian optimization procedure, or federated learning workflow.
