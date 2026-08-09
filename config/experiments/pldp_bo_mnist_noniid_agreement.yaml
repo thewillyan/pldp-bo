@@ -10,7 +10,7 @@ model:
   num_classes: 10
 
 federated:
-  num_rounds: 50
+  num_rounds: 25
   fraction_fit: 0.5
   fraction_evaluate: 0.2
   local_epochs: 4
@@ -34,7 +34,9 @@ privacy:
   update_clip_norm: 5.0
   delta: 1e-5
   accountant: rdp
-  total_budget: 800.0
+  accountant_mode: rdp_native
+  rdp_alpha: 10.0
+  total_budget: 10.0
 
 personalization:
   enabled: true
@@ -45,7 +47,7 @@ personalization:
 bo:
   enabled: true
   optimization_metric: agreement
-  bounds_strategy: from_epsilon
+  bounds_strategy: from_rdp
   bounds_ratio_min: 1.25
   bounds_ratio_max: 2.5
   max_warmup_ratio: 0.2

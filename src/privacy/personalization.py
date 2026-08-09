@@ -182,4 +182,19 @@ def assign_epsilon_bounds(
         warmup = _resolve_warmup(partition_id, bo_config, num_clients, num_rounds, weight)
         return eps_min, eps_max, warmup
 
+    if strategy == "from_rdp":
+        if not personalization_config.enabled:
+            raise ValueError(
+                "bounds_strategy='from_rdp' requires personalization.enabled=True",
+            )
+        weight = compute_budget_weight(
+            partition_id, train_dataset, personalization_config, num_clients,
+            total_train_size=total_train_size,
+            total_num_classes=total_num_classes,
+        )
+        rdp_min = max(weight * bo_config.bounds_ratio_min, 1e-6)
+        rdp_max = weight * bo_config.bounds_ratio_max
+        warmup = _resolve_warmup(partition_id, bo_config, num_clients, num_rounds, weight)
+        return rdp_min, rdp_max, warmup
+
     raise ValueError(f"Unknown bounds_strategy: {strategy}")

@@ -34,7 +34,9 @@ privacy:
   update_clip_norm: 5.0
   delta: 1e-5
   accountant: rdp
-  total_budget: 800.0
+  accountant_mode: rdp_native
+  rdp_alpha: 10.0
+  total_budget: 10.0
 
 personalization:
   enabled: true

@@ -11,10 +11,10 @@ dependencies = [
     "numpy>=2.5.0",
     "pyyaml>=6.0.3",
     "scikit-learn",
+    "scipy>=1.18.0",
     "seaborn",
     "torch>=2.12.1",
     "torchvision>=0.27.1",
-    "tqdm>=4.68.3",
 ]
 
 [project.license]

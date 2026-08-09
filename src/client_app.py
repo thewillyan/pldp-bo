@@ -218,10 +218,18 @@ def train(msg: Message, context: Context) -> Message:
     if config.privacy.enabled:
         if config.bo.enabled:
             if rdp_native:
-                # In RDP-native mode, use rdp_min/rdp_max as the search range
-                bounds_min = config.bo.rdp_min
-                bounds_max = config.bo.rdp_max
-                warmup = config.bo.min_warmup
+                if config.bo.bounds_strategy == "from_rdp":
+                    bounds_min, bounds_max, warmup = assign_epsilon_bounds(
+                        partition_id, client_subset,
+                        config.personalization, config.bo, config.data.num_clients,
+                        total_train_size=total_train_size,
+                        num_rounds=config.federated.num_rounds,
+                        total_num_classes=config.model.num_classes,
+                    )
+                else:
+                    bounds_min = config.bo.rdp_min
+                    bounds_max = config.bo.rdp_max
+                    warmup = config.bo.min_warmup
             else:
                 bounds_min, bounds_max, warmup = assign_epsilon_bounds(
                     partition_id, client_subset,

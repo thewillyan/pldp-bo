@@ -388,6 +388,72 @@ class TestAssignEpsilonBounds:
         assert eps_min == pytest.approx(1e-6)
         assert eps_max == pytest.approx(0.0)
 
+    def test_from_rdp_data_proportional(self) -> None:
+        pc = _make_personalization_config(strategy="data_proportional")
+        bc = _make_bo_config(
+            bounds_strategy="from_rdp",
+            bounds_ratio_min=0.2,
+            bounds_ratio_max=2.0,
+        )
+        small = _make_dataset([0] * 10)
+        rdp_min, rdp_max, _ = assign_epsilon_bounds(
+            0, small, pc, bc, num_clients=10, total_train_size=100,
+        )
+        # weight = 10 / (100/10) = 1.0
+        # rdp_min = max(1.0 * 0.2, 1e-6) = 0.2
+        # rdp_max = 1.0 * 2.0 = 2.0
+        assert rdp_min == pytest.approx(0.2)
+        assert rdp_max == pytest.approx(2.0)
+
+    def test_from_rdp_custom_strategy(self) -> None:
+        pc = _make_personalization_config(
+            strategy="custom",
+            client_epsilon_map={0: 10.0},
+        )
+        bc = _make_bo_config(
+            bounds_strategy="from_rdp",
+            bounds_ratio_min=0.1,
+            bounds_ratio_max=1.0,
+        )
+        dataset = _make_dataset([0, 1, 2])
+        rdp_min, rdp_max, warmup = assign_epsilon_bounds(0, dataset, pc, bc)
+        assert rdp_min == pytest.approx(1.0)
+        assert rdp_max == pytest.approx(10.0)
+        assert warmup == 20
+
+    def test_from_rdp_no_personalization_raises(self) -> None:
+        pc = _make_personalization_config(enabled=False)
+        bc = _make_bo_config(bounds_strategy="from_rdp")
+        dataset = _make_dataset([0, 1, 2])
+        with pytest.raises(ValueError, match="personalization.enabled=True"):
+            assign_epsilon_bounds(0, dataset, pc, bc)
+
+    def test_from_rdp_per_client_bounds(self) -> None:
+        pc = _make_personalization_config(strategy="data_proportional")
+        bc = _make_bo_config(
+            bounds_strategy="from_rdp",
+            bounds_ratio_min=0.5,
+            bounds_ratio_max=1.5,
+        )
+        small = _make_dataset([0] * 10)
+        large = _make_dataset([0] * 30)
+        # 2 clients: small has 10, large has 30, total=40
+        rdp_min_s, rdp_max_s, _ = assign_epsilon_bounds(
+            0, small, pc, bc, num_clients=2, total_train_size=40,
+        )
+        rdp_min_l, rdp_max_l, _ = assign_epsilon_bounds(
+            1, large, pc, bc, num_clients=2, total_train_size=40,
+        )
+        # small weight = 10 / (40/2) = 0.5
+        # large weight = 30 / (40/2) = 1.5
+        assert rdp_min_s == pytest.approx(0.25)  # 0.5 * 0.5
+        assert rdp_max_s == pytest.approx(0.75)  # 0.5 * 1.5
+        assert rdp_min_l == pytest.approx(0.75)  # 1.5 * 0.5
+        assert rdp_max_l == pytest.approx(2.25)  # 1.5 * 1.5
+        # Larger client gets wider bounds
+        assert rdp_min_l > rdp_min_s
+        assert rdp_max_l > rdp_max_s
+
     def test_unknown_strategy_raises(self) -> None:
         pc = _make_personalization_config(enabled=False)
         bc = _make_bo_config(bounds_strategy="unknown")
