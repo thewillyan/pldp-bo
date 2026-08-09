@@ -60,23 +60,19 @@ def _clip_per_example(
     # Compute per-example L2 norms across all parameter tensors.
     # grads values have shape (batch, *param_shape).
     flat = torch.cat([g.reshape(g.shape[0], -1) for g in grads.values()], dim=1)
-    norms = torch.norm(flat, dim=1)  # (batch,)
+    norms = torch.linalg.vector_norm(flat, dim=1)  # (batch,)
     clip_mask = norms > clip_norm
     clip_fraction = float(clip_mask.float().mean())
 
-    # Avoid division by zero for examples with zero norm.
-    # clamp min to 1 so unclipped examples stay unchanged.
-    scale = torch.clamp(clip_norm / torch.clamp(norms, min=1.0), max=1.0)
+    # Avoid division by zero for zero-norm examples.
+    scale = torch.clamp(clip_norm / norms.clamp(min=1e-6), max=1.0)
     scale = torch.where(clip_mask, scale, torch.ones_like(scale))
 
     clipped = {k: v * scale.view(-1, *([1] * (v.ndim - 1))) for k, v in grads.items()}
     return clipped, clip_fraction
 
 
-def _average_grads(
-    grads: dict[str, torch.Tensor],
-    batch_size: int,  # noqa: ARG001
-) -> dict[str, torch.Tensor]:
+def _average_grads(grads: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
     """Average clipped gradients over the batch (reduces batch dim)."""
     return {k: v.mean(dim=0) for k, v in grads.items()}
 
@@ -263,21 +259,20 @@ class PerExampleDPClient(FlowerClient):
                     [g.reshape(g.shape[0], -1) for g in per_example_grads.values()],
                     dim=1,
                 )
-                norms_before = torch.norm(flat_before, dim=1)
+                norms_before = torch.linalg.vector_norm(flat_before, dim=1)
                 grad_norms_before.append(norms_before.detach().mean().item())
 
                 clipped, clip_frac = _clip_per_example(per_example_grads, clip_norm)
                 clip_fractions.append(clip_frac)
 
-                # Stats after clipping
+                # Stats after clipping: ||mean(clipped_grads)|| for SNR
+                avg_clipped = _average_grads(clipped)
                 flat_after = torch.cat(
-                    [g.reshape(g.shape[0], -1) for g in clipped.values()],
-                    dim=1,
+                    [v.reshape(1, -1) for v in avg_clipped.values()], dim=1,
                 )
-                norms_after = torch.norm(flat_after, dim=1)
-                grad_norms_after.append(norms_after.detach().mean().item())
+                grad_norms_after.append(flat_after.detach().square().sum().item())
 
-                avg_grad = _average_grads(clipped, images.shape[0])
+                avg_grad = _average_grads(clipped)
                 noisy_grad = _add_noise(avg_grad, sigma, clip_norm, rng)
 
                 optimizer.zero_grad()
@@ -325,10 +320,10 @@ class PerExampleDPClient(FlowerClient):
         )
         agreement = 1.0 - cos_sim.mean().item()
 
-        # Compute SNR from mean gradient norms
+        # Compute SNR: ||mean(clipped_grads)||² / (σ * C)²
         mean_before = float(np.mean(grad_norms_before)) if grad_norms_before else 0.0
         mean_after = float(np.mean(grad_norms_after)) if grad_norms_after else 0.0
-        snr = (mean_after ** 2) / max((sigma * clip_norm) ** 2, 1e-12)
+        snr = mean_after / max((sigma * clip_norm) ** 2, 1e-12)
 
         clipped_fraction = float(np.mean(clip_fractions)) if clip_fractions else 0.0
 

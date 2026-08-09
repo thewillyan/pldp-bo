@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from src.client import create_client
 from src.client.base_client import FlowerClient, _get_optimizer
+from src.client.per_example_dp_client import _clip_per_example
 from src.config.loader import ExperimentConfig
 from src.models.base import BaseModel
 
@@ -170,3 +171,44 @@ class TestPerExampleDPClient:
         weights, num_examples, metrics = client.fit(params, {})
         assert num_examples == 0
         assert metrics["budget_exhausted"] is True
+
+
+class TestClipPerExample:
+    def test_no_op_when_all_norms_below_threshold(self) -> None:
+        grads = {"w": torch.tensor([[0.1, 0.2], [0.3, 0.0]])}
+        clipped, clip_frac = _clip_per_example(grads, clip_norm=5.0)
+        assert torch.allclose(clipped["w"], grads["w"])
+        assert clip_frac == 0.0
+
+    def test_clips_to_exact_norm(self) -> None:
+        grads = {"w": torch.tensor([[3.0, 4.0], [0.0, 0.0]])}
+        clipped, clip_frac = _clip_per_example(grads, clip_norm=1.0)
+        norms = torch.linalg.vector_norm(clipped["w"], dim=1)
+        # First example: norm was 5.0, clipped to 1.0
+        assert abs(norms[0].item() - 1.0) < 1e-5
+        # Second example: zero norm, unchanged
+        assert torch.allclose(clipped["w"][1], grads["w"][1])
+        assert abs(clip_frac - 0.5) < 1e-5
+
+    def test_zero_norm_unchanged(self) -> None:
+        grads = {"w": torch.tensor([[0.0, 0.0], [0.0, 0.0]])}
+        clipped, clip_frac = _clip_per_example(grads, clip_norm=1.0)
+        assert torch.allclose(clipped["w"], grads["w"])
+        assert clip_frac == 0.0
+
+    def test_clip_fraction_matches_count(self) -> None:
+        grads = {"w": torch.tensor([[1.0, 0.0], [0.0, 0.1], [5.0, 0.0]])}
+        clipped, clip_frac = _clip_per_example(grads, clip_norm=1.0)
+        # norms: [1.0, 0.1, 5.0] → only last exceeds 1.0
+        assert abs(clip_frac - 1.0 / 3.0) < 1e-5
+
+    def test_small_clip_norm_correct_scale(self) -> None:
+        grads = {"w": torch.tensor([[0.1, 0.0], [0.5, 0.0], [0.7, 0.0]])}
+        clipped, _ = _clip_per_example(grads, clip_norm=0.3)
+        norms = torch.linalg.vector_norm(clipped["w"], dim=1)
+        # norm 0.1 → below threshold, unchanged, norm stays 0.1
+        assert abs(norms[0].item() - 0.1) < 1e-5
+        # norm 0.5 → clipped to 0.3
+        assert abs(norms[1].item() - 0.3) < 1e-5
+        # norm 0.7 → clipped to 0.3
+        assert abs(norms[2].item() - 0.3) < 1e-5
