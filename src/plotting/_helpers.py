@@ -48,6 +48,11 @@ def _is_mlflow_auto_name(name: str) -> bool:
     return bool(_AUTO_NAME_RE.match(name))
 
 
+def _is_rdp_native(run: Run) -> bool:
+    """Detect if a run uses RDP-native mode by checking for rdp_cost metrics."""
+    return any(key.endswith("_rdp_cost") for key in run.data.metrics)
+
+
 def _get_metric_history(run_id: str, metric_name: str) -> list[tuple[int, float]]:
     client = get_client()
     try:

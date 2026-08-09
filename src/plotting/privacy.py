@@ -6,6 +6,7 @@ import numpy as np
 
 from src.plotting._helpers import (
     _get_metric_history,
+    _is_rdp_native,
     extract_round_stats,
     get_run_by_id,
 )
@@ -66,12 +67,19 @@ def plot_client_epsilon_distribution(
     if fmt == "legacy":
         return _plot_client_epsilon_legacy(run, run_id, save_path, dpi)
 
-    remaining = _get_client_latest(run, "_remaining_budget")
-    used_data = _get_client_latest(run, "_cumulative_epsilon")
+    rdp = _is_rdp_native(run)
+    remaining_suffix = "_remaining_rdp_budget" if rdp else "_remaining_budget"
+    cumulative_suffix = "_cumulative_rdp" if rdp else "_cumulative_epsilon"
+    trace_metric = "rdp_cost" if rdp else "epsilon"
+    stat_metric = "rdp_cost" if rdp else "epsilon"
+    x_label = "RDP(α)" if rdp else "Epsilon (ε)"
+
+    remaining = _get_client_latest(run, remaining_suffix)
+    used_data = _get_client_latest(run, cumulative_suffix)
 
     client_trace: dict[int, list[tuple[int, float]]] = {}
     for cid in _discover_client_ids(run):
-        trace = _get_client_trace(run_id, cid, "epsilon")
+        trace = _get_client_trace(run_id, cid, trace_metric)
         if trace:
             client_trace[cid] = trace
 
@@ -94,7 +102,7 @@ def plot_client_epsilon_distribution(
         ax1.bar(x + width / 2, used_vals, width,
                 label="Cumulative Used", color="#1A5276", edgecolor="black", linewidth=0.5)
         ax1.set_xlabel("Client ID")
-        ax1.set_ylabel("Epsilon (ε)")
+        ax1.set_ylabel(x_label)
         ax1.set_title("Privacy Budget: Initial Allocation vs Cumulative Spend")
         ax1.set_xticks(x)
         ax1.set_xticklabels(all_ids)
@@ -125,7 +133,7 @@ def plot_client_epsilon_distribution(
             ax2.plot(last_r, last_eps, marker="x", markersize=8,
                      color=marker_color, mew=2)
 
-        sorted_rounds, stats = extract_round_stats(run, "epsilon", aggs=("mean", "std"))
+        sorted_rounds, stats = extract_round_stats(run, stat_metric, aggs=("mean", "std"))
         if sorted_rounds:
             mean_vals = stats.get("mean", [])
             std_vals = stats.get("std", [])
@@ -138,8 +146,8 @@ def plot_client_epsilon_distribution(
                                  color="black", zorder=len(all_ids) + 4)
 
         ax2.set_xlabel("Round")
-        ax2.set_ylabel("Epsilon (ε)")
-        ax2.set_title("Epsilon Expended per Round")
+        ax2.set_ylabel(x_label)
+        ax2.set_title("Privacy Cost Expended per Round")
         ax2.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize="small")
         ax2.grid(alpha=0.3)
 
@@ -161,7 +169,7 @@ def plot_client_epsilon_distribution(
         vals = [remaining[cid] for cid in ids_sorted]
         ax.bar(ids_sorted, vals, color="#4A90D9", edgecolor="black", linewidth=0.5)
         ax.set_xlabel("Client ID")
-        ax.set_ylabel("Remaining Epsilon (ε)")
+        ax.set_ylabel(f"Remaining {x_label}")
         ax.set_title("Privacy Budget Remaining Per Client")
         ax.set_xticks(ids_sorted)
         ax.grid(True, alpha=0.3, axis="y")
@@ -176,7 +184,7 @@ def plot_client_epsilon_distribution(
         vals = [used_data[cid] for cid in ids_sorted]
         ax.bar(ids_sorted, vals, color="#1A5276", edgecolor="black", linewidth=0.5)
         ax.set_xlabel("Client ID")
-        ax.set_ylabel("Cumulative Epsilon (ε)")
+        ax.set_ylabel(f"Cumulative {x_label}")
         ax.set_title("Privacy Budget Used Per Client")
         ax.set_xticks(ids_sorted)
         ax.grid(True, alpha=0.3, axis="y")
@@ -185,7 +193,7 @@ def plot_client_epsilon_distribution(
             fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
         return fig
 
-    raise ValueError(f"No per-client epsilon metrics found in run {run_id}")
+    raise ValueError(f"No per-client privacy metrics found in run {run_id}")
 
 
 def _plot_client_epsilon_legacy(
@@ -382,15 +390,19 @@ def plot_cumulative_privacy_budget(
     if fmt == "legacy":
         return _plot_cumulative_legacy(run, run_id, save_path, dpi)
 
+    rdp = _is_rdp_native(run)
+    cumulative_metric = "cumulative_rdp" if rdp else "cumulative_epsilon"
+    y_label = "Cumulative RDP(α)" if rdp else "Cumulative Epsilon (ε)"
+
     client_cumulative: dict[int, list[tuple[int, float]]] = {}
 
     for cid in _discover_client_ids(run):
-        history = _get_metric_history(run_id, f"client_{cid}_cumulative_epsilon")
+        history = _get_metric_history(run_id, f"client_{cid}_{cumulative_metric}")
         if history:
             client_cumulative[cid] = sorted(set(history), key=lambda x: x[0])
 
     if not client_cumulative:
-        raise ValueError(f"No cumulative epsilon metrics found in run {run_id}")
+        raise ValueError(f"No cumulative privacy metrics found in run {run_id}")
 
     fig, ax = plt.subplots(figsize=(10, 6))
 
@@ -408,7 +420,7 @@ def plot_cumulative_privacy_budget(
         )
 
     ax.set_xlabel("Round")
-    ax.set_ylabel("Cumulative Epsilon (ε)")
+    ax.set_ylabel(y_label)
     ax.set_title("Cumulative Privacy Budget Per Client")
     ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize="small")
     ax.grid(alpha=0.3)

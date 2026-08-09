@@ -385,7 +385,7 @@ class TestPlotClientEpsilonDistribution:
         with patch("src.plotting.privacy.get_run_by_id", return_value=run):
             from src.plotting.privacy import plot_client_epsilon_distribution
 
-            with pytest.raises(ValueError, match="No per-client epsilon metrics found"):
+            with pytest.raises(ValueError, match="No per-client privacy metrics found"):
                 plot_client_epsilon_distribution("test_id")
 
     def test_save_path(self, tmp_path: Path) -> None:
@@ -433,7 +433,7 @@ class TestPlotCumulativePrivacyBudget:
         with patch("src.plotting.privacy.get_run_by_id", return_value=run):
             from src.plotting.privacy import plot_cumulative_privacy_budget
 
-            with pytest.raises(ValueError, match="No cumulative epsilon metrics found"):
+            with pytest.raises(ValueError, match="No cumulative privacy metrics found"):
                 plot_cumulative_privacy_budget("test_id")
 
     def test_save_path(self, tmp_path: Path) -> None:
@@ -584,7 +584,7 @@ class TestPlotComparisonPrivacy:
         ax = fig.axes[0]
         assert ax.get_xlabel() == "Round"
         assert ax.get_ylabel() == "Per-Round Epsilon (ε)"
-        assert ax.get_title() == "Per-Round Epsilon"
+        assert ax.get_title() == "Per-Round Privacy Cost"
         legends = ax.get_legend()
         assert legends is not None
         assert len(legends.get_texts()) == 2
@@ -621,9 +621,9 @@ class TestPlotComparisonPrivacy:
         assert len(fig.axes) == 2
         ax_per, ax_cum = fig.axes
         assert ax_per.get_ylabel() == "Per-Round Epsilon (ε)"
-        assert ax_per.get_title() == "Per-Round Epsilon"
+        assert ax_per.get_title() == "Per-Round Privacy Cost"
         assert ax_cum.get_ylabel() == "Cumulative Epsilon (ε)"
-        assert ax_cum.get_title() == "Cumulative Epsilon"
+        assert ax_cum.get_title() == "Cumulative Privacy Cost"
         assert len(ax_per.collections) == 2
         plt.close(fig)
 
@@ -653,7 +653,7 @@ class TestPlotComparisonPrivacy:
         with patch("src.plotting.comparison.get_run_by_id", return_value=empty):
             from src.plotting.comparison import plot_comparison_privacy
 
-            with pytest.raises(ValueError, match="No epsilon or cumulative_epsilon metrics found"):
+            with pytest.raises(ValueError, match="No privacy metrics"):
                 plot_comparison_privacy(["run1"], labels=["A"])
 
     def test_save_path(self, tmp_path: Path) -> None:

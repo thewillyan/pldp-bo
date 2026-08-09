@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from src.plotting._helpers import (
+    _is_rdp_native,
     extract_per_client_metric,
     get_run_by_id,
 )
@@ -21,7 +22,11 @@ def plot_metric_vs_epsilon(
 ) -> plt.Figure:
     run = get_run_by_id(run_id)
 
-    rounds, epsilons = extract_per_client_metric(run, client_id, "epsilon")
+    rdp = _is_rdp_native(run)
+    privacy_metric = "rdp_cost" if rdp else "epsilon"
+    x_label = "RDP(α)" if rdp else "Epsilon (ε)"
+
+    rounds, epsilons = extract_per_client_metric(run, client_id, privacy_metric)
     _, metric_vals = extract_per_client_metric(run, client_id, metric)
 
     if not rounds:
@@ -35,7 +40,7 @@ def plot_metric_vs_epsilon(
     if len(epsilons) != len(metric_vals):
         msg = (
             f"Length mismatch for client {client_id}: "
-            f"{len(epsilons)} epsilon values vs {len(metric_vals)} {metric} values"
+            f"{len(epsilons)} privacy values vs {len(metric_vals)} {metric} values"
         )
         raise ValueError(msg)
 
@@ -70,9 +75,9 @@ def plot_metric_vs_epsilon(
         sc = ax.scatter(eps_arr, met_arr, c=rds_arr, cmap="viridis", marker="o", s=50, alpha=0.7)
         fig.colorbar(sc, ax=ax, label="Round")
 
-    ax.set_xlabel("Epsilon (ε)")
+    ax.set_xlabel(x_label)
     ax.set_ylabel(metric.replace("_", " ").title())
-    ax.set_title(f"Client {client_id}: {metric.replace('_', ' ').title()} vs ε")
+    ax.set_title(f"Client {client_id}: {metric.replace('_', ' ').title()} vs {x_label}")
     ax.grid(alpha=0.3)
     fig.tight_layout()
 

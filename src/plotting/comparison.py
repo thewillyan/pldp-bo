@@ -9,6 +9,7 @@ import numpy
 import seaborn as sns
 
 from src.plotting._helpers import (
+    _is_rdp_native,
     extract_metrics_by_round,
     extract_round_stats,
     get_run_by_id,
@@ -246,17 +247,22 @@ def plot_comparison_privacy(
 
     has_per_round = False
     has_cumulative = False
+    run_rdp_flags: dict[str, bool] = {}
     for run_id in run_ids:
         run = get_run_by_id(run_id)
-        _, eps_stats = extract_round_stats(run, "epsilon", aggs=("mean",))
+        rdp = _is_rdp_native(run)
+        run_rdp_flags[run_id] = rdp
+        per_round_metric = "rdp_cost" if rdp else "epsilon"
+        cumulative_metric = "cumulative_rdp" if rdp else "cumulative_epsilon"
+        _, eps_stats = extract_round_stats(run, per_round_metric, aggs=("mean",))
         if eps_stats.get("mean"):
             has_per_round = True
-        _, cum_stats = extract_round_stats(run, "cumulative_epsilon", aggs=("mean",))
+        _, cum_stats = extract_round_stats(run, cumulative_metric, aggs=("mean",))
         if cum_stats.get("mean"):
             has_cumulative = True
 
     if not has_per_round and not has_cumulative:
-        msg = "No epsilon or cumulative_epsilon metrics found in any of the specified runs."
+        msg = "No privacy metrics (epsilon or rdp_cost) found in any of the specified runs."
         raise ValueError(msg)
 
     n_subplots = int(has_per_round) + int(has_cumulative)
@@ -272,8 +278,10 @@ def plot_comparison_privacy(
             color = palette[i]
             ls = LINE_STYLES[i % len(LINE_STYLES)]
 
+            rdp = run_rdp_flags[run_id]
+            per_round_metric = "rdp_cost" if rdp else "epsilon"
             aggs = ("mean", "std") if show_std else ("mean",)
-            rounds_per, eps_stats = extract_round_stats(run, "epsilon", aggs=aggs)
+            rounds_per, eps_stats = extract_round_stats(run, per_round_metric, aggs=aggs)
             epsilons = eps_stats.get("mean", [])
             if epsilons:
                 ax.plot(
@@ -287,9 +295,11 @@ def plot_comparison_privacy(
                         lower = [m - s for m, s in zip(epsilons, stds, strict=True)]
                         ax.fill_between(rounds_per, lower, upper, alpha=0.1, color=color)
 
+        any_rdp = any(run_rdp_flags.get(rid, False) for rid in run_ids)
+        x_label = "Per-Round RDP(α)" if any_rdp else "Per-Round Epsilon (ε)"
         ax.set_xlabel("Round")
-        ax.set_ylabel("Per-Round Epsilon (ε)")
-        ax.set_title("Per-Round Epsilon")
+        ax.set_ylabel(x_label)
+        ax.set_title("Per-Round Privacy Cost")
         ax.legend(frameon=True, framealpha=0.9, edgecolor="gray")
         ax_idx += 1
 
@@ -302,8 +312,10 @@ def plot_comparison_privacy(
             color = palette[i]
             ls = LINE_STYLES[i % len(LINE_STYLES)]
 
+            rdp = run_rdp_flags[run_id]
+            cumulative_metric = "cumulative_rdp" if rdp else "cumulative_epsilon"
             rounds_cum, cum_stats = extract_round_stats(
-                run, "cumulative_epsilon", aggs=("mean",),
+                run, cumulative_metric, aggs=("mean",),
             )
             cum_epsilons = cum_stats.get("mean", [])
             if cum_epsilons:
@@ -312,9 +324,11 @@ def plot_comparison_privacy(
                     linewidth=2, label=label,
                 )
 
+        any_rdp = any(run_rdp_flags.get(rid, False) for rid in run_ids)
+        y_label = "Cumulative RDP(α)" if any_rdp else "Cumulative Epsilon (ε)"
         ax.set_xlabel("Round")
-        ax.set_ylabel("Cumulative Epsilon (ε)")
-        ax.set_title("Cumulative Epsilon")
+        ax.set_ylabel(y_label)
+        ax.set_title("Cumulative Privacy Cost")
         ax.legend(frameon=True, framealpha=0.9, edgecolor="gray")
 
     fig.suptitle("Privacy Budget Comparison")
