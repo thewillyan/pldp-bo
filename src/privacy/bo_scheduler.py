@@ -8,7 +8,7 @@ from scipy.stats import norm
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, Kernel, Matern, WhiteKernel
 
-from src.privacy.epsilon_scheduler import EpsilonScheduler
+from src.privacy.epsilon_scheduler import EpsilonScheduler, RDPNativeScheduler
 from src.utils import deserialize_rng, serialize_rng  # noqa: I001
 
 logger = logging.getLogger(__name__)
@@ -286,5 +286,213 @@ class PLDPBOScheduler(EpsilonScheduler):
     def __repr__(self) -> str:
         return (
             f"PLDPBOScheduler(phase={self._phase}, round={self._round}, "
+            f"obs={len(self._observations)})"
+        )
+
+
+class PLDPBORDPScheduler(RDPNativeScheduler):
+    """Bayesian Optimization scheduler operating directly in RDP space.
+
+    Identical structure to PLDPBOScheduler but the search space is RDP(alpha)
+    instead of epsilon. No RDP-to-epsilon conversion is performed.
+    """
+
+    def __init__(
+        self,
+        rdp_min: float,
+        rdp_max: float,
+        warmup_rounds: int = 20,
+        acquisition_penalty: float = 0.1,
+        grid_points: int = 100,
+        gp_kernel: str = "matern52",
+        observation_noise: float = 0.01,
+        budget_margin: float = 0.1,
+        ema_alpha: float = 1.0,
+        seed: int | None = None,
+    ) -> None:
+        if rdp_min <= 0:
+            raise ValueError("rdp_min must be positive")
+        if rdp_max <= rdp_min:
+            raise ValueError("rdp_max must be greater than rdp_min")
+        if warmup_rounds < 2:
+            raise ValueError("warmup_rounds must be at least 2")
+        if acquisition_penalty < 0:
+            raise ValueError("acquisition_penalty must be non-negative")
+        if grid_points < 10:
+            raise ValueError("grid_points must be at least 10")
+        if not 0.0 <= budget_margin <= 1.0:
+            raise ValueError("budget_margin must be in [0, 1]")
+        if not 0.0 <= ema_alpha <= 1.0:
+            raise ValueError(f"ema_alpha must be in [0, 1]; got {ema_alpha}")
+
+        self._rdp_min = rdp_min
+        self._rdp_max = rdp_max
+        self._warmup_rounds = warmup_rounds
+        self._acquisition_penalty = acquisition_penalty
+        self._grid_points = grid_points
+        self._gp_kernel_name = gp_kernel
+        self._observation_noise = observation_noise
+        self._budget_margin = budget_margin
+        self._seed = seed
+        self._rng = np.random.RandomState(seed)
+        self._ema_alpha = ema_alpha
+
+        self._warmup_rdp = np.linspace(rdp_min, rdp_max, warmup_rounds)
+        self._phase: str = "warmup"
+        self._round: int = 0
+        self._observations: list[tuple[float, float]] = []
+        self._gp: GaussianProcessRegressor | None = None
+        self._f_best: float = float("inf")
+        self._remaining_budget: float | None = None
+        self._restored_kernel: Kernel | None = None
+        self._prev_smoothed: float | None = None
+        self._ema_t: int = 0
+
+    def set_remaining_budget(self, remaining: float | None) -> None:
+        self._remaining_budget = remaining
+
+    def get_rdp(self) -> float:
+        if self._phase == "warmup":
+            if self._round >= self._warmup_rounds:
+                return self._select_bo_rdp()
+            return float(self._warmup_rdp[self._round])
+        return self._select_bo_rdp()
+
+    def step(self, rdp: float, metric: float) -> None:
+        if self._prev_smoothed is None:
+            smoothed = metric
+            self._ema_t = 1
+        elif self._ema_alpha >= 1.0:
+            smoothed = metric
+            self._ema_t += 1
+        else:
+            self._ema_t += 1
+            raw = self._ema_alpha * metric + (1 - self._ema_alpha) * self._prev_smoothed
+            bias_correction = 1 - self._ema_alpha ** self._ema_t
+            smoothed = raw / max(bias_correction, 1e-12)
+        self._prev_smoothed = smoothed
+
+        self._observations.append((rdp, smoothed))
+        self._f_best = min(self._f_best, smoothed)
+
+        if self._phase == "warmup" and len(self._observations) >= self._warmup_rounds:
+            self._fit_gp()
+            self._phase = "bo"
+        elif self._phase == "bo":
+            self._fit_gp()
+
+        self._round += 1
+
+    def _fit_gp(self, *, optimize: bool = True) -> None:
+        x = np.array([[r] for r, _ in self._observations])
+        y = np.array([m for _, m in self._observations])
+        kernel = _build_kernel(self._gp_kernel_name, self._observation_noise)
+        if self._restored_kernel is not None:
+            kernel = self._restored_kernel
+            self._restored_kernel = None
+        elif self._gp is not None:
+            kernel = self._gp.kernel_
+        n_restarts = 3 if optimize else 0
+        self._gp = GaussianProcessRegressor(
+            kernel=kernel,
+            n_restarts_optimizer=n_restarts,
+            random_state=self._rng.randint(0, 2**31),
+            normalize_y=True,
+        )
+        self._gp.fit(x, y)
+
+    def _select_bo_rdp(self) -> float:
+        if self._gp is None:
+            return float(self._rng.uniform(self._rdp_min, self._rdp_max))
+
+        grid = np.linspace(self._rdp_min, self._rdp_max, self._grid_points)
+        mean, std = self._gp.predict(grid.reshape(-1, 1), return_std=True)
+
+        ei = expected_improvement(mean, std, self._f_best)
+        ei_norm = normalize_ei(ei)
+
+        penalty = (grid - self._rdp_min) / (self._rdp_max - self._rdp_min)
+        alpha = ei_norm - self._acquisition_penalty * penalty
+
+        if self._remaining_budget is not None:
+            alpha[grid > self._remaining_budget * (1 - self._budget_margin)] = -np.inf
+
+        return float(grid[np.argmax(alpha)])
+
+    def get_state(self) -> dict:
+        state = {
+            "type": "pldp_bo_rdp",
+            "rdp_min": self._rdp_min,
+            "rdp_max": self._rdp_max,
+            "warmup_rounds": self._warmup_rounds,
+            "acquisition_penalty": self._acquisition_penalty,
+            "grid_points": self._grid_points,
+            "gp_kernel": self._gp_kernel_name,
+            "observation_noise": self._observation_noise,
+            "budget_margin": self._budget_margin,
+            "ema_alpha": self._ema_alpha,
+            "phase": self._phase,
+            "round": self._round,
+            "observations": json.dumps(self._observations),
+            "f_best": self._f_best,
+            "rng_state": serialize_rng(self._rng),
+            "ema_t": self._ema_t,
+        }
+        if self._prev_smoothed is not None:
+            state["prev_smoothed"] = self._prev_smoothed
+        if self._remaining_budget is not None:
+            state["remaining_budget"] = self._remaining_budget
+        if self._restored_kernel is not None:
+            state["gp_kernel_params"] = json.dumps(_serialize_kernel_params(self._restored_kernel.get_params(deep=True)))
+        elif self._gp is not None:
+            state["gp_kernel_params"] = json.dumps(_serialize_kernel_params(self._gp.kernel_.get_params(deep=True)))
+        if self._seed is not None:
+            state["seed"] = self._seed
+        return state
+
+    @classmethod
+    def from_state(cls, state: dict) -> PLDPBORDPScheduler:
+        scheduler = cls(
+            rdp_min=state["rdp_min"],
+            rdp_max=state["rdp_max"],
+            warmup_rounds=state["warmup_rounds"],
+            acquisition_penalty=state["acquisition_penalty"],
+            grid_points=state["grid_points"],
+            gp_kernel=state["gp_kernel"],
+            observation_noise=state["observation_noise"],
+            budget_margin=state.get("budget_margin", 0.1),
+            ema_alpha=state.get("ema_alpha", 1.0),
+            seed=state.get("seed"),
+        )
+        scheduler._phase = state["phase"]
+        scheduler._round = state["round"]
+        scheduler._observations = [tuple(obs) for obs in json.loads(state["observations"])]
+        scheduler._f_best = state["f_best"]
+        scheduler._ema_t = state.get("ema_t", 0)
+        if "prev_smoothed" in state:
+            scheduler._prev_smoothed = state["prev_smoothed"]
+        if "rng_state" in state:
+            scheduler._rng.set_state(deserialize_rng(state["rng_state"]))
+        if "remaining_budget" in state:
+            scheduler._remaining_budget = state["remaining_budget"]
+        if state.get("gp_kernel_params") is not None:
+            k = _build_kernel(state["gp_kernel"], state["observation_noise"])
+            raw = state["gp_kernel_params"]
+            params = json.loads(raw) if isinstance(raw, str) else raw
+            try:
+                k.set_params(**params)
+            except (ValueError, TypeError) as exc:
+                logger.warning(
+                    "Failed to restore kernel params for %s: %s; using fresh kernel",
+                    state.get("gp_kernel", "?"), exc,
+                )
+            scheduler._restored_kernel = k
+        if scheduler._phase == "bo":
+            scheduler._fit_gp(optimize=False)
+        return scheduler
+
+    def __repr__(self) -> str:
+        return (
+            f"PLDPBORDPScheduler(phase={self._phase}, round={self._round}, "
             f"obs={len(self._observations)})"
         )

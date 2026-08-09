@@ -105,6 +105,9 @@ class MetricLoggingMixin:
     ) -> None:
         epsilons: list[float] = []
         client_epsilons: list[float] = []
+        rdp_costs: list[float] = []
+        client_rdps: list[float] = []
+        cumulative_rdps: list[float] = []
         update_norms: list[float] = []
         utility_losses: list[float] = []
         utility_efficiencies: list[float] = []
@@ -186,6 +189,22 @@ class MetricLoggingMixin:
                 client_epsilons.append(float(client_eps))
                 self._log_metric(f"client_{cid}_client_epsilon", float(client_eps), step=server_round)
 
+            rdp_cost = m.get("rdp_cost")
+            if rdp_cost is not None:
+                rdp_costs.append(float(rdp_cost))
+                self._log_metric(f"client_{cid}_rdp_cost", float(rdp_cost), step=server_round)
+
+            client_rdp = m.get("client_rdp")
+            if client_rdp is not None:
+                client_rdps.append(float(client_rdp))
+                self._log_metric(f"client_{cid}_client_rdp", float(client_rdp), step=server_round)
+
+            cum_rdp_val = m.get("cumulative_rdp")
+            cum_rdp = float(cum_rdp_val) if cum_rdp_val is not None else None
+            if cum_rdp is not None:
+                cumulative_rdps.append(cum_rdp)
+                self._log_metric(f"client_{cid}_cumulative_rdp", cum_rdp, step=server_round)
+
             sigma = m.get("sigma")
             if sigma is not None:
                 sigmas.append(float(sigma))
@@ -232,8 +251,20 @@ class MetricLoggingMixin:
                     remaining = max(0.0, budget - float(cum_eps))
                     self._log_metric(f"client_{cid}_remaining_budget", remaining, step=server_round)
 
+            if self._per_client_budgets is not None and cum_rdp is not None:
+                budget = self._per_client_budgets.get(cid)
+                if budget is None and self._node_to_partition:
+                    reversed_map = {v: k for k, v in self._node_to_partition.items()}
+                    budget = self._per_client_budgets.get(reversed_map.get(cid))
+                if budget is not None:
+                    remaining = max(0.0, budget - float(cum_rdp))
+                    self._log_metric(f"client_{cid}_remaining_rdp_budget", remaining, step=server_round)
+
         self._log_metric_stats("epsilon", epsilons, server_round)
         self._log_metric_stats("client_epsilon", client_epsilons, server_round)
+        self._log_metric_stats("rdp_cost", rdp_costs, server_round)
+        self._log_metric_stats("client_rdp", client_rdps, server_round)
+        self._log_metric_stats("cumulative_rdp", cumulative_rdps, server_round)
         self._log_metric_stats("update_norm", update_norms, server_round)
         self._log_metric_stats("utility_loss", utility_losses, server_round)
         self._log_metric_stats("utility_efficiency", utility_efficiencies, server_round)

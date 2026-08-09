@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Union
 
 import numpy as np
 from flwr.app import ArrayRecord, ConfigRecord, Context, Message, MetricRecord, RecordDict
@@ -11,13 +12,16 @@ from src.config.loader import ExperimentConfig, load_config
 from src.data import create_client_dataloader
 from src.models import create_model
 from src.privacy.accountant import RDPAccountant
-from src.privacy.bo_scheduler import PLDPBOScheduler
+from src.privacy.bo_scheduler import PLDPBORDPScheduler, PLDPBOScheduler
 from src.privacy.epsilon_scheduler import (
     EpsilonScheduler,
     FixedEpsilonScheduler,
+    FixedRDPScheduler,
+    RDPNativeScheduler,
     UniformRandomEpsilonScheduler,
+    UniformRandomRDPScheduler,
 )
-from src.privacy.per_update_dp import enforce_epsilon_budget
+from src.privacy.per_update_dp import enforce_epsilon_budget, enforce_rdp_budget
 from src.privacy.personalization import assign_epsilon_bounds, compute_budget_weight
 from src.utils import set_seed
 
@@ -27,6 +31,9 @@ app = ClientApp()
 
 ACCOUNTANT_STATE_KEY = "pldp_accountant_state"
 MECHANISM_STATE_KEY = "pldp_mechanism_state"
+
+AnyScheduler = Union[EpsilonScheduler, RDPNativeScheduler]
+
 
 def _prepare_metric_record(metrics: dict) -> dict:
     # Flower's MetricRecord does not accept native Python bools,
@@ -49,6 +56,10 @@ _OPTIMIZATION_METRIC_KEY_MAP: dict[str, str] = {
 }
 
 
+def _is_rdp_native(config: ExperimentConfig) -> bool:
+    return config.privacy.accountant_mode == "rdp_native"
+
+
 def _make_scheduler(
     partition_id: int,
     train_dataset: object,
@@ -58,9 +69,15 @@ def _make_scheduler(
     eps_max: float | None = None,
     warmup_rounds: int | None = None,
     total_train_size: int | None = None,
-) -> EpsilonScheduler | None:
+) -> AnyScheduler | None:
     if not config.privacy.enabled:
         return None
+
+    if _is_rdp_native(config):
+        return _make_rdp_native_scheduler(
+            partition_id, config, eps_min, eps_max, warmup_rounds,
+        )
+
     if config.bo.enabled:
         e_min = eps_min if eps_min is not None else config.bo.epsilon_min
         e_max = eps_max if eps_max is not None else config.bo.epsilon_max
@@ -88,6 +105,40 @@ def _make_scheduler(
     )
 
 
+def _make_rdp_native_scheduler(
+    partition_id: int,
+    config: ExperimentConfig,
+    rdp_min: float | None = None,
+    rdp_max: float | None = None,
+    warmup_rounds: int | None = None,
+) -> RDPNativeScheduler | None:
+    """Create an RDP-native scheduler."""
+    if config.bo.enabled:
+        r_min = rdp_min if rdp_min is not None else config.bo.rdp_min
+        r_max = rdp_max if rdp_max is not None else config.bo.rdp_max
+        w_rounds = warmup_rounds if warmup_rounds is not None else 0
+        return PLDPBORDPScheduler(
+            rdp_min=r_min,
+            rdp_max=r_max,
+            warmup_rounds=w_rounds,
+            acquisition_penalty=config.bo.acquisition_penalty,
+            grid_points=config.bo.grid_points,
+            gp_kernel=config.bo.gp_kernel,
+            observation_noise=config.bo.observation_noise,
+            budget_margin=config.bo.budget_margin,
+            ema_alpha=config.bo.ema_alpha,
+            seed=config.seed + partition_id,
+        )
+    if config.personalization.enabled:
+        return None
+    # For non-BO RDP-native mode, use uniform random over rdp range
+    return UniformRandomRDPScheduler(
+        rdp_min=config.bo.rdp_min,
+        rdp_max=config.bo.rdp_max,
+        seed=config.seed + partition_id,
+    )
+
+
 def _restore_or_create_scheduler(
     context: Context,
     partition_id: int,
@@ -98,16 +149,24 @@ def _restore_or_create_scheduler(
     eps_max: float | None = None,
     warmup_rounds: int | None = None,
     total_train_size: int | None = None,
-) -> EpsilonScheduler | None:
+) -> AnyScheduler | None:
     if SCHEDULER_STATE_KEY in context.state:
         state = context.state[SCHEDULER_STATE_KEY]
         stype = state.get("type")
+        # Epsilon-based schedulers
         if stype == "fixed":
             return FixedEpsilonScheduler.from_state(state)
         if stype == "uniform_random":
             return UniformRandomEpsilonScheduler.from_state(state)
         if stype == "pldp_bo":
             return PLDPBOScheduler.from_state(state)
+        # RDP-native schedulers
+        if stype == "fixed_rdp":
+            return FixedRDPScheduler.from_state(state)
+        if stype == "uniform_random_rdp":
+            return UniformRandomRDPScheduler.from_state(state)
+        if stype == "pldp_bo_rdp":
+            return PLDPBORDPScheduler.from_state(state)
         raise ValueError(f"Unknown scheduler type: {stype}")
     return _make_scheduler(
         partition_id, train_dataset, config, num_partitions,
@@ -146,29 +205,31 @@ def train(msg: Message, context: Context) -> Message:
     )
 
     accountant: RDPAccountant | None = None
-    scheduler: EpsilonScheduler | None = None
+    scheduler: AnyScheduler | None = None
     mechanism_state: dict | None = None
 
-    eps_min_per_client: float | None = None
+    rdp_native = _is_rdp_native(config)
+
+    # Bounds for scheduler search space
+    bounds_min: float | None = None
+    bounds_max: float | None = None
+    warmup: int | None = None
 
     if config.privacy.enabled:
         if config.bo.enabled:
-            bounds_min, bounds_max, warmup = assign_epsilon_bounds(
-                partition_id, client_subset,
-                config.personalization, config.bo, config.data.num_clients,
-                total_train_size=total_train_size,
-                num_rounds=config.federated.num_rounds,
-                total_num_classes=config.model.num_classes,
-            )
-            eps_min_per_client = bounds_min
-        else:
-            bounds_min = None
-            bounds_max = None
-            warmup = None
-            if config.privacy.target_epsilon is not None:
-                eps_min_per_client = config.privacy.target_epsilon * 0.01
-            elif config.privacy.total_budget is not None:
-                eps_min_per_client = config.privacy.total_budget * 0.01 / config.federated.num_rounds
+            if rdp_native:
+                # In RDP-native mode, use rdp_min/rdp_max as the search range
+                bounds_min = config.bo.rdp_min
+                bounds_max = config.bo.rdp_max
+                warmup = config.bo.min_warmup
+            else:
+                bounds_min, bounds_max, warmup = assign_epsilon_bounds(
+                    partition_id, client_subset,
+                    config.personalization, config.bo, config.data.num_clients,
+                    total_train_size=total_train_size,
+                    num_rounds=config.federated.num_rounds,
+                    total_num_classes=config.model.num_classes,
+                )
 
         if ACCOUNTANT_STATE_KEY in context.state:
             state = context.state[ACCOUNTANT_STATE_KEY]
@@ -204,46 +265,85 @@ def train(msg: Message, context: Context) -> Message:
 
     remaining_budget: float | None = None
     if scheduler is not None and accountant is not None and total_budget is not None:
-        remaining_budget = max(0.0, total_budget - accountant.get_epsilon())
+        if rdp_native:
+            alpha = config.privacy.rdp_alpha
+            remaining_budget = max(0.0, total_budget - accountant.get_rdp_at_alpha(alpha))
+        else:
+            remaining_budget = max(0.0, total_budget - accountant.get_epsilon())
         if hasattr(scheduler, "set_remaining_budget"):
             scheduler.set_remaining_budget(remaining_budget)
 
-    if remaining_budget is not None and eps_min_per_client is not None:
-        eps_min_per_client = min(eps_min_per_client, remaining_budget)
-
-    total_steps_per_round = config.federated.local_epochs * len(trainloader)
-    local_train_size = len(client_subset)
-
-    epsilon, computed_sigma = _resolve_epsilon(
-        scheduler, accountant, config, total_budget,
-        eps_min=eps_min_per_client,
-        total_steps_per_round=total_steps_per_round,
-        local_train_size=local_train_size,
-    )
-    if epsilon < 0:
-        logger.info(
-            "Client %d privacy budget exhausted (epsilon=%.4f), ceasing participation",
-            partition_id,
-            epsilon,
+    # Resolve the privacy parameter (epsilon or rdp cost)
+    if rdp_native:
+        rdp_cost, computed_sigma = _resolve_rdp(
+            scheduler, accountant, config, total_budget,
+            total_steps_per_round=config.federated.local_epochs * len(trainloader),
+            local_train_size=len(client_subset),
         )
-        epsilon = 0.0  # sentinel: PerUpdateDPClient._check_budget checks for == 0
-        computed_sigma = 0.0
-    logger.debug("Client %d using epsilon=%.4f", partition_id, epsilon)
+        if rdp_cost < 0:
+            logger.info(
+                "Client %d privacy budget exhausted (rdp_cost=%.6f), ceasing participation",
+                partition_id, rdp_cost,
+            )
+            rdp_cost = 0.0
+            computed_sigma = 0.0
+        logger.debug("Client %d using rdp_cost=%.6f", partition_id, rdp_cost)
 
-    client_model = create_model(config.model, dataset_name=config.data.name)
-    client = create_client(
-        cid=partition_id,
-        model=client_model,
-        trainloader=trainloader,
-        valloader=valloader,
-        config=config,
-        client_epsilon=epsilon,
-        computed_sigma=computed_sigma if computed_sigma > 0 else None,
-        accountant=accountant,
-        seed=client_seed,
-        mechanism_state=mechanism_state,
-        remaining_budget=remaining_budget,
-    )
+        # Pass rdp_cost as client_epsilon — the client uses it as a generic
+        # "privacy parameter" and the computed_sigma is the actual noise scale.
+        client_model = create_model(config.model, dataset_name=config.data.name)
+        client = create_client(
+            cid=partition_id,
+            model=client_model,
+            trainloader=trainloader,
+            valloader=valloader,
+            config=config,
+            client_epsilon=rdp_cost,
+            computed_sigma=computed_sigma if computed_sigma > 0 else None,
+            accountant=accountant,
+            seed=client_seed,
+            mechanism_state=mechanism_state,
+            remaining_budget=remaining_budget,
+        )
+    else:
+        # Epsilon-based path (unchanged)
+        if remaining_budget is not None:
+            eps_min_per_client: float | None = None
+            if config.privacy.target_epsilon is not None:
+                eps_min_per_client = config.privacy.target_epsilon * 0.01
+            elif config.privacy.total_budget is not None:
+                eps_min_per_client = config.privacy.total_budget * 0.01 / config.federated.num_rounds
+            if eps_min_per_client is not None:
+                remaining_budget = min(remaining_budget, eps_min_per_client)
+
+        epsilon, computed_sigma = _resolve_epsilon(
+            scheduler, accountant, config, total_budget,
+            total_steps_per_round=config.federated.local_epochs * len(trainloader),
+            local_train_size=len(client_subset),
+        )
+        if epsilon < 0:
+            logger.info(
+                "Client %d privacy budget exhausted (epsilon=%.4f), ceasing participation",
+                partition_id, epsilon,
+            )
+            epsilon = 0.0
+            computed_sigma = 0.0
+        logger.debug("Client %d using epsilon=%.4f", partition_id, epsilon)
+
+        client_model = create_model(config.model, dataset_name=config.data.name)
+        client = create_client(
+            cid=partition_id,
+            model=client_model,
+            trainloader=trainloader,
+            valloader=valloader,
+            config=config,
+            client_epsilon=epsilon,
+            computed_sigma=computed_sigma if computed_sigma > 0 else None,
+            accountant=accountant,
+            seed=client_seed,
+            mechanism_state=mechanism_state,
+            remaining_budget=remaining_budget,
+        )
 
     arrays_raw = msg.content.get("arrays")
     if not isinstance(arrays_raw, ArrayRecord):
@@ -256,7 +356,12 @@ def train(msg: Message, context: Context) -> Message:
         metric_key = _OPTIMIZATION_METRIC_KEY_MAP[config.bo.optimization_metric]
         metric_value = fit_metrics.get(metric_key)
         if metric_value is not None:
-            scheduler.step(epsilon, float(metric_value))
+            if rdp_native:
+                rdp_val = fit_metrics.get("rdp_cost", 0.0)
+                scheduler.step(rdp_val, float(metric_value))
+            else:
+                epsilon_val = fit_metrics.get("epsilon", 0.0)
+                scheduler.step(epsilon_val, float(metric_value))
 
     if accountant is not None and config.privacy.enabled:
         context.state[ACCOUNTANT_STATE_KEY] = ConfigRecord(accountant.get_state())
@@ -291,11 +396,6 @@ def _resolve_epsilon(
     if scheduler is not None:
         candidate = scheduler.get_epsilon()
     elif config.personalization.enabled:
-        # Per-round epsilon = per_client_budget / total_rounds.
-        # Without a per-client budget (total_budget is None or 0) the client
-        # cannot derive a meaningful epsilon and drops out. This is intentional:
-        # the old assign_epsilon fallback (fixed epsilon with no budget cap) is
-        # removed — personalization without total_budget is a misconfiguration.
         if total_budget is not None and total_budget > 0:
             candidate = total_budget / config.federated.num_rounds
         else:
@@ -334,6 +434,59 @@ def _resolve_epsilon(
             candidate, computed_sigma = enforce_epsilon_budget(
                 candidate, accountant.rdp_per_alpha, total_budget,
                 lower_bound, c, delta,
+            )
+        return candidate, computed_sigma
+
+    return candidate, 0.0
+
+
+def _resolve_rdp(
+    scheduler: RDPNativeScheduler | None,
+    accountant: RDPAccountant | None,
+    config: ExperimentConfig,
+    total_budget: float | None = None,
+    eps_min: float | None = None,
+    total_steps_per_round: int | None = None,
+    local_train_size: int | None = None,
+) -> tuple[float, float]:
+    """Return (rdp_cost, sigma) for RDP-native mode. No epsilon conversion."""
+    alpha = config.privacy.rdp_alpha
+
+    if scheduler is not None:
+        candidate = scheduler.get_rdp()
+    elif config.personalization.enabled:
+        if total_budget is not None and total_budget > 0:
+            candidate = total_budget / config.federated.num_rounds
+        else:
+            return 0.0, 0.0
+    else:
+        raise ValueError(
+            "RDP-native mode requires a scheduler (bo) or personalization with total_budget."
+        )
+
+    if accountant is not None and total_budget is not None:
+        current_rdp = accountant.get_rdp_at_alpha(alpha)
+        lower_bound = eps_min if eps_min is not None else 1e-6
+        clipping_mode = config.privacy.clipping_mode
+
+        if clipping_mode == "per_example":
+            if local_train_size is None:
+                raise ValueError(
+                    "clipping_mode='per_example' requires local_train_size."
+                )
+            sampling_rate = config.data.batch_size / local_train_size
+            num_steps = total_steps_per_round if total_steps_per_round is not None else 1
+            candidate, computed_sigma = enforce_rdp_budget(
+                candidate, current_rdp, total_budget,
+                lower_bound, alpha, config.privacy.update_clip_norm,
+                clipping_mode="per_example", num_steps=num_steps,
+                sampling_rate=sampling_rate,
+            )
+        else:
+            c = config.privacy.update_clip_norm
+            candidate, computed_sigma = enforce_rdp_budget(
+                candidate, current_rdp, total_budget,
+                lower_bound, alpha, c,
             )
         return candidate, computed_sigma
 
@@ -398,10 +551,15 @@ def evaluate(msg: Message, context: Context) -> Message:
     client_epsilon = None
     accountant = None
     mechanism_state = None
+    rdp_native = _is_rdp_native(config)
+
     if config.privacy.enabled and ACCOUNTANT_STATE_KEY in context.state:
             state = context.state[ACCOUNTANT_STATE_KEY]
             accountant = RDPAccountant.from_state(state)
-            client_epsilon = accountant.get_epsilon()
+            if rdp_native:
+                client_epsilon = accountant.get_rdp_at_alpha(config.privacy.rdp_alpha)
+            else:
+                client_epsilon = accountant.get_epsilon()
     if config.privacy.enabled and MECHANISM_STATE_KEY in context.state:
             mechanism_state = context.state[MECHANISM_STATE_KEY]
 
@@ -430,7 +588,10 @@ def evaluate(msg: Message, context: Context) -> Message:
         "client-id": partition_id,
         **eval_metrics,
     }
-    metrics["cumulative_epsilon"] = client_epsilon if client_epsilon is not None else 0.0
+    if rdp_native:
+        metrics["cumulative_rdp"] = client_epsilon if client_epsilon is not None else 0.0
+    else:
+        metrics["cumulative_epsilon"] = client_epsilon if client_epsilon is not None else 0.0
     metric_record = MetricRecord(_prepare_metric_record(metrics))
     content = RecordDict({"metrics": metric_record})
     return Message(content=content, reply_to=msg)

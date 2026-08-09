@@ -60,7 +60,9 @@ class PrivacyConfig:
     delta: float = 1e-5
     target_epsilon: float | None = None
     accountant: str = "rdp"
-    total_budget: float | None = None  # epsilon budget across ALL clients
+    accountant_mode: str = "epsilon"  # "epsilon" | "rdp_native"
+    rdp_alpha: float = 10.0  # fixed Renyi order for rdp_native mode
+    total_budget: float | None = None  # epsilon budget (or RDP budget in rdp_native mode)
 
 
 @dataclass
@@ -79,6 +81,8 @@ class BOConfig:
     epsilon_min: float = 0.2
     epsilon_max: float = 10.0
     epsilon_budget: float = 10.0
+    rdp_min: float = 0.01  # min RDP(alpha) for BO search in rdp_native mode
+    rdp_max: float = 2.0  # max RDP(alpha) for BO search in rdp_native mode
     optimization_metric: str = "nun"
     grid_points: int = 100
     acquisition_penalty: float = 0.1

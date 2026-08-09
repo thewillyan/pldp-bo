@@ -184,6 +184,40 @@ $$
 R_\alpha^{\text{(total)}} \leftarrow R_\alpha^{\text{(total)}} + \frac{\alpha C^2}{2\sigma_t^2}.
 $$
 
+### 5.1 RDP-Native Mode
+
+The implementation supports an alternative mode (`privacy.accountant_mode: rdp_native`) that operates entirely in RDP space, eliminating the conversion to $(\varepsilon,\delta)$-DP.
+
+In this mode:
+
+- A fixed Renyi order $\alpha_0$ is selected (configurable via `privacy.rdp_alpha`, default 10.0).
+- The privacy budget is defined as a maximum allowed RDP cost at $\alpha_0$: $R_{\alpha_0}^{\text{(total)}} \le B_{\text{RDP}}$.
+- Sigma calibration uses the direct formula: $\sigma = \sqrt{\alpha_0 \cdot C^2 / (2 \cdot R_{\text{target}})}$.
+- Budget enforcement is linear: $R_{\text{current}} + R_{\text{candidate}} \le B_{\text{RDP}}$.
+- No binary search is needed for budget enforcement (the direct formula gives the exact sigma).
+
+**Configuration:**
+
+```yaml
+privacy:
+  enabled: true
+  accountant_mode: rdp_native
+  rdp_alpha: 10.0           # fixed Renyi order
+
+bo:
+  enabled: true
+  rdp_min: 0.01             # min RDP(alpha_0) for BO search
+  rdp_max: 2.0              # max RDP(alpha_0) for BO search
+  epsilon_budget: 1.0        # interpreted as RDP(alpha_0) budget
+```
+
+**Advantages:**
+
+- No imprecise RDP-to-epsilon conversion.
+- Direct sigma calibration (no binary search).
+- Linear budget enforcement.
+- Well-suited for research comparing RDP-based privacy guarantees.
+
 ## 6. Bayesian Optimization
 
 Each client maintains an independent Bayesian Optimization (BO) process throughout federated training.

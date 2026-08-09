@@ -88,3 +88,86 @@ class UniformRandomEpsilonScheduler(EpsilonScheduler):
 
     def __repr__(self) -> str:
         return f"UniformRandomEpsilonScheduler(min={self._epsilon_min}, max={self._epsilon_max})"
+
+
+class RDPNativeScheduler(ABC):
+    """Abstract base for RDP-native schedulers (analogous to EpsilonScheduler)."""
+
+    @abstractmethod
+    def get_rdp(self) -> float:
+        ...
+
+    def step(self, rdp: float, metric: float) -> None:  # noqa: B027
+        pass
+
+    def set_remaining_budget(self, remaining: float | None) -> None:
+        pass
+
+    @abstractmethod
+    def get_state(self) -> dict:
+        ...
+
+    @classmethod
+    @abstractmethod
+    def from_state(cls, state: dict) -> RDPNativeScheduler:
+        ...
+
+
+class FixedRDPScheduler(RDPNativeScheduler):
+    def __init__(self, rdp_target: float) -> None:
+        if rdp_target <= 0:
+            raise ValueError("rdp_target must be positive")
+        self._rdp_target = rdp_target
+
+    def get_rdp(self) -> float:
+        return self._rdp_target
+
+    def get_state(self) -> dict:
+        return {"type": "fixed_rdp", "rdp_target": self._rdp_target}
+
+    @classmethod
+    def from_state(cls, state: dict) -> FixedRDPScheduler:
+        return cls(rdp_target=state["rdp_target"])
+
+    def __repr__(self) -> str:
+        return f"FixedRDPScheduler(rdp_target={self._rdp_target})"
+
+
+class UniformRandomRDPScheduler(RDPNativeScheduler):
+    def __init__(self, rdp_min: float, rdp_max: float, seed: int | None = None) -> None:
+        if rdp_min <= 0:
+            raise ValueError("rdp_min must be positive")
+        if rdp_max <= rdp_min:
+            raise ValueError("rdp_max must be greater than rdp_min")
+        self._rdp_min = rdp_min
+        self._rdp_max = rdp_max
+        self._seed = seed
+        self._rng = np.random.RandomState(seed)
+
+    def get_rdp(self) -> float:
+        return float(self._rng.uniform(self._rdp_min, self._rdp_max))
+
+    def get_state(self) -> dict:
+        state = {
+            "type": "uniform_random_rdp",
+            "rdp_min": self._rdp_min,
+            "rdp_max": self._rdp_max,
+            "rng_state": serialize_rng(self._rng),
+        }
+        if self._seed is not None:
+            state["seed"] = self._seed
+        return state
+
+    @classmethod
+    def from_state(cls, state: dict) -> UniformRandomRDPScheduler:
+        scheduler = cls(
+            rdp_min=state["rdp_min"],
+            rdp_max=state["rdp_max"],
+            seed=state.get("seed"),
+        )
+        if "rng_state" in state:
+            scheduler._rng.set_state(deserialize_rng(state["rng_state"]))
+        return scheduler
+
+    def __repr__(self) -> str:
+        return f"UniformRandomRDPScheduler(min={self._rdp_min}, max={self._rdp_max})"

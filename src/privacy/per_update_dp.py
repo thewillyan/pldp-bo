@@ -204,6 +204,94 @@ def calibrate_sigma_dp_sgd(
     return sigma
 
 
+def _sigma_for_rdp_target(
+    rdp_target: float,
+    alpha: float,
+    clipping_norm: float,
+) -> float:
+    """Direct formula: sigma = sqrt(alpha * C^2 / (2 * rdp_target)).
+
+    This computes the noise scale that yields exactly *rdp_target* RDP cost
+    at the given Renyi order *alpha* for Gaussian mechanism with clipping
+    norm *clipping_norm*.
+    """
+    if rdp_target <= 0:
+        raise ValueError("rdp_target must be positive")
+    if alpha <= 1.0:
+        raise ValueError("alpha must be > 1")
+    if clipping_norm <= 0:
+        raise ValueError("clipping_norm must be positive")
+    return math.sqrt(alpha * clipping_norm**2 / (2.0 * rdp_target))
+
+
+def _sigma_for_rdp_target_dp_sgd(
+    rdp_target: float,
+    alpha: float,
+    sampling_rate: float,
+) -> float:
+    """Direct formula for DP-SGD with Poisson subsampling: sigma = sqrt(alpha * q^2 / (2 * rdp_target)).
+
+    Here sigma is the noise multiplier (actual noise std = sigma * C).
+    """
+    if rdp_target <= 0:
+        raise ValueError("rdp_target must be positive")
+    if alpha <= 1.0:
+        raise ValueError("alpha must be > 1")
+    if sampling_rate <= 0 or sampling_rate > 1:
+        raise ValueError("sampling_rate must be in (0, 1]")
+    return math.sqrt(alpha * sampling_rate**2 / (2.0 * rdp_target))
+
+
+def calibrate_sigma_rdp(
+    rdp_target: float,
+    alpha: float,
+    clipping_norm: float,
+    min_sigma: float | None = None,
+) -> float:
+    """Calibrate sigma from an RDP target at a fixed alpha — direct formula, no binary search."""
+    if rdp_target <= 0:
+        raise ValueError("rdp_target must be positive")
+    if alpha <= 1.0:
+        raise ValueError("alpha must be > 1")
+    if clipping_norm <= 0:
+        raise ValueError("clipping_norm must be positive")
+    sigma = _sigma_for_rdp_target(rdp_target, alpha, clipping_norm)
+    if min_sigma is not None and sigma < min_sigma:
+        logger.warning(
+            "calibrate_sigma_rdp: sigma=%.6f for alpha=%.1f, rdp_target=%.6f "
+            "is below min_sigma %.6f; clamping to min_sigma. "
+            "Actual RDP cost will be lower than rdp_target.",
+            sigma, alpha, rdp_target, min_sigma,
+        )
+        return min_sigma
+    return sigma
+
+
+def calibrate_sigma_rdp_dp_sgd(
+    rdp_target: float,
+    alpha: float,
+    sampling_rate: float,
+    min_sigma: float | None = None,
+) -> float:
+    """Calibrate noise multiplier for DP-SGD from RDP target at fixed alpha."""
+    if rdp_target <= 0:
+        raise ValueError("rdp_target must be positive")
+    if alpha <= 1.0:
+        raise ValueError("alpha must be > 1")
+    if sampling_rate <= 0 or sampling_rate > 1:
+        raise ValueError("sampling_rate must be in (0, 1]")
+    sigma = _sigma_for_rdp_target_dp_sgd(rdp_target, alpha, sampling_rate)
+    if min_sigma is not None and sigma < min_sigma:
+        logger.warning(
+            "calibrate_sigma_rdp_dp_sgd: sigma=%.6f for alpha=%.1f, "
+            "rdp_target=%.6f is below min_sigma %.6f; clamping to min_sigma. "
+            "Actual RDP cost will be lower than rdp_target.",
+            sigma, alpha, rdp_target, min_sigma,
+        )
+        return min_sigma
+    return sigma
+
+
 class PerUpdateGaussianMechanism:
     def __init__(self, clipping_norm: float, delta: float, seed: int | None = None) -> None:
         if clipping_norm <= 0:
@@ -370,3 +458,82 @@ def enforce_epsilon_budget(
     else:
         result_epsilon = _rdp_epsilon_for_sigma(result_sigma, clipping_norm, delta)
     return result_epsilon, result_sigma
+
+
+def _rdp_cost_at_alpha_for_sigma(
+    sigma: float,
+    alpha: float,
+    clipping_norm: float,
+    clipping_mode: str = "per_update",
+    sampling_rate: float | None = None,
+) -> float:
+    """Compute RDP cost at a fixed alpha for a given sigma."""
+    if clipping_mode == "per_example":
+        if sampling_rate is None:
+            raise ValueError("sampling_rate required for per_example mode")
+        return compute_rdp_cost_dp_sgd(alpha, sigma, sampling_rate)
+    return compute_rdp_cost(alpha, sigma, clipping_norm)
+
+
+def enforce_rdp_budget(
+    candidate_rdp: float,
+    current_rdp_sum: float,
+    rdp_budget: float,
+    rdp_min: float,
+    alpha: float,
+    clipping_norm: float,
+    clipping_mode: str = "per_update",
+    num_steps: int = 1,
+    sampling_rate: float | None = None,
+) -> tuple[float, float]:
+    """Return (rdp_cost, sigma) where rdp_cost is the largest RDP cost <= candidate_rdp
+    that fits within the remaining RDP budget, and sigma is the corresponding noise scale.
+
+    This operates entirely in RDP -- no conversion to epsilon. Budget comparison is
+    linear: current_rdp_sum + rdp_cost * num_steps <= rdp_budget.
+
+    When *clipping_mode* is ``"per_example"``, *clipping_norm* is interpreted as
+    the sampling rate and the DP-SGD RDP cost formula is used.
+
+    Returns (-1.0, 0.0) if even *rdp_min* would exceed the remaining budget.
+    """
+    if candidate_rdp <= 0:
+        return -1.0, 0.0
+
+    remaining = rdp_budget - current_rdp_sum
+    if remaining <= 0:
+        return -1.0, 0.0
+
+    if clipping_mode == "per_example":
+        if sampling_rate is None:
+            raise ValueError("sampling_rate required for per_example mode")
+        calibrate = lambda r: calibrate_sigma_rdp_dp_sgd(r, alpha, sampling_rate)
+    else:
+        calibrate = lambda r: calibrate_sigma_rdp(r, alpha, clipping_norm)
+
+    # Check if candidate fits
+    projected = current_rdp_sum + candidate_rdp * num_steps
+    if projected <= rdp_budget:
+        sigma = calibrate(candidate_rdp)
+        return candidate_rdp, sigma
+
+    # Check if even rdp_min fits
+    projected_min = current_rdp_sum + rdp_min * num_steps
+    if projected_min > rdp_budget:
+        return -1.0, 0.0
+
+    # Binary search for the largest rdp_cost that fits
+    max_allowed_rdp = remaining / num_steps
+    lo, hi = rdp_min, min(candidate_rdp, max_allowed_rdp)
+
+    for _ in range(30):
+        mid = (lo + hi) / 2.0
+        projected_mid = current_rdp_sum + mid * num_steps
+        if projected_mid <= rdp_budget:
+            lo = mid  # this fits; try larger
+        else:
+            hi = mid  # too expensive; need smaller
+
+    result_rdp = (lo + hi) / 2.0
+    result_sigma = calibrate(result_rdp)
+    return result_rdp, result_sigma

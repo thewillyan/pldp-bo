@@ -39,6 +39,8 @@ class PerUpdateDPClient(FlowerClient):
         self._computed_sigma = computed_sigma
         self._accountant = accountant
         self._remaining_budget = remaining_budget
+        self._rdp_native = config.privacy.accountant_mode == "rdp_native"
+        self._rdp_alpha = config.privacy.rdp_alpha
         if mechanism_state:
             self._mechanism = PerUpdateGaussianMechanism.from_state(
                 mechanism_state,
@@ -55,51 +57,54 @@ class PerUpdateDPClient(FlowerClient):
     def _check_budget(self) -> bool:
         if self._client_epsilon is not None and self._client_epsilon == 0:
             logger.warning(
-                "Client budget exhausted: epsilon=%.4f",
+                "Client budget exhausted: privacy_param=%.6f",
                 self._client_epsilon,
             )
             return True
         return False
 
+    def _make_empty_metrics(self, budget_exhausted: bool) -> dict[str, Any]:
+        if self._rdp_native:
+            return {
+                "rdp_cost": 0.0,
+                "cumulative_rdp": self._accountant.get_rdp_at_alpha(self._rdp_alpha) if self._accountant else 0.0,
+                "client_rdp": self._client_epsilon or 0.0,
+                "update_norm": 0.0,
+                "utility_loss": 0.0,
+                "utility_efficiency": 0.0,
+                "snr": 0.0,
+                "sigma": 0.0,
+                "utility_loss_clean": 0.0,
+                "utility_retention": 0.0,
+                "utility_per_remaining": 0.0,
+                "agreement": 0.0,
+                "budget_exhausted": budget_exhausted,
+            }
+        return {
+            "epsilon": 0.0,
+            "cumulative_epsilon": self._accountant.get_epsilon() if self._accountant else 0.0,
+            "client_epsilon": self._client_epsilon or 0.0,
+            "update_norm": 0.0,
+            "utility_loss": 0.0,
+            "utility_efficiency": 0.0,
+            "snr": 0.0,
+            "sigma": 0.0,
+            "utility_loss_clean": 0.0,
+            "utility_retention": 0.0,
+            "utility_per_remaining": 0.0,
+            "agreement": 0.0,
+            "budget_exhausted": budget_exhausted,
+        }
+
     def fit(
         self, parameters: list[Any], config: dict[str, Any],
     ) -> tuple[list[Any], int, dict[str, Any]]:
         if self._check_budget():
-            metrics = {
-                "epsilon": 0.0,
-                "cumulative_epsilon": self._accountant.get_epsilon() if self._accountant else 0.0,
-                "client_epsilon": self._client_epsilon or 0.0,
-                "update_norm": 0.0,
-                "utility_loss": 0.0,
-                "utility_efficiency": 0.0,
-                "snr": 0.0,
-                "sigma": 0.0,
-                "utility_loss_clean": 0.0,
-                "utility_retention": 0.0,
-                "utility_per_remaining": 0.0,
-                "agreement": 0.0,
-                "budget_exhausted": True,
-            }
-            return parameters, 0, metrics
+            return parameters, 0, self._make_empty_metrics(budget_exhausted=True)
 
         if len(self.trainloader) == 0:
             logger.warning("Client has empty trainloader; skipping training")
-            metrics = {
-                "epsilon": 0.0,
-                "cumulative_epsilon": self._accountant.get_epsilon() if self._accountant else 0.0,
-                "client_epsilon": self._client_epsilon or 0.0,
-                "update_norm": 0.0,
-                "utility_loss": 0.0,
-                "utility_efficiency": 0.0,
-                "snr": 0.0,
-                "sigma": 0.0,
-                "utility_loss_clean": 0.0,
-                "utility_retention": 0.0,
-                "utility_per_remaining": 0.0,
-                "agreement": 0.0,
-                "budget_exhausted": False,
-            }
-            return parameters, 0, metrics
+            return parameters, 0, self._make_empty_metrics(budget_exhausted=False)
 
         self.model.set_weights(parameters)
         global_weights = self.model.get_weights()
@@ -134,13 +139,14 @@ class PerUpdateDPClient(FlowerClient):
                     )
                 optimizer.step()
 
+        # privacy_param is either epsilon (epsilon mode) or rdp_cost (rdp_native mode)
         if self._client_epsilon is not None:
-            epsilon = self._client_epsilon
-        elif self.config.privacy.target_epsilon is not None:
-            epsilon = self.config.privacy.target_epsilon
+            privacy_param = self._client_epsilon
+        elif not self._rdp_native and self.config.privacy.target_epsilon is not None:
+            privacy_param = self.config.privacy.target_epsilon
         else:
             raise ValueError(
-                "No epsilon source for PerUpdateDPClient. "
+                "No privacy parameter source for PerUpdateDPClient. "
                 "Provide client_epsilon or set privacy.target_epsilon in config."
             )
 
@@ -153,7 +159,7 @@ class PerUpdateDPClient(FlowerClient):
         delta = [lw - gw for lw, gw in zip(local_weights, global_weights, strict=True)]
 
         flat_delta = np.concatenate([d.ravel() for d in delta])
-        noisy_flat, sigma = self._mechanism.apply(flat_delta, epsilon, sigma=self._computed_sigma)
+        noisy_flat, sigma = self._mechanism.apply(flat_delta, privacy_param, sigma=self._computed_sigma)
 
         delta_norm = float(np.linalg.norm(flat_delta))
         clipped_norm = min(delta_norm, self._mechanism.clipping_norm)
@@ -165,9 +171,12 @@ class PerUpdateDPClient(FlowerClient):
                 clipping_norm=self._mechanism.clipping_norm,
                 num_steps=1,
             )
-            cumulative_epsilon = self._accountant.get_epsilon()
+            if self._rdp_native:
+                cumulative_privacy = self._accountant.get_rdp_at_alpha(self._rdp_alpha)
+            else:
+                cumulative_privacy = self._accountant.get_epsilon()
         else:
-            cumulative_epsilon = 0.0
+            cumulative_privacy = 0.0
 
         update_norm = float(np.linalg.norm(noisy_flat))
 
@@ -188,36 +197,53 @@ class PerUpdateDPClient(FlowerClient):
 
         loss_degradation = max(0.0, utility_loss_noisy - utility_loss_clean)
         inv_loss_clean = 1.0 / max(utility_loss_clean, 1e-12)
-        utility_efficiency = -loss_degradation * inv_loss_clean / max(epsilon, 1e-12)
+        utility_efficiency = -loss_degradation * inv_loss_clean / max(privacy_param, 1e-12)
         utility_retention = utility_loss_noisy * inv_loss_clean
 
-        epsilon_remaining = (
+        privacy_remaining = (
             self._remaining_budget
             if self._remaining_budget is not None and self._remaining_budget > 0
-            else epsilon
+            else privacy_param
         )
-        utility_per_remaining = -loss_degradation * inv_loss_clean / max(epsilon_remaining, 1e-12)
+        utility_per_remaining = -loss_degradation * inv_loss_clean / max(privacy_remaining, 1e-12)
 
         clean_flat = clean_logits.view(clean_logits.size(0), -1)
         noisy_flat_logits = noisy_logits.view(noisy_logits.size(0), -1)
         cos_sim = torch.nn.functional.cosine_similarity(clean_flat, noisy_flat_logits, dim=1)
         agreement = 1.0 - cos_sim.mean().item()
 
-        metrics = {
-            "epsilon": epsilon,
-            "cumulative_epsilon": cumulative_epsilon,
-            "client_epsilon": self._client_epsilon or 0.0,
-            "update_norm": update_norm,
-            "utility_loss": utility_loss_noisy,
-            "utility_efficiency": utility_efficiency,
-            "snr": snr,
-            "sigma": sigma,
-            "utility_loss_clean": utility_loss_clean,
-            "utility_retention": utility_retention,
-            "utility_per_remaining": utility_per_remaining,
-            "agreement": agreement,
-            "budget_exhausted": False,
-        }
+        if self._rdp_native:
+            metrics = {
+                "rdp_cost": privacy_param,
+                "cumulative_rdp": cumulative_privacy,
+                "client_rdp": self._client_epsilon or 0.0,
+                "update_norm": update_norm,
+                "utility_loss": utility_loss_noisy,
+                "utility_efficiency": utility_efficiency,
+                "snr": snr,
+                "sigma": sigma,
+                "utility_loss_clean": utility_loss_clean,
+                "utility_retention": utility_retention,
+                "utility_per_remaining": utility_per_remaining,
+                "agreement": agreement,
+                "budget_exhausted": False,
+            }
+        else:
+            metrics = {
+                "epsilon": privacy_param,
+                "cumulative_epsilon": cumulative_privacy,
+                "client_epsilon": self._client_epsilon or 0.0,
+                "update_norm": update_norm,
+                "utility_loss": utility_loss_noisy,
+                "utility_efficiency": utility_efficiency,
+                "snr": snr,
+                "sigma": sigma,
+                "utility_loss_clean": utility_loss_clean,
+                "utility_retention": utility_retention,
+                "utility_per_remaining": utility_per_remaining,
+                "agreement": agreement,
+                "budget_exhausted": False,
+            }
 
         return noisy_weights, len(self.trainloader.dataset), metrics
 

@@ -57,14 +57,11 @@ def _clip_per_example(
     Returns (clipped_grads, clip_fraction) where clip_fraction is the
     fraction of examples whose L2 norm exceeded *clip_norm*.
     """
-    # Compute per-example L2 norms across all parameter tensors.
-    # grads values have shape (batch, *param_shape).
     flat = torch.cat([g.reshape(g.shape[0], -1) for g in grads.values()], dim=1)
-    norms = torch.linalg.vector_norm(flat, dim=1)  # (batch,)
+    norms = torch.linalg.vector_norm(flat, dim=1)
     clip_mask = norms > clip_norm
     clip_fraction = float(clip_mask.float().mean())
 
-    # Avoid division by zero for zero-norm examples.
     scale = torch.clamp(clip_norm / norms.clamp(min=1e-6), max=1.0)
     scale = torch.where(clip_mask, scale, torch.ones_like(scale))
 
@@ -143,6 +140,8 @@ class PerExampleDPClient(FlowerClient):
         self._accountant = accountant
         self._remaining_budget = remaining_budget
         self._seed = seed or config.seed
+        self._rdp_native = config.privacy.accountant_mode == "rdp_native"
+        self._rdp_alpha = config.privacy.rdp_alpha
 
         total_samples = len(trainloader.dataset)  # type: ignore[arg-type]
         self._sampling_rate = config.data.batch_size / total_samples
@@ -153,59 +152,62 @@ class PerExampleDPClient(FlowerClient):
     def _check_budget(self) -> bool:
         if self._client_epsilon is not None and self._client_epsilon == 0:
             logger.warning(
-                "Client budget exhausted: epsilon=%.4f",
+                "Client budget exhausted: privacy_param=%.6f",
                 self._client_epsilon,
             )
             return True
         return False
 
+    def _make_empty_metrics(self, budget_exhausted: bool) -> dict[str, Any]:
+        if self._rdp_native:
+            return {
+                "rdp_cost": 0.0,
+                "cumulative_rdp": self._accountant.get_rdp_at_alpha(self._rdp_alpha) if self._accountant else 0.0,
+                "client_rdp": self._client_epsilon or 0.0,
+                "update_norm": 0.0,
+                "utility_loss": 0.0,
+                "utility_efficiency": 0.0,
+                "snr": 0.0,
+                "sigma": 0.0,
+                "utility_loss_clean": 0.0,
+                "utility_retention": 0.0,
+                "utility_per_remaining": 0.0,
+                "agreement": 0.0,
+                "budget_exhausted": budget_exhausted,
+                "per_example_clip_fraction": 0.0,
+                "grad_norm_before_clip": 0.0,
+                "grad_norm_after_clip": 0.0,
+                "num_opt_steps": 0,
+            }
+        return {
+            "epsilon": 0.0,
+            "cumulative_epsilon": self._accountant.get_epsilon() if self._accountant else 0.0,
+            "client_epsilon": self._client_epsilon or 0.0,
+            "update_norm": 0.0,
+            "utility_loss": 0.0,
+            "utility_efficiency": 0.0,
+            "snr": 0.0,
+            "sigma": 0.0,
+            "utility_loss_clean": 0.0,
+            "utility_retention": 0.0,
+            "utility_per_remaining": 0.0,
+            "agreement": 0.0,
+            "budget_exhausted": budget_exhausted,
+            "per_example_clip_fraction": 0.0,
+            "grad_norm_before_clip": 0.0,
+            "grad_norm_after_clip": 0.0,
+            "num_opt_steps": 0,
+        }
+
     def fit(
         self, parameters: list[Any], config: dict[str, Any],
     ) -> tuple[list[Any], int, dict[str, Any]]:
         if self._check_budget():
-            metrics = {
-                "epsilon": 0.0,
-                "cumulative_epsilon": self._accountant.get_epsilon() if self._accountant else 0.0,
-                "client_epsilon": self._client_epsilon or 0.0,
-                "update_norm": 0.0,
-                "utility_loss": 0.0,
-                "utility_efficiency": 0.0,
-                "snr": 0.0,
-                "sigma": 0.0,
-                "utility_loss_clean": 0.0,
-                "utility_retention": 0.0,
-                "utility_per_remaining": 0.0,
-                "agreement": 0.0,
-                "budget_exhausted": True,
-                "per_example_clip_fraction": 0.0,
-                "grad_norm_before_clip": 0.0,
-                "grad_norm_after_clip": 0.0,
-                "num_opt_steps": 0,
-            }
-            return parameters, 0, metrics
+            return parameters, 0, self._make_empty_metrics(budget_exhausted=True)
 
         if len(self.trainloader) == 0:
             logger.warning("Client has empty trainloader; skipping training")
-            metrics = {
-                "epsilon": 0.0,
-                "cumulative_epsilon": self._accountant.get_epsilon() if self._accountant else 0.0,
-                "client_epsilon": self._client_epsilon or 0.0,
-                "update_norm": 0.0,
-                "utility_loss": 0.0,
-                "utility_efficiency": 0.0,
-                "snr": 0.0,
-                "sigma": 0.0,
-                "utility_loss_clean": 0.0,
-                "utility_retention": 0.0,
-                "utility_per_remaining": 0.0,
-                "agreement": 0.0,
-                "budget_exhausted": False,
-                "per_example_clip_fraction": 0.0,
-                "grad_norm_before_clip": 0.0,
-                "grad_norm_after_clip": 0.0,
-                "num_opt_steps": 0,
-            }
-            return parameters, 0, metrics
+            return parameters, 0, self._make_empty_metrics(budget_exhausted=False)
 
         self.model.set_weights(parameters)
         net = self.model.get_model().to(get_device())
@@ -221,13 +223,14 @@ class PerExampleDPClient(FlowerClient):
             [p.detach().cpu().numpy().ravel() for p in net.parameters()],
         )
 
+        # privacy_param is either epsilon (epsilon mode) or rdp_cost (rdp_native mode)
         if self._client_epsilon is not None:
-            epsilon = self._client_epsilon
-        elif self.config.privacy.target_epsilon is not None:
-            epsilon = self.config.privacy.target_epsilon
+            privacy_param = self._client_epsilon
+        elif not self._rdp_native and self.config.privacy.target_epsilon is not None:
+            privacy_param = self.config.privacy.target_epsilon
         else:
             raise ValueError(
-                "No epsilon source for PerExampleDPClient. "
+                "No privacy parameter source for PerExampleDPClient. "
                 "Provide client_epsilon or set privacy.target_epsilon in config."
             )
 
@@ -237,7 +240,7 @@ class PerExampleDPClient(FlowerClient):
         if self._computed_sigma is not None and self._computed_sigma > 0:
             sigma = self._computed_sigma
         else:
-            sigma = calibrate_sigma_dp_sgd(epsilon, self._sampling_rate, delta)
+            sigma = calibrate_sigma_dp_sgd(privacy_param, self._sampling_rate, delta)
 
         optimizer = _get_optimizer(net, self.config)
         rng = np.random.RandomState(self._seed)
@@ -254,7 +257,6 @@ class PerExampleDPClient(FlowerClient):
                     net, images, labels, criterion,
                 )
 
-                # Stats before clipping
                 flat_before = torch.cat(
                     [g.reshape(g.shape[0], -1) for g in per_example_grads.values()],
                     dim=1,
@@ -265,7 +267,6 @@ class PerExampleDPClient(FlowerClient):
                 clipped, clip_frac = _clip_per_example(per_example_grads, clip_norm)
                 clip_fractions.append(clip_frac)
 
-                # Stats after clipping: ||mean(clipped_grads)|| for SNR
                 avg_clipped = _average_grads(clipped)
                 flat_after = torch.cat(
                     [v.reshape(1, -1) for v in avg_clipped.values()], dim=1,
@@ -288,9 +289,12 @@ class PerExampleDPClient(FlowerClient):
                 num_steps=self._total_steps_per_round,
                 mode="per_example",
             )
-            cumulative_epsilon = self._accountant.get_epsilon()
+            if self._rdp_native:
+                cumulative_privacy = self._accountant.get_rdp_at_alpha(self._rdp_alpha)
+            else:
+                cumulative_privacy = self._accountant.get_epsilon()
         else:
-            cumulative_epsilon = 0.0
+            cumulative_privacy = 0.0
 
         final_flat = np.concatenate(
             [p.detach().cpu().numpy().ravel() for p in net.parameters()],
@@ -303,15 +307,15 @@ class PerExampleDPClient(FlowerClient):
         )
         loss_degradation = max(0.0, utility_loss_noisy - utility_loss_clean)
         inv_loss_clean = 1.0 / max(utility_loss_clean, 1e-12)
-        utility_efficiency = -loss_degradation * inv_loss_clean / max(epsilon, 1e-12)
+        utility_efficiency = -loss_degradation * inv_loss_clean / max(privacy_param, 1e-12)
         utility_retention = utility_loss_noisy * inv_loss_clean
 
-        epsilon_remaining = (
+        privacy_remaining = (
             self._remaining_budget
             if self._remaining_budget is not None and self._remaining_budget > 0
-            else epsilon
+            else privacy_param
         )
-        utility_per_remaining = -loss_degradation * inv_loss_clean / max(epsilon_remaining, 1e-12)
+        utility_per_remaining = -loss_degradation * inv_loss_clean / max(privacy_remaining, 1e-12)
 
         clean_flat = clean_logits.view(clean_logits.size(0), -1)
         noisy_flat_logits = noisy_logits.view(noisy_logits.size(0), -1)
@@ -320,31 +324,51 @@ class PerExampleDPClient(FlowerClient):
         )
         agreement = 1.0 - cos_sim.mean().item()
 
-        # Compute SNR: ||mean(clipped_grads)||² / (σ * C)²
         mean_before = float(np.mean(grad_norms_before)) if grad_norms_before else 0.0
         mean_after = float(np.mean(grad_norms_after)) if grad_norms_after else 0.0
         snr = mean_after / max((sigma * clip_norm) ** 2, 1e-12)
 
         clipped_fraction = float(np.mean(clip_fractions)) if clip_fractions else 0.0
 
-        metrics = {
-            "epsilon": epsilon,
-            "cumulative_epsilon": cumulative_epsilon,
-            "client_epsilon": self._client_epsilon or 0.0,
-            "update_norm": update_norm,
-            "utility_loss": utility_loss_noisy,
-            "utility_efficiency": utility_efficiency,
-            "snr": snr,
-            "sigma": sigma,
-            "utility_loss_clean": utility_loss_clean,
-            "utility_retention": utility_retention,
-            "utility_per_remaining": utility_per_remaining,
-            "agreement": agreement,
-            "budget_exhausted": False,
-            "per_example_clip_fraction": clipped_fraction,
-            "grad_norm_before_clip": mean_before,
-            "grad_norm_after_clip": mean_after,
-            "num_opt_steps": self._total_steps_per_round,
-        }
+        if self._rdp_native:
+            metrics = {
+                "rdp_cost": privacy_param,
+                "cumulative_rdp": cumulative_privacy,
+                "client_rdp": self._client_epsilon or 0.0,
+                "update_norm": update_norm,
+                "utility_loss": utility_loss_noisy,
+                "utility_efficiency": utility_efficiency,
+                "snr": snr,
+                "sigma": sigma,
+                "utility_loss_clean": utility_loss_clean,
+                "utility_retention": utility_retention,
+                "utility_per_remaining": utility_per_remaining,
+                "agreement": agreement,
+                "budget_exhausted": False,
+                "per_example_clip_fraction": clipped_fraction,
+                "grad_norm_before_clip": mean_before,
+                "grad_norm_after_clip": mean_after,
+                "num_opt_steps": self._total_steps_per_round,
+            }
+        else:
+            metrics = {
+                "epsilon": privacy_param,
+                "cumulative_epsilon": cumulative_privacy,
+                "client_epsilon": self._client_epsilon or 0.0,
+                "update_norm": update_norm,
+                "utility_loss": utility_loss_noisy,
+                "utility_efficiency": utility_efficiency,
+                "snr": snr,
+                "sigma": sigma,
+                "utility_loss_clean": utility_loss_clean,
+                "utility_retention": utility_retention,
+                "utility_per_remaining": utility_per_remaining,
+                "agreement": agreement,
+                "budget_exhausted": False,
+                "per_example_clip_fraction": clipped_fraction,
+                "grad_norm_before_clip": mean_before,
+                "grad_norm_after_clip": mean_after,
+                "num_opt_steps": self._total_steps_per_round,
+            }
 
         return noisy_weights, len(self.trainloader.dataset), metrics  # type: ignore[arg-type]

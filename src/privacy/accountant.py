@@ -61,6 +61,24 @@ class RDPAccountant:
         best_idx = int(np.argmin(masked))
         return float(epsilons[best_idx]), float(RDP_ALPHAS[best_idx])
 
+    def get_rdp_at_alpha(self, alpha: float) -> float:
+        """Return accumulated RDP cost at a specific alpha via linear interpolation."""
+        if not self._steps:
+            return 0.0
+        if alpha <= 1.0:
+            raise ValueError("alpha must be > 1")
+        rdp_values = self._rdp_per_alpha.astype(np.float64)
+        alphas = RDP_ALPHAS.astype(np.float64)
+        if alpha <= alphas[0]:
+            return float(rdp_values[0])
+        if alpha >= alphas[-1]:
+            return float(rdp_values[-1])
+        idx = int(np.searchsorted(alphas, alpha))
+        if idx == 0:
+            return float(rdp_values[0])
+        frac = (alpha - alphas[idx - 1]) / (alphas[idx] - alphas[idx - 1])
+        return float(rdp_values[idx - 1] + frac * (rdp_values[idx] - rdp_values[idx - 1]))
+
     def get_privacy_spent(self, delta: float | None = None) -> dict[str, float]:
         eps = self.get_epsilon(delta)
         return {"epsilon": eps, "delta": delta if delta is not None else self._delta}

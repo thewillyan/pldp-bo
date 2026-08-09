@@ -31,6 +31,8 @@ privacy:
   update_clip_norm: 1.0
   delta: 1e-5
   accountant: rdp
+  accountant_mode: epsilon  # "epsilon" | "rdp_native"
+  rdp_alpha: 10.0           # fixed Renyi order for rdp_native mode
 
 personalization:
   enabled: false
@@ -45,6 +47,8 @@ bo:
   epsilon_min: 0.2
   epsilon_max: 10.0
   epsilon_budget: 10.0
+  rdp_min: 0.01            # min RDP(alpha) for BO search in rdp_native mode
+  rdp_max: 2.0             # max RDP(alpha) for BO search in rdp_native mode
   optimization_metric: nun
   grid_points: 100
   acquisition_penalty: 0.1
