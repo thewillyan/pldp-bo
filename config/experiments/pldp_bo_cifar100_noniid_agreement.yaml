@@ -48,8 +48,8 @@ bo:
   enabled: true
   optimization_metric: agreement
   bounds_strategy: from_rdp
-  bounds_ratio_min: 1.25
-  bounds_ratio_max: 2.5
+  bounds_ratio_min: 0.08
+  bounds_ratio_max: 1.2
   max_warmup_ratio: 0.2
   min_warmup: 5
   acquisition_penalty: 0.1

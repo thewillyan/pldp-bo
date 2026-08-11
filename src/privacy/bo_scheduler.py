@@ -302,6 +302,7 @@ class PLDPBORDPScheduler(RDPNativeScheduler):
         rdp_min: float,
         rdp_max: float,
         warmup_rounds: int = 20,
+        num_rounds: int = 100,
         acquisition_penalty: float = 0.1,
         grid_points: int = 100,
         gp_kernel: str = "matern52",
@@ -316,6 +317,8 @@ class PLDPBORDPScheduler(RDPNativeScheduler):
             raise ValueError("rdp_max must be greater than rdp_min")
         if warmup_rounds < 2:
             raise ValueError("warmup_rounds must be at least 2")
+        if num_rounds < warmup_rounds:
+            raise ValueError("num_rounds must be >= warmup_rounds")
         if acquisition_penalty < 0:
             raise ValueError("acquisition_penalty must be non-negative")
         if grid_points < 10:
@@ -328,6 +331,7 @@ class PLDPBORDPScheduler(RDPNativeScheduler):
         self._rdp_min = rdp_min
         self._rdp_max = rdp_max
         self._warmup_rounds = warmup_rounds
+        self._num_rounds = num_rounds
         self._acquisition_penalty = acquisition_penalty
         self._grid_points = grid_points
         self._gp_kernel_name = gp_kernel
@@ -415,7 +419,9 @@ class PLDPBORDPScheduler(RDPNativeScheduler):
         alpha = ei_norm - self._acquisition_penalty * penalty
 
         if self._remaining_budget is not None:
-            alpha[grid > self._remaining_budget * (1 - self._budget_margin)] = -np.inf
+            remaining_rounds = max(self._num_rounds - self._round, 1)
+            max_per_round = self._remaining_budget / remaining_rounds
+            alpha[grid > max_per_round * (1 - self._budget_margin)] = -np.inf
 
         return float(grid[np.argmax(alpha)])
 
@@ -425,6 +431,7 @@ class PLDPBORDPScheduler(RDPNativeScheduler):
             "rdp_min": self._rdp_min,
             "rdp_max": self._rdp_max,
             "warmup_rounds": self._warmup_rounds,
+            "num_rounds": self._num_rounds,
             "acquisition_penalty": self._acquisition_penalty,
             "grid_points": self._grid_points,
             "gp_kernel": self._gp_kernel_name,
@@ -456,6 +463,7 @@ class PLDPBORDPScheduler(RDPNativeScheduler):
             rdp_min=state["rdp_min"],
             rdp_max=state["rdp_max"],
             warmup_rounds=state["warmup_rounds"],
+            num_rounds=state.get("num_rounds", 100),
             acquisition_penalty=state["acquisition_penalty"],
             grid_points=state["grid_points"],
             gp_kernel=state["gp_kernel"],

@@ -121,6 +121,7 @@ def _make_rdp_native_scheduler(
             rdp_min=r_min,
             rdp_max=r_max,
             warmup_rounds=w_rounds,
+            num_rounds=config.federated.num_rounds,
             acquisition_penalty=config.bo.acquisition_penalty,
             grid_points=config.bo.grid_points,
             gp_kernel=config.bo.gp_kernel,
@@ -365,8 +366,11 @@ def train(msg: Message, context: Context) -> Message:
         metric_value = fit_metrics.get(metric_key)
         if metric_value is not None:
             if rdp_native:
-                rdp_val = fit_metrics.get("rdp_cost", 0.0)
-                scheduler.step(rdp_val, float(metric_value))
+                rdp_step = fit_metrics.get("rdp_cost", 0.0)
+                # The scheduler operates in per-round RDP space; the client
+                # reports per-step rdp_cost, so scale back up by num_steps.
+                num_steps = config.federated.local_epochs * len(trainloader)
+                scheduler.step(rdp_step * num_steps, float(metric_value))
             else:
                 epsilon_val = fit_metrics.get("epsilon", 0.0)
                 scheduler.step(epsilon_val, float(metric_value))
@@ -484,9 +488,14 @@ def _resolve_rdp(
                 )
             sampling_rate = config.data.batch_size / local_train_size
             num_steps = total_steps_per_round if total_steps_per_round is not None else 1
+            # The scheduler operates in per-round RDP space; enforce_rdp_budget
+            # works with per-step costs (projected = current + cost * num_steps),
+            # so convert both the candidate and the lower bound to per-step.
+            candidate_per_step = candidate / num_steps
+            lower_bound_per_step = lower_bound / num_steps
             candidate, computed_sigma = enforce_rdp_budget(
-                candidate, current_rdp, total_budget,
-                lower_bound, alpha, config.privacy.update_clip_norm,
+                candidate_per_step, current_rdp, total_budget,
+                lower_bound_per_step, alpha, config.privacy.update_clip_norm,
                 clipping_mode="per_example", num_steps=num_steps,
                 sampling_rate=sampling_rate,
             )
