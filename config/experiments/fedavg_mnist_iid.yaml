@@ -12,7 +12,7 @@ federated:
   num_rounds: 25
   fraction_fit: 0.5
   fraction_evaluate: 0.2
-  local_epochs: 4
+  local_epochs: 2
   strategy: fedavg
   min_fit_clients: 2
   min_evaluate_clients: 2
@@ -35,7 +35,7 @@ privacy:
   accountant: rdp
   accountant_mode: rdp_native
   rdp_alpha: 10.0
-  total_budget: 20.0
+  total_budget: 200.0
 
 personalization:
   enabled: true

@@ -35,7 +35,7 @@ privacy:
   accountant: rdp
   accountant_mode: rdp_native
   rdp_alpha: 10.0
-  total_budget: 20.0
+  total_budget: 120.0
 
 personalization:
   enabled: true
