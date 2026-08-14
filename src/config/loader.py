@@ -18,6 +18,7 @@ class DataConfig:
     num_clients: int = 10
     partition_type: str = "iid"
     partition_alpha: float = 1.0
+    partition_min_samples: int = 30
     batch_size: int = 64
     val_split: float = 0.1
 

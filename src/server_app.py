@@ -1,19 +1,14 @@
 from __future__ import annotations
 
-import functools
 import json
 import logging
 
-import torch
-from flwr.app import ArrayRecord, ConfigRecord, Context, Message, MetricRecord, RecordDict
+from flwr.app import ArrayRecord, ConfigRecord, Context, Message, RecordDict
 from flwr.serverapp import Grid, ServerApp
 from flwr.serverapp.strategy import FedAvg, FedProx  # noqa: F401  # used in type annotation
-from torch.utils.data import DataLoader
 
 from src.config.loader import ExperimentConfig, load_config
 from src.config.locked import assert_locked_config
-from src.data import create_validation_loader
-from src.device import get_device, to_device
 from src.models import create_model
 from src.server.strategy import MedianRobustAggregation, SafeFedAvg, SafeFedProx
 from src.tracking.tracker import ExperimentTracker
@@ -169,42 +164,6 @@ def _compute_per_client_budgets(
     return budgets, None
 
 
-def _run_global_evaluate(
-    server_round: int,
-    arrays: ArrayRecord,
-    config: ExperimentConfig,
-    valloader: DataLoader,
-    tracker: ExperimentTracker,
-) -> MetricRecord:
-    model = create_model(config.model, dataset_name=config.data.name)
-    model.get_model().load_state_dict(arrays.to_torch_state_dict())
-    net = model.get_model().to(get_device())
-    net.eval()
-
-    criterion = torch.nn.CrossEntropyLoss()
-    loss = 0.0
-    correct = 0
-    total = 0
-
-    with torch.no_grad():
-        for batch_images, batch_labels in valloader:
-            images, labels = to_device((batch_images, batch_labels))
-            outputs = net(images)
-            loss += criterion(outputs, labels).item()
-            _, predicted = torch.max(outputs, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-
-    accuracy = correct / total
-    avg_loss = loss / len(valloader)
-
-    metrics: dict[str, float] = {
-        "server_loss": avg_loss,
-        "accuracy": accuracy,
-    }
-    tracker.log_round_metrics(server_round, metrics)
-
-    return MetricRecord({"accuracy": accuracy, "loss": avg_loss})
 
 
 @app.main()
@@ -224,8 +183,6 @@ def main(grid: Grid, context: Context) -> None:
     assert_locked_config(config)
 
     set_seed(config.seed, deterministic=config.deterministic)
-
-    valloader = create_validation_loader(config.data, seed=config.seed)
 
     tracker = ExperimentTracker(config)
     tracker.start_run()
@@ -287,12 +244,6 @@ def main(grid: Grid, context: Context) -> None:
         grid=grid,
         initial_arrays=arrays,
         num_rounds=config.federated.num_rounds,
-        evaluate_fn=functools.partial(
-            _run_global_evaluate,
-            config=config,
-            valloader=valloader,
-            tracker=tracker,
-        ),
     )
 
     tracker.end_run()

@@ -208,7 +208,7 @@ def train(msg: Message, context: Context) -> Message:
     num_partitions = int(context.node_config["num-partitions"])
     client_seed = config.seed + partition_id
 
-    trainloader, valloader, client_subset, total_train_size = create_client_dataloader(
+    trainloader, valloader, client_subset, _, total_train_size = create_client_dataloader(
         config.data, partition_id, num_partitions, config.seed,
     )
 
@@ -525,7 +525,7 @@ def query(msg: Message, context: Context) -> Message:
     if task == "personalization_metadata":
         partition_id = int(context.node_config["partition-id"])
         num_partitions = int(context.node_config["num-partitions"])
-        _, _, client_subset, total_train_size = create_client_dataloader(
+        _, _, client_subset, _, total_train_size = create_client_dataloader(
             config.data, partition_id, num_partitions, config.seed,
         )
 

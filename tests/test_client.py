@@ -42,6 +42,21 @@ def _identity_noise(
     return grads
 
 
+class _CountingOptimizer:
+    """Delegate optimizer that counts .step() calls."""
+
+    def __init__(self, optimizer: torch.optim.Optimizer, counter: list[int]) -> None:
+        self._optimizer = optimizer
+        self._counter = counter
+
+    def step(self) -> None:
+        self._counter[0] += 1
+        self._optimizer.step()
+
+    def zero_grad(self) -> None:
+        self._optimizer.zero_grad()
+
+
 class TestGetOptimizer:
     def test_sgd(self) -> None:
         config = ExperimentConfig()
@@ -347,6 +362,163 @@ class TestPerExampleDPClient:
         weights, num_examples, metrics = client.fit(params, {})
         assert num_examples == 0
         assert metrics["budget_exhausted"] is True
+
+    def test_clean_pass_runs_for_reference_variant(self) -> None:
+        from src.client.per_example_dp_client import PerExampleDPClient
+        config = self._make_config()
+        config.method = "pldpbo_retention"
+        model = _SimpleModel()
+        loader = _make_loader()
+        client = PerExampleDPClient(
+            model, loader, loader, config,
+            client_epsilon=1.0, seed=42,
+        )
+        params = client.get_parameters({})
+        _, _, metrics = client.fit(params, {})
+        assert metrics["utility_loss_clean"] > 0
+        assert metrics["update_norm_clean"] > 0
+        assert metrics["utility_retention"] > 0
+
+    def test_no_clean_pass_for_nun(self) -> None:
+        from src.client.per_example_dp_client import PerExampleDPClient
+        config = self._make_config()
+        config.method = "pldpbo_nun"
+        model = _SimpleModel()
+        loader = _make_loader()
+        client = PerExampleDPClient(
+            model, loader, loader, config,
+            client_epsilon=1.0, seed=42,
+        )
+        params = client.get_parameters({})
+        _, _, metrics = client.fit(params, {})
+        assert metrics["utility_loss_clean"] == 0.0
+        assert metrics["update_norm_clean"] == 0.0
+        assert metrics["utility_retention"] == 0.0
+        assert metrics["utility_efficiency"] == 0.0
+        assert metrics["utility_per_remaining"] == 0.0
+        assert metrics["logit_disagreement"] == 0.0
+
+    def test_clean_loss_differs_from_global_model_eval(self) -> None:
+        from src.client.per_example_dp_client import PerExampleDPClient
+        from src.privacy.metrics import compute_validation_stats
+        config = self._make_config()
+        config.method = "pldpbo_retention"
+        config.optimizer.lr = 0.5
+        model = _SimpleModel()
+        loader = _make_loader()
+        client = PerExampleDPClient(
+            model, loader, loader, config,
+            client_epsilon=1.0, seed=42,
+        )
+        params = client.get_parameters({})
+        model.set_weights(params)
+        global_loss, _ = compute_validation_stats(
+            model.get_model(), loader, nn.CrossEntropyLoss(),
+        )
+        _, _, metrics = client.fit(params, {})
+        assert not np.isclose(metrics["utility_loss_clean"], global_loss)
+
+    def test_clean_pass_accounting_unaffected(self) -> None:
+        from src.client.per_example_dp_client import PerExampleDPClient
+        reference_config = self._make_config()
+        reference_config.method = "pldpbo_retention"
+        nun_config = self._make_config()
+        nun_config.method = "pldpbo_nun"
+        model = _SimpleModel()
+        loader = _make_loader()
+
+        reference = PerExampleDPClient(
+            _SimpleModel(), loader, loader, reference_config,
+            client_epsilon=1.0, seed=42,
+        )
+        nun = PerExampleDPClient(
+            model, loader, loader, nun_config,
+            client_epsilon=1.0, seed=42,
+        )
+        params = nun.get_parameters({})
+        _, _, ref_metrics = reference.fit(params, {})
+        _, _, nun_metrics = nun.fit(params, {})
+        assert ref_metrics["sigma"] == nun_metrics["sigma"]
+        assert ref_metrics["cumulative_epsilon"] == nun_metrics["cumulative_epsilon"]
+
+    def test_clean_loss_varies_per_client(self) -> None:
+        from src.client.per_example_dp_client import PerExampleDPClient
+        config = self._make_config()
+        config.method = "pldpbo_retention"
+        config.data.batch_size = 4
+        x1 = torch.randn(16, 10)
+        y1 = torch.randint(0, 2, (16,))
+        x2 = torch.randn(16, 10) + 5.0  # shifted distribution
+        y2 = torch.randint(0, 2, (16,))
+        loader_a = DataLoader(TensorDataset(x1, y1), batch_size=4)
+        loader_b = DataLoader(TensorDataset(x2, y2), batch_size=4)
+        params = _SimpleModel().get_weights()
+
+        client_a = PerExampleDPClient(
+            _SimpleModel(), loader_a, loader_a, config,
+            client_epsilon=1.0, seed=42,
+        )
+        client_b = PerExampleDPClient(
+            _SimpleModel(), loader_b, loader_b, config,
+            client_epsilon=1.0, seed=42,
+        )
+        _, _, metrics_a = client_a.fit(params, {})
+        _, _, metrics_b = client_b.fit(params, {})
+        assert not np.isclose(
+            metrics_a["utility_loss_clean"], metrics_b["utility_loss_clean"],
+        )
+
+    def test_clean_pass_doubles_optimizer_steps(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from src.client import per_example_dp_client as mod
+        from src.client.per_example_dp_client import PerExampleDPClient
+        dp_steps: list[int] = [0]
+        clean_steps: list[int] = [0]
+        original = mod._get_optimizer  # type: ignore[attr-defined]
+
+        def counting(
+            net: nn.Module, config: ExperimentConfig, momentum: float | None = None,
+        ) -> _CountingOptimizer:
+            opt = original(net, config, momentum=momentum)
+            counter = clean_steps if momentum is None else dp_steps
+            return _CountingOptimizer(opt, counter)
+
+        monkeypatch.setattr(mod, "_get_optimizer", counting)
+        config = self._make_config()
+        config.optimizer.momentum = 0.9
+        config.method = "pldpbo_retention"
+        model = _SimpleModel()
+        loader = _make_loader()
+        client = PerExampleDPClient(
+            model, loader, loader, config,
+            client_epsilon=1.0, seed=42,
+        )
+        params = client.get_parameters({})
+        client.fit(params, {})
+        assert dp_steps[0] > 0
+        assert clean_steps[0] == dp_steps[0]
+
+
+class TestPerUpdateDPClient:
+    def _make_config(self) -> ExperimentConfig:
+        config = ExperimentConfig()
+        config.privacy.enabled = True
+        config.privacy.clipping_mode = "per_update"
+        config.data.batch_size = 2  # match _make_loader
+        return config
+
+    def test_fit_reports_clean_update_norm(self) -> None:
+        from src.client.per_update_dp_client import PerUpdateDPClient
+        config = self._make_config()
+        model = _SimpleModel()
+        loader = _make_loader()
+        client = PerUpdateDPClient(
+            model, loader, loader, config,
+            client_epsilon=1.0, seed=42,
+        )
+        params = client.get_parameters({})
+        _, _, metrics = client.fit(params, {})
+        assert metrics["update_norm_clean"] > 0
+        assert "update_norm_clean" in metrics
 
 
 class TestClipPerExample:

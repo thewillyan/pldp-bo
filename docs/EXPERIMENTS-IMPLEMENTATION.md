@@ -711,3 +711,38 @@ Everything below is the repo-side subset of `EXPERIMENTS-TODO.md` §8:
   and RDP cost identical with/without momentum (accounting unchanged). 8 new tests, 1 removed
   (test_momentum_rejected); 436 tests green; ruff/mypy baseline unchanged (only the 3 pre-existing
   line-shifted errors).
+- 2026-08-14: **IMPL-05 closed.** Partition types (spec §3). `src/data/partitioner.py` rewritten:
+  index-plan based (`_plan_partition` + per-client materialization), so `partition_single` and the
+  full `partition_dataset` are structurally identical — single-client parity is guaranteed, not
+  tested. `noniid` kept as a deprecated alias of `dirichlet` with α=0.5 (archive YAMLs use it);
+  `writer` recognized but raises `NotImplementedError` ("requires the FEMNIST pipeline, IMPL-07").
+  Pathological: greedy least-covered class-pair assignment (tie: lowest class id), each class
+  covered ⌈2K/C⌉ times (MNIST cell: 20 clients × 2 classes, 600/client; CIFAR-100 cell: 2,
+  500/client), balanced seeded chunks. Min-30: `_enforce_min_samples` tops up deficient clients
+  (smallest-first, tie: lowest id) from the largest donor's trailing slice (donors never drop
+  below 30; K preserved); degenerate exhaustion impossible for paper cells. `partition_dataset`
+  gained `seed=` (previously global RNG — determinism bug); `build_partition_kwargs` helper added
+  for IMPL-11 logging; `DataConfig.partition_min_samples: int = 30`. 15 new tests (alias/parity/
+  pathological coverage/empty-fill/min-30 non-vacuous checks: sizes 1→30, donors 201→85); 451
+  tests green; ruff/mypy zero new errors (mypy 64→52: rewrite dropped bare generics). Note:
+  `src/data/` is gitignored/untracked — the partitioner rewrite is not in git history.
+- 2026-08-14: **IMPL-06 closed.** Per-client validation subset + clean pre-DP pass (spec §9.6).
+  `src/data/__init__.py` rewritten: `create_dataset` now returns the full official train set (no
+  `random_split`), `_cached_dataset(name, data_dir)`; `create_client_dataloader` returns a
+  5-tuple `(train_loader, val_loader, train_subset, val_subset, total_train_size)`;
+  `create_validation_loader` deleted (client-side hold-out instead of server-side global split).
+  New `partitioner.split_holdout(subset, val_frac, seed)`: dedicated `np.random.RandomState`,
+  floor(10%) of the client partition, val/train Subsets of the same underlying dataset; seed =
+  `seed + partition_id` (fixed across rounds); `total_train_size` stays global (data_proportional
+  weighting); min-30 applies pre-holdout. `server_app.py`: global-model validation evaluation
+  (`_run_global_evaluate` + `evaluate_fn`) removed — `server_loss`/`accuracy` absent until IMPL-08
+  official test-set eval. `client_app.py` call sites unpack the 5-tuple; `client_subset` is now the
+  post-holdout train_subset. `per_example_dp_client.py`: clean pass only for
+  retention/efficiency/perremaining/snr/agreement (`CLEAN_PASS_METHODS`); clean pass = fresh
+  training of a deepcopy of the pristine global net taken before the DP pass (same E/B/lr/
+  momentum/seed, no clip/noise/accountant); NUN/Utility/nonprivate/`""` skip → clean-derived
+  metrics reported as 0.0; new additive metric `update_norm_clean` (per_update: `= delta_norm`).
+  Verified: L_clean varies per client, accounting (σ, cumulative_epsilon) unaffected by the clean
+  pass, clean optimizer steps exactly double DP steps. 21 new tests (14 data, 7 client); 472 tests
+  green; ruff/mypy zero new errors vs git HEAD (mypy 196 total; only removals: 3 old server_app
+  errors). `src/data/` still untracked/gitignored.

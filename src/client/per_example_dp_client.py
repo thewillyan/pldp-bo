@@ -23,6 +23,17 @@ from src.privacy.per_update_dp import (
 
 logger = logging.getLogger(__name__)
 
+# Reference variants compute their clean statistics from a locally-trained
+# no-DP model (spec §9.6). NUN/Utility (and the fixed baselines) use only the
+# privatized model, so they skip the clean pass (≈2x local cost saving).
+CLEAN_PASS_METHODS = frozenset({
+    "pldpbo_retention",
+    "pldpbo_efficiency",
+    "pldpbo_perremaining",
+    "pldpbo_snr",
+    "pldpbo_agreement",
+})
+
 
 # ---------------------------------------------------------------------------
 # Per-example gradient helpers
@@ -103,6 +114,44 @@ def _set_model_grads(model: nn.Module, grads: dict[str, torch.Tensor]) -> None:
         param.grad = grads[name]
 
 
+def _run_clean_pass(
+    clean_net: nn.Module,
+    trainloader: DataLoader[Any],
+    config: ExperimentConfig,
+    criterion: nn.Module,
+) -> tuple[nn.Module, float]:
+    """Train a fresh local model from the global weights with no DP noise.
+
+    *clean_net* must be a pristine copy of the global model (the DP pass
+    mutates the client's own model in place). Same E, B, lr, momentum and seed
+    as the DP pass; no clipping, no noise and no accountant steps — the clean
+    pass consumes no privacy budget. Returns (clean model, clean update norm
+    ||w_clean - w_global||), consumed by the reference variants and by IMPL-10's
+    SNR formula.
+    """
+    clean_net.train()
+
+    initial_flat = np.concatenate(
+        [p.detach().cpu().numpy().ravel() for p in clean_net.parameters()],
+    )
+
+    optimizer = _get_optimizer(clean_net, config)
+    for _ in range(config.federated.local_epochs):
+        for batch in trainloader:
+            images, labels = to_device(batch)
+            optimizer.zero_grad()
+            outputs = clean_net(images)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+
+    final_flat = np.concatenate(
+        [p.detach().cpu().numpy().ravel() for p in clean_net.parameters()],
+    )
+    update_norm_clean = float(np.linalg.norm(final_flat - initial_flat))
+    return clean_net, update_norm_clean
+
+
 # ---------------------------------------------------------------------------
 # Client
 # ---------------------------------------------------------------------------
@@ -155,6 +204,7 @@ class PerExampleDPClient(FlowerClient):
                 "cumulative_rdp": self._accountant.get_rdp_at_alpha(self._rdp_alpha) if self._accountant else 0.0,
                 "client_rdp": self._client_epsilon or 0.0,
                 "update_norm": 0.0,
+                "update_norm_clean": 0.0,
                 "utility_loss": 0.0,
                 "utility_efficiency": 0.0,
                 "snr": 0.0,
@@ -174,6 +224,7 @@ class PerExampleDPClient(FlowerClient):
             "cumulative_epsilon": self._accountant.get_epsilon() if self._accountant else 0.0,
             "client_epsilon": self._client_epsilon or 0.0,
             "update_norm": 0.0,
+            "update_norm_clean": 0.0,
             "utility_loss": 0.0,
             "utility_efficiency": 0.0,
             "snr": 0.0,
@@ -206,11 +257,10 @@ class PerExampleDPClient(FlowerClient):
 
         proximal_mu = self.config.federated.proximal_mu
         global_params = copy.deepcopy(dict(net.named_parameters())) if proximal_mu > 0 else {}
-
-        utility_loss_clean, clean_logits = compute_validation_stats(
-            net, self.valloader, criterion,
-        )
-        net.train()
+        clean_pass = self.config.method in CLEAN_PASS_METHODS
+        # Pristine global copy for the clean pass: the DP pass mutates *net*
+        # in place, so the copy must be taken before training starts.
+        clean_net_ref = copy.deepcopy(net) if clean_pass else None
 
         initial_flat = np.concatenate(
             [p.detach().cpu().numpy().ravel() for p in net.parameters()],
@@ -330,24 +380,48 @@ class PerExampleDPClient(FlowerClient):
         utility_loss_noisy, noisy_logits = compute_validation_stats(
             self.model.get_model(), self.valloader, criterion,
         )
-        loss_degradation = max(0.0, utility_loss_noisy - utility_loss_clean)
-        inv_loss_clean = 1.0 / max(utility_loss_clean, 1e-12)
-        utility_efficiency = -loss_degradation * inv_loss_clean / max(privacy_param, 1e-12)
-        utility_retention = utility_loss_noisy * inv_loss_clean
 
-        privacy_remaining = (
-            self._remaining_budget
-            if self._remaining_budget is not None and self._remaining_budget > 0
-            else privacy_param
-        )
-        utility_per_remaining = -loss_degradation * inv_loss_clean / max(privacy_remaining, 1e-12)
+        if clean_pass:
+            assert clean_net_ref is not None
+            clean_net, update_norm_clean = _run_clean_pass(
+                clean_net_ref, self.trainloader, self.config, criterion,
+            )
+            clean_net.eval()
+            utility_loss_clean, clean_logits = compute_validation_stats(
+                clean_net, self.valloader, criterion,
+            )
+        else:
+            utility_loss_clean = 0.0
+            update_norm_clean = 0.0
+            clean_logits = None
 
-        clean_flat = clean_logits.view(clean_logits.size(0), -1)
-        noisy_flat_logits = noisy_logits.view(noisy_logits.size(0), -1)
-        cos_sim = torch.nn.functional.cosine_similarity(
-            clean_flat, noisy_flat_logits, dim=1,
+        if clean_pass:
+            loss_degradation = max(0.0, utility_loss_noisy - utility_loss_clean)
+            inv_loss_clean = 1.0 / max(utility_loss_clean, 1e-12)
+            utility_efficiency = -loss_degradation * inv_loss_clean / max(privacy_param, 1e-12)
+            utility_retention = utility_loss_noisy * inv_loss_clean
+
+            privacy_remaining = (
+                self._remaining_budget
+                if self._remaining_budget is not None and self._remaining_budget > 0
+                else privacy_param
+            )
+            utility_per_remaining = (
+            -loss_degradation * inv_loss_clean / max(privacy_remaining, 1e-12)
         )
-        logit_disagreement = 1.0 - cos_sim.mean().item()
+
+            assert clean_logits is not None
+            clean_flat = clean_logits.view(clean_logits.size(0), -1)
+            noisy_flat_logits = noisy_logits.view(noisy_logits.size(0), -1)
+            cos_sim = torch.nn.functional.cosine_similarity(
+                clean_flat, noisy_flat_logits, dim=1,
+            )
+            logit_disagreement = 1.0 - cos_sim.mean().item()
+        else:
+            utility_efficiency = 0.0
+            utility_retention = 0.0
+            utility_per_remaining = 0.0
+            logit_disagreement = 0.0
 
         mean_before = float(np.mean(grad_norms_before)) if grad_norms_before else 0.0
         mean_after = float(np.mean(grad_norms_after)) if grad_norms_after else 0.0
@@ -365,6 +439,7 @@ class PerExampleDPClient(FlowerClient):
                 "cumulative_rdp": cumulative_privacy,
                 "client_rdp": self._client_epsilon or 0.0,
                 "update_norm": update_norm,
+                "update_norm_clean": update_norm_clean,
                 "utility_loss": utility_loss_noisy,
                 "utility_efficiency": utility_efficiency,
                 "snr": snr,
@@ -385,6 +460,7 @@ class PerExampleDPClient(FlowerClient):
                 "cumulative_epsilon": cumulative_privacy,
                 "client_epsilon": self._client_epsilon or 0.0,
                 "update_norm": update_norm,
+                "update_norm_clean": update_norm_clean,
                 "utility_loss": utility_loss_noisy,
                 "utility_efficiency": utility_efficiency,
                 "snr": snr,
