@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Sequence
+from typing import Any, cast
 
 import numpy as np
 import pytest
 import torch
+from flwr.app import ArrayRecord, ConfigRecord, Message, RecordDict
 from torch import nn
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, Subset, TensorDataset
 
 from src.client import create_client
 from src.client.base_client import FlowerClient, _get_optimizer
@@ -560,3 +563,135 @@ class TestClipPerExample:
         assert abs(norms[1].item() - 0.3) < 1e-5
         # norm 0.7 → clipped to 0.3
         assert abs(norms[2].item() - 0.3) < 1e-5
+
+
+class _FixedPredictionModel:
+    """Model stub whose Linear(6, 62) predicts class p_i for one-hot input e_i."""
+
+    def __init__(self, predictions: Sequence[int]) -> None:
+        net = nn.Linear(6, 62, bias=False)
+        with torch.no_grad():
+            net.weight.zero_()
+            for i, p in enumerate(predictions):
+                net.weight[p, i] = 1.0
+        self._net = net
+
+    def get_model(self) -> nn.Module:
+        return self._net
+
+    def set_weights(self, parameters: list[Any]) -> None:
+        pass
+
+
+class _FakeQueryContext:
+    run_config = {"config-path": "unused.yaml"}
+    node_config = {"partition-id": "0", "num-partitions": "2"}
+
+
+class TestClientTestAccuracyQuery:
+    def _make_train_dataset(self) -> TensorDataset:
+        dataset = TensorDataset(torch.randn(5, 6), torch.tensor([0, 1, 2, 0, 1]))
+        cast(Any, dataset).users = torch.tensor([0, 0, 1, 1, 2])
+        return dataset
+
+    def _make_test_dataset(self, users: list[int]) -> TensorDataset:
+        dataset = TensorDataset(torch.eye(6), torch.tensor([0, 1, 2, 0, 1, 2]))
+        cast(Any, dataset).users = torch.tensor(users)
+        return dataset
+
+    def _monkeypatch(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        train_subset: Subset[Any],
+        config: ExperimentConfig,
+        test_users: list[int] | None = None,
+    ) -> None:
+        monkeypatch.setattr(
+            "src.client_app.load_config",
+            lambda path, overrides: config,  # noqa: ARG005
+        )
+        monkeypatch.setattr(
+            "src.client_app.create_client_dataloader",
+            lambda _data, _pid, _num, _seed: (None, None, train_subset, None, 5),
+        )
+        monkeypatch.setattr(
+            "src.client_app.create_dataset",
+            lambda _data: self._make_train_dataset(),
+        )
+        users = test_users if test_users is not None else [0, 1, 2, 0, 1, 2]
+        monkeypatch.setattr(
+            "src.client_app.create_test_dataset",
+            lambda _data: self._make_test_dataset(users),
+        )
+        monkeypatch.setattr(
+            "src.client_app.create_dataloaders",
+            lambda dataset, batch_size, shuffle: DataLoader(
+                dataset, batch_size=batch_size, shuffle=shuffle,
+            ),
+        )
+        monkeypatch.setattr(
+            "src.client_app.create_model",
+            lambda _model_cfg, dataset_name: _FixedPredictionModel([0, 1, 9, 9, 1, 9]),  # noqa: ARG005
+        )
+
+    def test_evaluates_only_own_writers_test_samples(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from src.client_app import query
+        config = ExperimentConfig()
+        config.data.name = "femnist"
+        train_subset = Subset(self._make_train_dataset(), [0, 1, 2, 3])  # writers {0, 1}
+        self._monkeypatch(monkeypatch, train_subset, config)
+        msg = Message(
+            content=RecordDict({
+                "config": ConfigRecord({"task": "client_test_accuracy"}),
+                "arrays": ArrayRecord(
+                    _FixedPredictionModel([0, 1, 9, 9, 1, 9]).get_model().state_dict(),
+                ),
+            }),
+            message_type="query",
+            dst_node_id=0,
+            group_id="t",
+        )
+        reply = query(msg, cast(Any, _FakeQueryContext()))
+        meta = reply.content.config_records.get("config", ConfigRecord())
+        assert meta.get("partition_id") == 0
+        # test samples of writers {0,1}: indices 0,1,3,4; predictions 0,1,9,1 vs labels 0,1,0,1
+        assert meta.get("test_accuracy") == pytest.approx(0.75)
+        assert meta.get("n_test") == 4
+
+    def test_no_test_samples_for_writer_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from src.client_app import query
+        config = ExperimentConfig()
+        config.data.name = "femnist"
+        train_subset = Subset(self._make_train_dataset(), [4])  # writer {2} only
+        self._monkeypatch(monkeypatch, train_subset, config, test_users=[0, 1, 0, 1, 0, 1])
+        msg = Message(
+            content=RecordDict({
+                "config": ConfigRecord({"task": "client_test_accuracy"}),
+                "arrays": ArrayRecord({}),
+            }),
+            message_type="query",
+            dst_node_id=0,
+            group_id="t",
+        )
+        reply = query(msg, cast(Any, _FakeQueryContext()))
+        meta = reply.content.config_records.get("config", ConfigRecord())
+        assert meta.get("test_accuracy") == pytest.approx(0.0)
+        assert meta.get("n_test") == 0
+
+    def test_requires_femnist_dataset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from src.client_app import query
+        config = ExperimentConfig()
+        config.data.name = "mnist"
+        train_subset = Subset(self._make_train_dataset(), [0])
+        self._monkeypatch(monkeypatch, train_subset, config)
+        msg = Message(
+            content=RecordDict({
+                "config": ConfigRecord({"task": "client_test_accuracy"}),
+                "arrays": ArrayRecord({}),
+            }),
+            message_type="query",
+            dst_node_id=0,
+            group_id="t",
+        )
+        with pytest.raises(ValueError, match="femnist"):
+            query(msg, cast(Any, _FakeQueryContext()))

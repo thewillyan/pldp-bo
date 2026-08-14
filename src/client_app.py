@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import logging
-from typing import Union
+from typing import Any, Union, cast
 
 import numpy as np
+import torch
 from flwr.app import ArrayRecord, ConfigRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
+from torch.utils.data import Subset
 
 from src.client import create_client
 from src.config.loader import ExperimentConfig, load_config
 from src.config.locked import assert_locked_config
-from src.data import create_client_dataloader
+from src.data import create_client_dataloader, create_dataset, create_test_dataset
+from src.data.dataloaders import create_dataloaders
+from src.device import get_device, to_device
 from src.models import create_model
 from src.privacy.accountant import RDPAccountant
 from src.privacy.bo_scheduler import PLDPBORDPScheduler, PLDPBOScheduler
@@ -542,6 +546,63 @@ def query(msg: Message, context: Context) -> Message:
                 "config": ConfigRecord({
                     "partition_id": partition_id,
                     "budget_weight": weight,
+                }),
+            }),
+            reply_to=msg,
+        )
+
+    if task == "client_test_accuracy":
+        if config.data.name != "femnist":
+            raise ValueError("client_test_accuracy requires the femnist dataset")
+        arrays_raw = msg.content.get("arrays")
+        if not isinstance(arrays_raw, ArrayRecord):
+            raise TypeError(f"Expected ArrayRecord, got {type(arrays_raw).__name__}")
+        arrays: ArrayRecord = arrays_raw
+
+        partition_id = int(context.node_config["partition-id"])
+        num_partitions = int(context.node_config["num-partitions"])
+
+        _, _, client_subset, _, _ = create_client_dataloader(
+            config.data, partition_id, num_partitions, config.seed,
+        )
+        train_dataset = create_dataset(config.data)
+        writer_set = set(
+            cast(Any, train_dataset).users[cast(Any, client_subset).indices].tolist(),
+        )
+
+        test_dataset = create_test_dataset(config.data)
+        test_idx = [
+            i for i, u in enumerate(cast(Any, test_dataset).users.tolist())
+            if u in writer_set
+        ]
+
+        client_model = create_model(config.model, dataset_name=config.data.name)
+        client_model.set_weights(arrays.to_numpy_ndarrays())
+        net = client_model.get_model().to(get_device())
+        net.eval()
+
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            test_loader = create_dataloaders(
+                Subset(test_dataset, test_idx),
+                config.data.batch_size,
+                shuffle=False,
+            )
+            for batch_images, batch_labels in test_loader:
+                images, labels = to_device((batch_images, batch_labels))
+                outputs = net(images)
+                _, predicted = torch.max(outputs, 1)
+                total += labels.size(0)
+                correct += int((predicted == labels).sum().item())
+
+        test_accuracy = correct / total if total > 0 else 0.0
+        return Message(
+            content=RecordDict({
+                "config": ConfigRecord({
+                    "partition_id": partition_id,
+                    "test_accuracy": test_accuracy,
+                    "n_test": total,
                 }),
             }),
             reply_to=msg,

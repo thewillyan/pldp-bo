@@ -764,6 +764,32 @@ Everything below is the repo-side subset of `EXPERIMENTS-TODO.md` §8:
   client histograms; ties lowest client id; merges smallest-first); other writers dropped;
   seed-independent pure function of (users, targets, K) so `partition_single` ≡ full parity;
   min-30 skipped for writer (FEMNIST exempt); `build_partition_kwargs` logs
-  `{type: writer, merge_threshold: 10}`. 23 new tests (loader 8, writer 9, registry 1, models 5);
-  495 tests green; ruff/mypy zero new errors (femnist.py clean; partitioner back to its 3
-  pre-existing len errors). `src/data/` still untracked/gitignored.
+   `{type: writer, merge_threshold: 10}`. 23 new tests (loader 8, writer 9, registry 1, models 5);
+   495 tests green; ruff/mypy zero new errors (femnist.py clean; partitioner back to its 3
+   pre-existing len errors). `src/data/` still untracked/gitignored.
+- 2026-08-14: **IMPL-08 closed.** Official test-set evaluation + macro-F1 (spec §3; §9.7).
+   `src/data/__init__.py`: `create_dataset(config, train=True)` gains the train flag;
+   `_cached_dataset` key extended to `(name, data_dir, train)` (maxsize=2 still exactly fits
+   train+test); new `create_test_dataset(config)` (official test split, `train=False`) and
+   `create_test_loader(config)` (no shuffle). `server_app.py`: `_macro_f1` (sklearn-style
+   macro-F1, zero denominators → 0, zero-support classes excluded) + `_run_global_test_evaluate`
+   wired via Flower 1.33's official `evaluate_fn` hook of `Strategy.start()` — called after every
+   round's aggregation with the updated model; logs `acc_test` (top-1) + `f1_test` (macro-F1) at
+   `step=round` for rounds 1..T (round 0 skipped so the untrained model never pollutes the
+   curves); returns the MetricRecord. FEMNIST per-client test accuracy (§9.7): after `start()`
+   returns, the server sends the final global model via QUERY task `client_test_accuracy`;
+   each client (guarded to FEMNIST) evaluates only the test samples of its own writers (writer
+   set from its train partition's `.users`), returns `partition_id`/`test_accuracy`/`n_test`;
+   server writes a deterministic `client_test_acc.json` (sorted by partition_id) and
+   `tracker.log_artifact`s it (temp file, unlinked after; mean/sd/n_clients stay in the
+   aggregation script per §6.1). `strategy.py`: `MetricLoggingMixin` now inherits `FedAvg`
+   (MRO already matched runtime) and overrides `aggregate_evaluate` to log the aggregated
+   client hold-out metrics as `val_loss_mean`/`acc_val_mean` — diagnostics only, not in §4.3
+   (the rename allowed by the spec; drop on request). Acceptance verified: acc_test/f1_test
+   logged per round; macro-F1 hand-computed unit tests (3-class mixed batch, never-correct
+   class, single class, empty); server eval end-to-end on a fixed-weight Linear model
+   (acc=0.75, F1=(0.8+2/3)/2); deterministic JSON artifact test; client writer-set filtering
+   test (n=4 of 6 test samples, acc=0.75). 16 new tests (3 data, 10 server, 3 client); 511 tests
+   green; ruff/mypy zero new errors vs git HEAD (ruff 54 pre-existing findings unchanged;
+   mypy 261 = 261; only line-shifted pre-existing notes). `src/data/` still untracked/gitignored.
+

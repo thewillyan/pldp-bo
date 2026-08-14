@@ -475,6 +475,71 @@ def test_create_dataset_returns_full_train_set(monkeypatch: pytest.MonkeyPatch) 
     assert len(dataset) == 40  # type: ignore[arg-type]
 
 
+class _RecordingRegistryDataset:
+    """Registry stand-in that records the ``train`` flag of each construction."""
+
+    seen: list[bool] = []
+
+    def __init__(self, root: str, train: bool, transform: object, download: bool) -> None:
+        _RecordingRegistryDataset.seen.append(train)
+        self._root = root
+        self._transform = transform
+        self._download = download
+        self._data = torch.randn(10, 1, 8, 8)
+        self._labels = torch.randint(0, 10, (10,))
+
+    def __len__(self) -> int:
+        return 10
+
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+        return self._data[idx], self._labels[idx]
+
+
+def test_create_dataset_respects_train_flag(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    from src.data import create_dataset
+
+    _RecordingRegistryDataset.seen = []
+    monkeypatch.setattr("src.data.DATASET_REGISTRY", {"mnist": _RecordingRegistryDataset})
+    cfg = DataConfig(name="mnist", data_dir=str(tmp_path))
+    create_dataset(cfg)
+    create_dataset(cfg, train=False)
+    assert _RecordingRegistryDataset.seen == [True, False]
+
+
+def test_cached_dataset_keys_by_train_flag(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    from src.data import create_dataset, create_test_dataset
+
+    _RecordingRegistryDataset.seen = []
+    monkeypatch.setattr("src.data.DATASET_REGISTRY", {"mnist": _RecordingRegistryDataset})
+    cfg = DataConfig(name="mnist", data_dir=str(tmp_path))
+    create_dataset(cfg)
+    ds_test = create_test_dataset(cfg)
+    assert _RecordingRegistryDataset.seen == [True, False]
+    assert create_test_dataset(cfg) is ds_test
+    assert create_dataset(cfg) is not ds_test
+    assert _RecordingRegistryDataset.seen == [True, False, True]
+
+
+def test_create_test_loader_uses_official_test_split(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    from src.data import create_test_loader
+
+    _RecordingRegistryDataset.seen = []
+    monkeypatch.setattr("src.data.DATASET_REGISTRY", {"mnist": _RecordingRegistryDataset})
+    cfg = DataConfig(name="mnist", data_dir=str(tmp_path), batch_size=4)
+    loader = create_test_loader(cfg)
+    assert _RecordingRegistryDataset.seen == [False]
+    assert loader.batch_size == 4
+    from torch.utils.data import SequentialSampler
+    assert isinstance(loader.sampler, SequentialSampler)  # no shuffle
+    assert len(cast(Any, loader).dataset) == 10
+
+
 def _make_writer_dataset(
     writer_sizes: Sequence[int],
     writer_labels: Sequence[Sequence[int]],

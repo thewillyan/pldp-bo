@@ -79,7 +79,7 @@ def _add_budgets_to_messages(
             yield msg
 
 
-class MetricLoggingMixin:
+class MetricLoggingMixin(FedAvg):
     _tracker: ExperimentTracker | None
     _per_client_budgets: dict[int, float] | None
 
@@ -97,6 +97,24 @@ class MetricLoggingMixin:
             self._log_metric(f"{prefix}_min", float(arr.min()), step=server_round)
             self._log_metric(f"{prefix}_max", float(arr.max()), step=server_round)
             self._log_metric(f"{prefix}_median", float(np.median(arr)), step=server_round)
+
+    def aggregate_evaluate(
+        self,
+        server_round: int,
+        replies: Iterable[Message],
+    ) -> MetricRecord | None:
+        """Aggregate client val evaluations, logging diagnostics only (IMPL-08).
+
+        The per-client hold-out accuracy/loss stay out of §4.3; they are logged
+        as ``acc_val_mean``/``val_loss_mean`` purely for diagnostics.
+        """
+        metrics = super().aggregate_evaluate(server_round, replies)
+        if metrics is not None:
+            for key, target in (("loss", "val_loss_mean"), ("accuracy", "acc_val_mean")):
+                raw = metrics.get(key)
+                if isinstance(raw, (int, float, np.floating, np.integer)):
+                    self._log_metric(target, float(raw), step=server_round)
+        return metrics
 
     def _log_client_metrics(
         self,
