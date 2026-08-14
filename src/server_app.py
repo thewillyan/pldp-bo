@@ -5,7 +5,9 @@ import logging
 import os
 import tempfile
 from collections.abc import Sequence
+from time import perf_counter
 
+import numpy as np
 import torch
 from flwr.app import ArrayRecord, ConfigRecord, Context, Message, MetricRecord, RecordDict
 from flwr.serverapp import Grid, ServerApp
@@ -18,7 +20,12 @@ from src.data import create_test_loader
 from src.device import get_device, to_device
 from src.models import create_model
 from src.models.base import BaseModel
-from src.server.strategy import MedianRobustAggregation, SafeFedAvg, SafeFedProx
+from src.server.strategy import (
+    MedianRobustAggregation,
+    MetricLoggingMixin,
+    SafeFedAvg,
+    SafeFedProx,
+)
 from src.tracking.tracker import ExperimentTracker
 from src.utils import set_seed
 
@@ -169,6 +176,56 @@ def _run_femnist_client_test_accuracy(
         "Logged client_test_acc.json for %d clients",
         len(per_client),
     )
+
+
+def _write_client_state_artifact(
+    strategy: MetricLoggingMixin,
+    config: ExperimentConfig,
+    tracker: ExperimentTracker,
+    wall_time: float,
+    num_rounds: int,
+) -> None:
+    """Final client_state.json artifact + §4.3 final metrics (IMPL-11 §4.4).
+
+    Privacy disabled: no privacy fields are logged, the artifact is skipped
+    (§4.4 N/A rules). Fixed baselines accumulate naturally from client
+    replies (candidate == final, phase ``bo``, zero enforcement).
+    """
+    if not config.privacy.enabled:
+        return
+    state = strategy.get_client_state()
+    if not state:
+        logger.warning("No per-client state accumulated; skipping client_state.json")
+        return
+
+    payload = {
+        "client_state": {
+            str(cid): s for cid, s in sorted(state.items())
+        },
+    }
+    fd, tmp_path = tempfile.mkstemp(suffix=".json", prefix="client_state_")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(payload, f, sort_keys=True, indent=2)
+        tracker.log_artifact(tmp_path)
+    finally:
+        os.unlink(tmp_path)
+    logger.info("Logged client_state.json for %d clients", len(state))
+
+    final_rdps = [s["cum_rdp"][-1] for s in state.values() if s["cum_rdp"]]
+    budget = config.privacy.total_budget
+    if final_rdps and budget:
+        tracker.log_metrics(
+            {"budget_utilization": float(np.mean(final_rdps)) / float(budget)},
+            step=num_rounds,
+        )
+    if wall_time > 0:
+        tracker.log_metrics(
+            {
+                "bo_overhead_pct": 100.0 * strategy.get_bo_time_total() / wall_time,
+            },
+            step=num_rounds,
+        )
 
 
 def _discover_node_to_partition(
@@ -404,11 +461,21 @@ def main(grid: Grid, context: Context) -> None:
             server_round, round_arrays, config, global_model, tracker,
         )
 
+    wall_start = perf_counter()
     strategy.start(
         grid=grid,
         initial_arrays=arrays,
         num_rounds=config.federated.num_rounds,
         evaluate_fn=global_test_evaluate,
+    )
+    wall_time = perf_counter() - wall_start
+
+    _write_client_state_artifact(
+        strategy,
+        config,
+        tracker,
+        wall_time=wall_time,
+        num_rounds=config.federated.num_rounds,
     )
 
     if config.data.name == "femnist":

@@ -644,6 +644,29 @@ class TestPerUpdateDPClient:
         with pytest.raises(ValueError, match="remaining_rdp"):
             client.fit(params, {})
 
+    def test_rdp_native_reports_r_t_final_and_acct_cost(self) -> None:
+        from src.client.per_update_dp_client import PerUpdateDPClient
+        from src.privacy.accountant import RDPAccountant
+        from src.privacy.per_update_dp import compute_rdp_cost
+        config = self._make_config()
+        config.privacy.accountant_mode = "rdp_native"
+        config.privacy.rdp_alpha = 10.0
+        config.privacy.update_clip_norm = 1.0
+        model = _SimpleModel()
+        loader = _make_loader()
+        client = PerUpdateDPClient(
+            model, loader, loader, config,
+            client_epsilon=1.0, seed=42,
+            accountant=RDPAccountant(delta=1e-5),
+            remaining_rdp=5.0,
+        )
+        params = client.get_parameters({})
+        _, _, metrics = client.fit(params, {})
+        assert metrics["r_t_final"] == pytest.approx(1.0)
+        assert metrics["acct_cost"] == pytest.approx(
+            compute_rdp_cost(10.0, metrics["sigma"], 1.0), rel=1e-9,
+        )
+
 
 class TestClipPerExample:
     def test_no_op_when_all_norms_below_threshold(self) -> None:
@@ -845,3 +868,111 @@ class TestReadRemainingRdp:
             dst_node_id=0,
         )
         assert _read_remaining_rdp(msg) is None
+
+
+class _FakeFitClient:
+    """Stub client returning a fixed fit metrics dict."""
+
+    def __init__(self, metrics: dict[str, Any]) -> None:
+        self._metrics = metrics
+
+    def fit(
+        self, parameters: list[Any], config: dict[str, Any],  # noqa: ARG002
+    ) -> tuple[list[Any], int, dict[str, Any]]:
+        return [], 2, self._metrics
+
+
+class _FakeTrainContext:
+    run_config = {"config-path": "unused.yaml"}
+    node_config = {"partition-id": "0", "num-partitions": "2"}
+
+    def __init__(self) -> None:
+        self.state: dict[str, Any] = {}
+
+
+class TestTrainReplySpecFields:
+    """train() reply carries r_t_candidate / phase / observed_m / bo_time / acct_time."""
+
+    def _make_config(self) -> ExperimentConfig:
+        config = ExperimentConfig()
+        config.method = "pldpbo_snr"
+        config.privacy.enabled = True
+        config.privacy.accountant_mode = "rdp_native"
+        config.privacy.clipping_mode = "per_example"
+        config.privacy.rdp_alpha = 10.0
+        config.privacy.total_budget = 10.0
+        config.bo.enabled = True
+        config.bo.optimization_metric = "nun"
+        config.bo.min_warmup = 10
+        return config
+
+    def _monkeypatch(
+        self, monkeypatch: pytest.MonkeyPatch,
+        config: ExperimentConfig, metrics: dict[str, Any],
+    ) -> None:
+        monkeypatch.setattr(
+            "src.client_app.load_config",
+            lambda path, overrides: config,  # noqa: ARG005
+        )
+        monkeypatch.setattr(
+            "src.client_app.assert_locked_config",
+            lambda cfg: None,  # noqa: ARG005
+        )
+        monkeypatch.setattr(
+            "src.client_app.create_client_dataloader",
+            lambda _data, _pid, _num, _seed: (None, None, list(range(1000)), None, 1000),
+        )
+        monkeypatch.setattr(
+            "src.client_app.create_model",
+            lambda _model_cfg, dataset_name: _SimpleModel(),  # noqa: ARG005
+        )
+        monkeypatch.setattr(
+            "src.client_app.create_client",
+            lambda **kwargs: _FakeFitClient(metrics),  # noqa: ARG005
+        )
+
+    def _reply_metrics(self, monkeypatch: pytest.MonkeyPatch, fit_metrics: dict[str, Any]) -> dict:
+        from src.client_app import train
+        config = self._make_config()
+        self._monkeypatch(monkeypatch, config, fit_metrics)
+        msg = Message(
+            content=RecordDict({
+                "config": ConfigRecord({"per_client_budget": 10.0, "remaining_rdp": 5.0}),
+                "arrays": ArrayRecord(_SimpleModel().get_model().state_dict()),
+            }),
+            message_type="train",
+            dst_node_id=0,
+        )
+        reply = train(msg, cast(Any, _FakeTrainContext()))
+        return reply.content.metric_records.get("metrics", ConfigRecord())
+
+    def test_reports_spec_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fit_metrics = {
+            "rdp_cost": 0.05,
+            "update_norm": 0.42,
+            "cumulative_rdp": 0.05,
+            "budget_exhausted": False,
+        }
+        metrics = self._reply_metrics(monkeypatch, fit_metrics)
+        # Warm-up grid round 0: candidate == 0.01 (pre-enforcement),
+        # phase code 0.0 = "warmup".
+        assert metrics["r_t_candidate"] == pytest.approx(0.01)
+        assert metrics["phase"] == pytest.approx(0.0)
+        assert metrics["observed_m"] == pytest.approx(0.42)
+        assert isinstance(metrics["bo_time"], float) and metrics["bo_time"] >= 0
+        assert isinstance(metrics["acct_time"], float) and metrics["acct_time"] >= 0
+        assert metrics["num-examples"] == 2
+        assert metrics["client-id"] == 0
+
+    def test_exhausted_reports_phase_and_no_observed_m(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        fit_metrics = {
+            "rdp_cost": 0.0,
+            "cumulative_rdp": 10.0,
+            "budget_exhausted": True,
+        }
+        metrics = self._reply_metrics(monkeypatch, fit_metrics)
+        # Phase code 2.0 = "exhausted".
+        assert metrics["phase"] == pytest.approx(2.0)
+        assert "observed_m" not in metrics

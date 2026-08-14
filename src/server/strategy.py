@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Any
 
 import numpy as np
 from flwr.app import Array, ArrayRecord, ConfigRecord, MetricRecord, RecordDict
@@ -12,6 +13,12 @@ from src.tracking.tracker import ExperimentTracker
 
 _EPS = 1e-12
 _MIN_VALUES_FOR_STATS = 3
+
+
+def _as_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    return float(value)
 
 
 def _filter_valid_replies(replies: Iterable[Message]) -> list[Message]:
@@ -91,6 +98,104 @@ class MetricLoggingMixin(FedAvg):
     _client_cum_rdp: dict[int, float]
     _client_cum_eps: dict[int, float]
 
+    _PARTICIPATION_KEYS = (
+        "r_t_candidate",
+        "r_t_final",
+        "cum_rdp",
+        "remaining_rdp",
+        "phase",
+        "observed_m",
+        "acct_cost",
+    )
+    _COMPONENT_KEYS = (
+        ("L_clean", "utility_loss_clean"),
+        ("L_noisy", "utility_loss"),
+        ("update_norm_noisy", "update_norm"),
+        ("update_norm_clean", "update_norm_clean"),
+        ("sigma", "sigma"),
+        ("agreement", "logit_disagreement"),
+    )
+    _PHASE_DECODE = {0.0: "warmup", 1.0: "bo", 2.0: "exhausted"}
+
+    def _init_spec_state(self) -> None:
+        self._client_state: dict[int, dict[str, Any]] = {}
+        self._client_dropout_round: dict[int, int] = {}
+        self._bo_time_total = 0.0
+        self._acct_time_total = 0.0
+        self._bytes_sent_round = 0
+        self._remaining_rdp_sent: dict[int, float] = {}
+
+    def _array_bytes(self, record: ArrayRecord | None) -> int:
+        if record is None:
+            return 0
+        return sum(int(v.numpy().nbytes) for v in record.values())
+
+    def _append_client_participation(
+        self,
+        cid: int,
+        m: MetricRecord,
+        server_round: int,
+    ) -> None:
+        phase_raw = m.get("phase")
+        phase_float = _as_float(phase_raw)
+        if phase_float is None:
+            return
+        phase = self._PHASE_DECODE.get(phase_float, "bo")
+        state: dict[str, Any] = self._client_state.setdefault(
+            cid,
+            {
+                key: []
+                for key in (*self._PARTICIPATION_KEYS, *(k for k, _ in self._COMPONENT_KEYS))
+            }
+            | {"warmup_rounds": [], "enforcement_count": 0},
+        )
+        state["r_t_candidate"].append(_as_float(m.get("r_t_candidate")))
+        final = _as_float(m.get("r_t_final"))
+        state["r_t_final"].append(final if final is not None else 0.0)
+        state["cum_rdp"].append(_as_float(m.get("cumulative_rdp")))
+        remaining = self._remaining_rdp_sent.get(cid)
+        state["remaining_rdp"].append(remaining if remaining is not None else None)
+        state["phase"].append(phase)
+        state["observed_m"].append(_as_float(m.get("observed_m")))
+        acct = _as_float(m.get("acct_cost"))
+        state["acct_cost"].append(acct if acct is not None else 0.0)
+        for spec_key, metric_key in self._COMPONENT_KEYS:
+            state[spec_key].append(_as_float(m.get(metric_key)))
+        if phase == "warmup":
+            state["warmup_rounds"].append(server_round)
+        if phase != "exhausted":
+            candidate = _as_float(m.get("r_t_candidate"))
+            if candidate is not None and final is not None and candidate != final:
+                state["enforcement_count"] += 1
+
+    def _record_exhausted(self, server_round: int, replies: list[Message]) -> None:
+        """Track refused rounds (dropout) and exhausted participations (IMPL-11)."""
+        for reply in replies:
+            if not _is_budget_exhausted(reply):
+                continue
+            m = reply.content.metric_records.get("metrics")
+            if m is None:
+                continue
+            client_id = _as_float(m.get("client-id"))
+            if client_id is None:
+                continue
+            cid = int(client_id)
+            self._client_dropout_round.setdefault(cid, server_round)
+            self._append_client_participation(cid, m, server_round)
+
+    def get_client_state(self) -> dict[int, dict[str, Any]]:
+        """Per-client per-participation accumulation for the final artifact."""
+        return {
+            cid: {**state, "dropout_round": self._client_dropout_round.get(cid)}
+            for cid, state in self._client_state.items()
+        }
+
+    def get_bo_time_total(self) -> float:
+        return self._bo_time_total
+
+    def get_acct_time_total(self) -> float:
+        return self._acct_time_total
+
     def _log_metric(self, key: str, value: float, step: int) -> None:
         if self._tracker is not None:
             self._tracker.log_metrics({key: value}, step=step)
@@ -165,6 +270,9 @@ class MetricLoggingMixin(FedAvg):
         grad_norms_before_clip: list[float] = []
         grad_norms_after_clip: list[float] = []
         num_opt_steps_list: list[float] = []
+        r_t_finals: list[float] = []
+        bo_times: list[float] = []
+        acct_times: list[float] = []
 
         for content in reply_contents:
             m = content.metric_records.get("metrics")
@@ -175,6 +283,22 @@ class MetricLoggingMixin(FedAvg):
                 continue
 
             cid = int(client_id)
+
+            r_t_final = _as_float(m.get("r_t_final"))
+            if r_t_final is not None:
+                r_t_finals.append(r_t_final)
+
+            bo_time = _as_float(m.get("bo_time"))
+            if bo_time is not None:
+                bo_times.append(bo_time)
+                self._bo_time_total += bo_time
+
+            acct_time = _as_float(m.get("acct_time"))
+            if acct_time is not None:
+                acct_times.append(acct_time)
+                self._acct_time_total += acct_time
+
+            self._append_client_participation(cid, m, server_round)
 
             epsilon = m.get("epsilon")
             if epsilon is not None:
@@ -329,6 +453,33 @@ class MetricLoggingMixin(FedAvg):
         self._log_metric_stats("grad_norm_after_clip", grad_norms_after_clip, server_round)
         self._log_metric_stats("num_opt_steps", num_opt_steps_list, server_round)
 
+        participants = 0
+        received_bytes = 0
+        for c in reply_contents:
+            mm = c.metric_records.get("metrics")
+            if mm is None or mm.get("client-id") is None:
+                continue
+            participants += 1
+            received_bytes += self._array_bytes(c.array_records.get(self.arrayrecord_key))
+        self._log_metric("n_participants", float(participants), step=server_round)
+        self._log_metric(
+            "bytes_round",
+            float(self._bytes_sent_round) + float(received_bytes),
+            step=server_round,
+        )
+        if r_t_finals:
+            self._log_metric("mean_r_t", float(np.mean(r_t_finals)), step=server_round)
+        if cumulative_rdps:
+            self._log_metric(
+                "mean_cum_rdp", float(np.mean(cumulative_rdps)), step=server_round,
+            )
+        if bo_times:
+            self._log_metric("bo_time_round", float(np.mean(bo_times)), step=server_round)
+        if acct_times:
+            self._log_metric(
+                "acct_time_round", float(np.mean(acct_times)), step=server_round,
+            )
+
 
 class MedianRobustAggregation(MetricLoggingMixin, FedAvg):
     def __init__(
@@ -367,25 +518,37 @@ class MedianRobustAggregation(MetricLoggingMixin, FedAvg):
         self._node_to_partition = node_to_partition or {}
         self._client_cum_rdp = {}
         self._client_cum_eps = {}
+        self._init_spec_state()
 
     def configure_train(
         self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid,
     ) -> Iterable[Message]:
         self._current_arrays = arrays
-        return _add_budgets_to_messages(
-            super().configure_train(server_round, arrays, config, grid),
-            self._per_client_budgets,
-            self.configrecord_key,
-            node_to_partition=self._node_to_partition,
-            remaining_rdp_by_client=self._remaining_rdp_map(),
+        remaining_rdp_by_client = self._remaining_rdp_map()
+        self._remaining_rdp_sent = remaining_rdp_by_client or {}
+        messages = list(
+            _add_budgets_to_messages(
+                super().configure_train(server_round, arrays, config, grid),
+                self._per_client_budgets,
+                self.configrecord_key,
+                node_to_partition=self._node_to_partition,
+                remaining_rdp_by_client=remaining_rdp_by_client,
+            )
         )
+        self._bytes_sent_round = sum(
+            self._array_bytes(m.content.array_records.get(self.arrayrecord_key))
+            for m in messages
+        )
+        return messages
 
     def aggregate_train(
         self,
         server_round: int,
         replies: Iterable[Message],
     ) -> tuple[ArrayRecord | None, MetricRecord | None]:
-        valid_replies = _filter_valid_replies(replies)
+        replies_list = list(replies)
+        self._record_exhausted(server_round, replies_list)
+        valid_replies = _filter_valid_replies(replies_list)
 
         if not valid_replies:
             return None, None
@@ -500,25 +663,37 @@ class SafeFedAvg(MetricLoggingMixin, FedAvg):
         self._client_cum_eps = {}
         self._server_learning_rate = server_learning_rate
         self._current_arrays: ArrayRecord | None = None
+        self._init_spec_state()
 
     def configure_train(
         self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid,
     ) -> Iterable[Message]:
         self._current_arrays = arrays
-        return _add_budgets_to_messages(
-            super().configure_train(server_round, arrays, config, grid),
-            self._per_client_budgets,
-            self.configrecord_key,
-            node_to_partition=self._node_to_partition,
-            remaining_rdp_by_client=self._remaining_rdp_map(),
+        remaining_rdp_by_client = self._remaining_rdp_map()
+        self._remaining_rdp_sent = remaining_rdp_by_client or {}
+        messages = list(
+            _add_budgets_to_messages(
+                super().configure_train(server_round, arrays, config, grid),
+                self._per_client_budgets,
+                self.configrecord_key,
+                node_to_partition=self._node_to_partition,
+                remaining_rdp_by_client=remaining_rdp_by_client,
+            )
         )
+        self._bytes_sent_round = sum(
+            self._array_bytes(m.content.array_records.get(self.arrayrecord_key))
+            for m in messages
+        )
+        return messages
 
     def aggregate_train(
         self,
         server_round: int,
         replies: Iterable[Message],
     ) -> tuple[ArrayRecord | None, MetricRecord | None]:
-        valid_replies = _filter_valid_replies(replies)
+        replies_list = list(replies)
+        self._record_exhausted(server_round, replies_list)
+        valid_replies = _filter_valid_replies(replies_list)
         all_contents = [r.content for r in valid_replies]
         self._log_client_metrics(server_round, all_contents)
         active_replies = [r for r in valid_replies if not _is_budget_exhausted(r)]
@@ -555,25 +730,37 @@ class SafeFedProx(MetricLoggingMixin, FedProx):
         self._client_cum_eps = {}
         self._server_learning_rate = server_learning_rate
         self._current_arrays: ArrayRecord | None = None
+        self._init_spec_state()
 
     def configure_train(
         self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid,
     ) -> Iterable[Message]:
         self._current_arrays = arrays
-        return _add_budgets_to_messages(
-            super().configure_train(server_round, arrays, config, grid),
-            self._per_client_budgets,
-            self.configrecord_key,
-            node_to_partition=self._node_to_partition,
-            remaining_rdp_by_client=self._remaining_rdp_map(),
+        remaining_rdp_by_client = self._remaining_rdp_map()
+        self._remaining_rdp_sent = remaining_rdp_by_client or {}
+        messages = list(
+            _add_budgets_to_messages(
+                super().configure_train(server_round, arrays, config, grid),
+                self._per_client_budgets,
+                self.configrecord_key,
+                node_to_partition=self._node_to_partition,
+                remaining_rdp_by_client=remaining_rdp_by_client,
+            )
         )
+        self._bytes_sent_round = sum(
+            self._array_bytes(m.content.array_records.get(self.arrayrecord_key))
+            for m in messages
+        )
+        return messages
 
     def aggregate_train(
         self,
         server_round: int,
         replies: Iterable[Message],
     ) -> tuple[ArrayRecord | None, MetricRecord | None]:
-        valid_replies = _filter_valid_replies(replies)
+        replies_list = list(replies)
+        self._record_exhausted(server_round, replies_list)
+        valid_replies = _filter_valid_replies(replies_list)
         all_contents = [r.content for r in valid_replies]
         self._log_client_metrics(server_round, all_contents)
         active_replies = [r for r in valid_replies if not _is_budget_exhausted(r)]

@@ -815,3 +815,43 @@ Everything below is the repo-side subset of `EXPERIMENTS-TODO.md` §8:
    errors vs git HEAD (ruff 55 = 55; mypy 255 lines, only line-shifted pre-existing notes).
    `src/data/` still untracked/gitignored.
 
+- 2026-08-14: **IMPL-11 closed.** MLflow logging schema (spec §4; §9.10).
+   Tracker (`src/tracking/tracker.py`): experiments/runs derived as `<dataset>_<partition>` /
+   `<method>_seed<NN>` (`partition_label`: iid / `dirichlet_<alpha>` / `noniid`→`dirichlet_0.5` /
+   `pathological` / `writer`→`natural`); tags dataset, partition, method, seed, `config_version`
+   (locked hash), `code_git_hash` (git HEAD, `unknown` fallback), group; §4.2 params under spec
+   names (T, K, rho, E, B, eta_server, local_opt=`sgd_momentum<M>`, clip_norm, alpha0, B_RDP,
+   enforce_budget, R_min, R_max, warmup_points, warmup_sum_nominal, lambda_aq, kernel, G, N=seed,
+   mu_fedprox, model, dataset_sizes, partition_kwargs, seeds, validation_frac, aggregation,
+   dataset_root, data_hash); `data_hash` = sha256 over the sorted dataset files (relpath +
+   `\x00` + content + `\x00` per file; param absent when the dataset dir is missing — user
+   decision); FEMNIST sizes via `femnist_counts` (real data now extracted, 5.6G). Legacy logging
+   kept alongside (user decision). Clients (`client_app.py`): `_resolve_rdp`/`_resolve_epsilon`
+   return 5-tuples adding `r_t_candidate` + `bo_time` (perf_counter around GP fit + acquisition +
+   selection) + `acct_time` (around budget check + σ calibration); reply metrics add
+   phase/bo_time/acct_time/r_t_candidate/observed_m (`_OPTIMIZATION_METRIC_KEY_MAP`; only when BO
+   enabled and not exhausted); phase sent as a numeric code (MetricRecord rejects strings):
+   0=warmup, 1=bo, 2=exhausted — the server decodes. per_update client adds `r_t_final` +
+   `acct_cost` (=`compute_rdp_cost`, mirroring per_example). Strategy (`src/server/strategy.py`,
+   all 3 classes): §4.3 per-round metrics at `step=round` — n_participants, mean_r_t,
+   mean_cum_rdp, bo_time_round, acct_time_round, bytes_round (configure_train materializes
+   messages and counts sent array bytes; received counted in `_log_client_metrics`); §4.4
+   per-client per-participation accumulation in `MetricLoggingMixin` from ALL replies
+   (`_record_exhausted` scans raw replies because `_filter_valid_replies` drops budget-exhausted
+   ones) — r_t_candidate, r_t_final (0.0 for refused rounds), cum_rdp, remaining_rdp (the value
+   the server sent that round), phase (decoded), observed_m, acct_cost, components (L_clean,
+   L_noisy, update_norm_noisy, update_norm_clean, sigma, agreement), warmup_rounds,
+   dropout_round (first refused round, null default), enforcement_count (candidate≠final on
+   non-exhausted participations; enforced rounds still report candidate+phase so the script can
+   tell enforcement from refusal); accessors `get_client_state`/`get_bo_time_total`/
+   `get_acct_time_total`. Nonprivate skips privacy fields automatically (no phase marker) and the
+   artifact; fixed baselines accumulate naturally to the §4.4 constants (candidate=final=0.5,
+   phase `bo`, enforcement 0). Server (`server_app.py`): `perf_counter` wall time around
+   `strategy.start()`; `_write_client_state_artifact` writes a deterministic `client_state.json`
+   (sorted by client id) via tempfile + `tracker.log_artifact` and logs the final metrics
+   budget_utilization (mean final cum_rdp / B_RDP) and bo_overhead_pct (cumulative BO time / wall
+   time) at `step=T`. Note: enforcement_count is derived server-side from candidate≠final rather
+   than client-reported (equivalent, robust to restarts); the doc's parenthetical list is not
+   binding on the source. 50 new/updated tests (tracker 28, client 6, strategy 12, artifact 4);
+   569 tests green; ruff/mypy zero new errors vs git HEAD (ruff 53 = 53; mypy 174 = 174; only
+   line-shifted pre-existing notes). `src/data/` still untracked/gitignored.

@@ -511,7 +511,7 @@ class TestResolveEpsilon:
         from src.client_app import _resolve_epsilon
         config = self._make_config()
         accountant = RDPAccountant(delta=1e-5)
-        result_eps, result_sigma = _resolve_epsilon(
+        result_eps, result_sigma, _candidate, _bo, _acct = _resolve_epsilon(
             scheduler=None,
             accountant=accountant,
             config=config,
@@ -525,7 +525,7 @@ class TestResolveEpsilon:
         from src.client_app import _resolve_epsilon
         config = self._make_config()
         accountant = RDPAccountant(delta=1e-5)
-        result_eps, result_sigma = _resolve_epsilon(
+        result_eps, result_sigma, _candidate, _bo, _acct = _resolve_epsilon(
             scheduler=None,
             accountant=accountant,
             config=config,
@@ -539,7 +539,7 @@ class TestResolveEpsilon:
         from src.client_app import _resolve_epsilon
         config = self._make_config(personalization_enabled=False, bo_eps_min=0.3)
         accountant = RDPAccountant(delta=1e-5)
-        result_eps, result_sigma = _resolve_epsilon(
+        result_eps, result_sigma, _candidate, _bo, _acct = _resolve_epsilon(
             scheduler=None,
             accountant=accountant,
             config=config,

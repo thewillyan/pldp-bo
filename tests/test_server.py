@@ -6,7 +6,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 import torch
-from flwr.app import ArrayRecord, ConfigRecord, Message, RecordDict
+from flwr.app import Array, ArrayRecord, ConfigRecord, Message, MetricRecord, RecordDict
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
@@ -427,3 +427,336 @@ class TestRemainingRdpMap:
         from src.server.strategy import MedianRobustAggregation
         strategy = MedianRobustAggregation()
         assert strategy._remaining_rdp_map() is None
+
+
+def _metrics_content(fields: dict[str, object]) -> RecordDict:
+    return RecordDict({"metrics": MetricRecord(fields)})
+
+
+def _logged_map(tracker: Any) -> dict[str, tuple[Any, int]]:
+    result: dict[str, tuple[Any, int]] = {}
+    for metrics, step in tracker.metrics:
+        for key, value in metrics.items():
+            result[key] = (value, step)
+    return result
+
+
+class _FakeGridNodes:
+    def __init__(self, node_ids: list[int]) -> None:
+        self._node_ids = node_ids
+
+    def get_node_ids(self) -> list[int]:
+        return self._node_ids
+
+
+class TestSpecRoundMetrics:
+    """IMPL-11 §4.3 per-round metrics logged by the strategy."""
+
+    def _make_strategy(self) -> Any:
+        from src.server.strategy import MedianRobustAggregation
+
+        return MedianRobustAggregation(
+            tracker=_RecordingTracker(),
+            per_client_budgets={0: 10.0, 1: 10.0},
+        )
+
+    def _active_contents(self) -> list[RecordDict]:
+        return [
+            _metrics_content({
+                "client-id": 0,
+                "num-examples": 4,
+                "r_t_final": 0.5,
+                "cumulative_rdp": 1.0,
+                "bo_time": 0.1,
+                "acct_time": 0.02,
+            }),
+            _metrics_content({
+                "client-id": 1,
+                "num-examples": 4,
+                "r_t_final": 0.3,
+                "cumulative_rdp": 0.6,
+                "bo_time": 0.2,
+                "acct_time": 0.04,
+            }),
+        ]
+
+    def test_logs_section43_keys_at_round_step(self) -> None:
+        strategy = self._make_strategy()
+        strategy._bytes_sent_round = 100
+        strategy._log_client_metrics(7, self._active_contents())
+        logged = _logged_map(strategy._tracker)
+        assert logged["n_participants"] == (2.0, 7)
+        assert logged["mean_r_t"] == (0.4, 7)
+        assert logged["mean_cum_rdp"] == (0.8, 7)
+        assert logged["bo_time_round"] == (pytest.approx(0.15), 7)
+        assert logged["acct_time_round"] == (pytest.approx(0.03), 7)
+        assert logged["bytes_round"] == (100.0, 7)
+
+    def test_bytes_round_counts_received_arrays(self) -> None:
+        strategy = self._make_strategy()
+        strategy._bytes_sent_round = 32
+        contents = [_metrics_content({"client-id": 0, "num-examples": 4})]
+        contents[0]["arrays"] = ArrayRecord({"w": Array(np.zeros((2, 2), dtype=np.float64))})
+        strategy._log_client_metrics(1, contents)
+        logged = _logged_map(strategy._tracker)
+        assert logged["bytes_round"] == (32.0 + 32.0, 1)
+
+    def test_configure_train_counts_sent_bytes(self) -> None:
+        strategy = self._make_strategy()
+        arrays = ArrayRecord({"w": Array(np.zeros((2, 2), dtype=np.float64))})
+        messages = list(
+            strategy.configure_train(1, arrays, ConfigRecord({}), _FakeGridNodes([0, 1]))
+        )
+        assert len(messages) == 2
+        assert strategy._bytes_sent_round == 2 * 32
+
+
+class TestClientStateAccumulation:
+    """IMPL-11 §4.4 per-client per-participation accumulation."""
+
+    def _make_strategy(self) -> Any:
+        from src.server.strategy import MedianRobustAggregation
+
+        return MedianRobustAggregation(
+            tracker=_RecordingTracker(),
+            per_client_budgets={0: 10.0, 1: 10.0},
+        )
+
+    def test_accumulates_participations(self) -> None:
+        strategy = self._make_strategy()
+        strategy._remaining_rdp_sent = {0: 9.4, 1: 9.0}
+        strategy._log_client_metrics(
+            1,
+            [
+                _metrics_content({
+                    "client-id": 0,
+                    "num-examples": 4,
+                    "r_t_candidate": 0.6,
+                    "r_t_final": 0.5,
+                    "cumulative_rdp": 1.0,
+                    "phase": 0.0,
+                    "observed_m": 0.42,
+                    "acct_cost": 0.31,
+                    "utility_loss_clean": 1.2,
+                    "utility_loss": 1.4,
+                    "update_norm": 0.7,
+                    "update_norm_clean": 0.5,
+                    "sigma": 8.0,
+                    "logit_disagreement": 0.1,
+                }),
+            ],
+        )
+        s = strategy._client_state[0]
+        assert s["r_t_candidate"] == [0.6]
+        assert s["r_t_final"] == [0.5]
+        assert s["cum_rdp"] == [1.0]
+        assert s["remaining_rdp"] == [9.4]
+        assert s["phase"] == ["warmup"]
+        assert s["observed_m"] == [0.42]
+        assert s["acct_cost"] == [0.31]
+        assert s["L_clean"] == [1.2]
+        assert s["L_noisy"] == [1.4]
+        assert s["update_norm_noisy"] == [0.7]
+        assert s["update_norm_clean"] == [0.5]
+        assert s["sigma"] == [8.0]
+        assert s["agreement"] == [0.1]
+        assert s["warmup_rounds"] == [1]
+        assert s["enforcement_count"] == 1
+
+    def test_warmup_rounds_and_enforcement_across_rounds(self) -> None:
+        strategy = self._make_strategy()
+        strategy._remaining_rdp_sent = {0: 9.0}
+        strategy._log_client_metrics(
+            1,
+            [
+                _metrics_content({
+                    "client-id": 0,
+                    "num-examples": 4,
+                    "r_t_candidate": 0.05,
+                    "r_t_final": 0.02,
+                    "cumulative_rdp": 0.5,
+                    "phase": 0.0,
+                    "acct_cost": 0.5,
+                }),
+            ],
+        )
+        strategy._log_client_metrics(
+            2,
+            [
+                _metrics_content({
+                    "client-id": 0,
+                    "num-examples": 4,
+                    "r_t_candidate": 0.4,
+                    "r_t_final": 0.4,
+                    "cumulative_rdp": 0.9,
+                    "phase": 1.0,
+                    "acct_cost": 0.1,
+                }),
+            ],
+        )
+        s = strategy._client_state[0]
+        assert s["phase"] == ["warmup", "bo"]
+        assert s["warmup_rounds"] == [1]
+        assert s["enforcement_count"] == 1
+
+    def test_exhausted_participations_and_dropout_round(self) -> None:
+        strategy = self._make_strategy()
+        strategy._remaining_rdp_sent = {0: 0.0}
+        reply = Message(
+            content=_metrics_content({
+                "client-id": 0,
+                "num-examples": 0,
+                "budget_exhausted": 1.0,
+                "rdp_cost": 0.0,
+                "cumulative_rdp": 10.0,
+                "phase": 2.0,
+                "r_t_candidate": 0.05,
+                "update_norm": 0.0,
+                "sigma": 0.0,
+            }),
+            message_type="train",
+            dst_node_id=0,
+        )
+        strategy._record_exhausted(5, [reply])
+        assert strategy._client_dropout_round == {0: 5}
+        s = strategy._client_state[0]
+        assert s["phase"] == ["exhausted"]
+        assert s["r_t_final"] == [0.0]
+        assert s["acct_cost"] == [0.0]
+        assert s["cum_rdp"] == [10.0]
+        assert s["remaining_rdp"] == [0.0]
+        assert s["r_t_candidate"] == [0.05]
+        assert s["observed_m"] == [None]
+        assert s["warmup_rounds"] == []
+        assert s["enforcement_count"] == 0
+
+    def test_get_client_state_includes_dropout_default(self) -> None:
+        strategy = self._make_strategy()
+        strategy._remaining_rdp_sent = {0: 9.0}
+        strategy._log_client_metrics(
+            1,
+            [
+                _metrics_content({
+                    "client-id": 0,
+                    "num-examples": 4,
+                    "r_t_candidate": 0.5,
+                    "r_t_final": 0.5,
+                    "cumulative_rdp": 1.0,
+                    "phase": 1.0,
+                    "acct_cost": 0.2,
+                }),
+            ],
+        )
+        state = strategy.get_client_state()
+        assert state[0]["dropout_round"] is None
+        assert state[0]["enforcement_count"] == 0
+
+    def test_nonprivate_contents_do_not_accumulate(self) -> None:
+        strategy = self._make_strategy()
+        strategy._log_client_metrics(
+            1,
+            [_metrics_content({"client-id": 0, "num-examples": 4, "update_norm": 0.5})],
+        )
+        assert strategy._client_state == {}
+
+    def test_bo_acct_time_totals(self) -> None:
+        strategy = self._make_strategy()
+        strategy._log_client_metrics(
+            1,
+            [_metrics_content({
+                "client-id": 0, "num-examples": 4, "bo_time": 0.1, "acct_time": 0.02,
+            })],
+        )
+        strategy._log_client_metrics(
+            2,
+            [_metrics_content({
+                "client-id": 0, "num-examples": 4, "bo_time": 0.3, "acct_time": 0.04,
+            })],
+        )
+        assert strategy.get_bo_time_total() == pytest.approx(0.4)
+        assert strategy.get_acct_time_total() == pytest.approx(0.06)
+
+
+class TestClientStateArtifact:
+    """IMPL-11 §4.4 final artifact + §4.3 final metrics."""
+
+    def _config(self, *, privacy_enabled: bool = True) -> ExperimentConfig:
+        cfg = ExperimentConfig()
+        cfg.privacy.enabled = privacy_enabled
+        cfg.privacy.total_budget = 10.0
+        return cfg
+
+    def _accumulated_strategy(self) -> Any:
+        from src.server.strategy import MedianRobustAggregation
+
+        tracker = _RecordingTracker()
+        strategy = MedianRobustAggregation(tracker=tracker, per_client_budgets={0: 10.0})
+        strategy._remaining_rdp_sent = {0: 9.0}
+        strategy._log_client_metrics(
+            1,
+            [
+                _metrics_content({
+                    "client-id": 0,
+                    "num-examples": 4,
+                    "r_t_candidate": 0.05,
+                    "r_t_final": 0.05,
+                    "cumulative_rdp": 2.0,
+                    "phase": 1.0,
+                    "acct_cost": 0.2,
+                }),
+            ],
+        )
+        return strategy
+
+    def test_writes_artifact_and_final_metrics(self) -> None:
+        from src.server_app import _write_client_state_artifact
+
+        tracker = _RecordingTracker()
+        strategy = self._accumulated_strategy()
+        strategy._tracker = tracker
+        _write_client_state_artifact(strategy, self._config(), tracker, 10.0, 3)
+        payload = json.loads(tracker.artifacts[0])
+        assert "client_state" in payload
+        entry = payload["client_state"]["0"]
+        assert entry["r_t_candidate"] == [0.05]
+        assert entry["r_t_final"] == [0.05]
+        assert entry["cum_rdp"] == [2.0]
+        assert entry["remaining_rdp"] == [9.0]
+        assert entry["phase"] == ["bo"]
+        assert entry["dropout_round"] is None
+        assert entry["enforcement_count"] == 0
+        metrics = _logged_map(tracker)
+        assert metrics["budget_utilization"] == (pytest.approx(0.2), 3)
+        assert metrics["bo_overhead_pct"] == (pytest.approx(0.0), 3)
+
+    def test_bo_overhead_pct_computed(self) -> None:
+        from src.server_app import _write_client_state_artifact
+
+        tracker = _RecordingTracker()
+        strategy = self._accumulated_strategy()
+        strategy._tracker = tracker
+        strategy._bo_time_total = 0.5
+        _write_client_state_artifact(strategy, self._config(), tracker, 10.0, 3)
+        metrics = _logged_map(tracker)
+        assert metrics["bo_overhead_pct"] == (pytest.approx(5.0), 3)
+
+    def test_nonprivate_skips_artifact(self) -> None:
+        from src.server_app import _write_client_state_artifact
+
+        tracker = _RecordingTracker()
+        strategy = self._accumulated_strategy()
+        strategy._tracker = tracker
+        _write_client_state_artifact(
+            strategy, self._config(privacy_enabled=False), tracker, 10.0, 3,
+        )
+        assert tracker.artifacts == []
+
+    def test_skips_artifact_without_state(self) -> None:
+        from src.server.strategy import MedianRobustAggregation
+        from src.server_app import _write_client_state_artifact
+
+        tracker = _RecordingTracker()
+        strategy = MedianRobustAggregation(tracker=tracker, per_client_budgets={0: 10.0})
+        _write_client_state_artifact(strategy, self._config(), tracker, 10.0, 3)
+        assert tracker.artifacts == []
+        assert tracker.metrics == []

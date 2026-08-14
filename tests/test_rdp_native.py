@@ -414,7 +414,7 @@ class TestResolveRDPerRound:
         accountant = RDPAccountant(delta=1e-5)
         q = 64 / 1000
         r_t = 0.5
-        rdp_cost, sigma = _resolve_rdp(
+        rdp_cost, sigma, _candidate, _bo, _acct = _resolve_rdp(
             FixedRDPScheduler(rdp_target=r_t), accountant, config,
             total_budget=10.0, eps_min=0.01, local_train_size=1000,
         )
@@ -434,7 +434,7 @@ class TestResolveRDPerRound:
             sigma=sigma_current, clipping_norm=q, num_steps=1,
             mode="per_example",
         )
-        rdp_cost, sigma = _resolve_rdp(
+        rdp_cost, sigma, _candidate, _bo, _acct = _resolve_rdp(
             FixedRDPScheduler(rdp_target=0.5), accountant, config,
             total_budget=1.0, eps_min=0.01, local_train_size=1000,
         )
@@ -456,7 +456,7 @@ class TestResolveRDPerRound:
         accountant.step(
             sigma=sigma_used, clipping_norm=q, num_steps=1, mode="per_example",
         )
-        rdp_cost, sigma = _resolve_rdp(
+        rdp_cost, sigma, _candidate, _bo, _acct = _resolve_rdp(
             FixedRDPScheduler(rdp_target=0.5), accountant, config,
             total_budget=1.0, eps_min=0.01, local_train_size=1000,
         )
@@ -469,12 +469,99 @@ class TestResolveRDPerRound:
         config = self._make_config()
         q = 64 / 1000
         r_t = 0.5
-        rdp_cost, sigma = _resolve_rdp(
+        rdp_cost, sigma, _candidate, _bo, _acct = _resolve_rdp(
             FixedRDPScheduler(rdp_target=r_t), None, config,
             local_train_size=1000,
         )
         assert rdp_cost == pytest.approx(r_t, rel=1e-9)
         assert sigma == pytest.approx(self._expected_sigma(r_t, q), rel=1e-9)
+
+
+class TestResolveRDPSpecFields:
+    """_resolve_rdp returns (rdp_cost, sigma, r_t_candidate, bo_time, acct_time)."""
+
+    @staticmethod
+    def _make_config():
+        from src.config.loader import ExperimentConfig
+        cfg = ExperimentConfig()
+        cfg.privacy.enabled = True
+        cfg.privacy.accountant_mode = "rdp_native"
+        cfg.privacy.clipping_mode = "per_example"
+        cfg.privacy.rdp_alpha = 10.0
+        cfg.privacy.update_clip_norm = 1.0
+        cfg.data.batch_size = 64
+        return cfg
+
+    def test_no_enforcement_reports_candidate_and_timings(self) -> None:
+        from src.client_app import _resolve_rdp
+        from src.privacy.epsilon_scheduler import FixedRDPScheduler
+        config = self._make_config()
+        rdp_cost, sigma, candidate, bo_time, acct_time = _resolve_rdp(
+            FixedRDPScheduler(rdp_target=0.5), None, config,
+            local_train_size=1000,
+        )
+        assert rdp_cost == pytest.approx(0.5)
+        assert candidate == pytest.approx(0.5)
+        assert sigma > 0
+        assert isinstance(bo_time, float) and bo_time >= 0.0
+        assert isinstance(acct_time, float) and acct_time >= 0.0
+
+    def test_candidate_is_pre_enforcement_value(self) -> None:
+        from src.client_app import _resolve_rdp
+        from src.privacy.epsilon_scheduler import FixedRDPScheduler
+        config = self._make_config()
+        alpha = config.privacy.rdp_alpha
+        q = 64 / 1000
+        accountant = RDPAccountant(delta=1e-5)
+        sigma_current = _sigma_for_rdp_target_dp_sgd(0.9, alpha, q)
+        accountant.step(
+            sigma=sigma_current, clipping_norm=q, num_steps=1,
+            mode="per_example",
+        )
+        rdp_cost, sigma, candidate, _bo, _acct = _resolve_rdp(
+            FixedRDPScheduler(rdp_target=0.5), accountant, config,
+            total_budget=1.0, eps_min=0.01, local_train_size=1000,
+        )
+        # The candidate is the scheduler's proposed 0.5 before enforcement;
+        # the enforced rdp_cost is reduced to fit the remaining budget.
+        assert candidate == pytest.approx(0.5)
+        assert 0.01 <= rdp_cost < 0.5
+        assert compute_rdp_cost_dp_sgd(alpha, sigma, q) == pytest.approx(
+            rdp_cost, rel=1e-9,
+        )
+
+    def test_exhausted_reports_pre_enforcement_candidate(self) -> None:
+        from src.client_app import _resolve_rdp
+        from src.privacy.epsilon_scheduler import FixedRDPScheduler
+        config = self._make_config()
+        alpha = config.privacy.rdp_alpha
+        q = 64 / 1000
+        accountant = RDPAccountant(delta=1e-5)
+        sigma_used = _sigma_for_rdp_target_dp_sgd(0.995, alpha, q)
+        accountant.step(
+            sigma=sigma_used, clipping_norm=q, num_steps=1, mode="per_example",
+        )
+        rdp_cost, sigma, candidate, _bo, _acct = _resolve_rdp(
+            FixedRDPScheduler(rdp_target=0.5), accountant, config,
+            total_budget=1.0, eps_min=0.01, local_train_size=1000,
+        )
+        assert rdp_cost == -1.0
+        assert sigma == 0.0
+        assert candidate == pytest.approx(0.5)
+
+    def test_bo_time_zero_without_scheduler(self) -> None:
+        from src.client_app import _resolve_rdp
+        config = self._make_config()
+        config.personalization.enabled = True
+        config.personalization.strategy = "uniform"
+        rdp_cost, sigma, candidate, bo_time, acct_time = _resolve_rdp(
+            None, None, config, total_budget=10.0, local_train_size=1000,
+        )
+        expected = 10.0 / config.federated.num_rounds
+        assert rdp_cost == pytest.approx(expected)
+        assert candidate == pytest.approx(expected)
+        assert bo_time == 0.0
+        assert isinstance(acct_time, float) and acct_time >= 0.0
 
 
 class TestPerExampleClientRoundParity:

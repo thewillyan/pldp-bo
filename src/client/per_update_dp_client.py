@@ -15,7 +15,7 @@ from src.device import get_device, to_device
 from src.models.base import BaseModel
 from src.privacy.accountant import RDPAccountant
 from src.privacy.metrics import compute_validation_stats
-from src.privacy.per_update_dp import PerUpdateGaussianMechanism
+from src.privacy.per_update_dp import PerUpdateGaussianMechanism, compute_rdp_cost
 
 logger = logging.getLogger(__name__)
 
@@ -220,6 +220,10 @@ class PerUpdateDPClient(FlowerClient):
         if self._rdp_native:
             metrics = {
                 "rdp_cost": privacy_param,
+                "r_t_final": privacy_param,
+                "acct_cost": compute_rdp_cost(
+                    self._rdp_alpha, sigma, self._mechanism.clipping_norm,
+                ),
                 "cumulative_rdp": cumulative_privacy,
                 "client_rdp": self._client_epsilon or 0.0,
                 "update_norm": update_norm,

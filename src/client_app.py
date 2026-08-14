@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from time import perf_counter
 from typing import Any, Union, cast
 
 import numpy as np
@@ -310,8 +311,9 @@ def train(msg: Message, context: Context) -> Message:
             scheduler.set_remaining_budget(remaining_budget)
 
     # Resolve the privacy parameter (epsilon or rdp cost)
+    r_t_candidate: float = 0.0
     if rdp_native:
-        rdp_cost, computed_sigma = _resolve_rdp(
+        rdp_cost, computed_sigma, r_t_candidate, bo_time, acct_time = _resolve_rdp(
             scheduler, accountant, config, total_budget,
             local_train_size=len(client_subset),
         )
@@ -342,7 +344,7 @@ def train(msg: Message, context: Context) -> Message:
             remaining_rdp=server_remaining_rdp,
         )
     else:
-        epsilon, computed_sigma = _resolve_epsilon(
+        epsilon, computed_sigma, eps_candidate, bo_time, acct_time = _resolve_epsilon(
             scheduler, accountant, config, total_budget,
             local_train_size=len(client_subset),
         )
@@ -406,9 +408,47 @@ def train(msg: Message, context: Context) -> Message:
         "client-id": partition_id,
         **fit_metrics,
     }
+    if config.privacy.enabled:
+        # §4.4 client_state fields: phase, observed_m, r_t_candidate and the
+        # BO/accounting wall times (§4.3 bo_time_round / acct_time_round).
+        exhausted = bool(fit_metrics.get("budget_exhausted", False))
+        metrics["phase"] = phase_code(
+            "exhausted" if exhausted else _scheduler_phase(scheduler),
+        )
+        metrics["bo_time"] = bo_time
+        metrics["acct_time"] = acct_time
+        if rdp_native:
+            metrics["r_t_candidate"] = r_t_candidate
+        if config.bo.enabled and not exhausted:
+            metric_key = _OPTIMIZATION_METRIC_KEY_MAP[config.bo.optimization_metric]
+            observed = fit_metrics.get(metric_key)
+            if observed is not None:
+                metrics["observed_m"] = float(observed)
     metric_record = MetricRecord(_prepare_metric_record(metrics))
     content = RecordDict({"arrays": model_record, "metrics": metric_record})
     return Message(content=content, reply_to=msg)
+
+
+def _scheduler_phase(scheduler: AnyScheduler | None) -> str:
+    """BO phase of the scheduler ('warmup' | 'bo'); fixed/uniform → 'bo'.
+
+    Only the PLDPBO schedulers track a warm-up/BO phase; the fixed and
+    uniform-random schedulers have no warm-up, so their phase is 'bo'
+    throughout (§4.4 fixed-baseline constants).
+    """
+    phase = getattr(scheduler, "_phase", None)
+    return phase if isinstance(phase, str) else "bo"
+
+
+# MetricRecord only accepts numeric values, so the client encodes the §4.4
+# ``phase`` string as a numeric code; the server decodes it when building the
+# client_state artifact.
+_PHASE_CODES: dict[str, float] = {"warmup": 0.0, "bo": 1.0, "exhausted": 2.0}
+
+
+def phase_code(phase: str) -> float:
+    """Numeric encoding of the §4.4 phase string for the client reply."""
+    return _PHASE_CODES[phase]
 
 
 def _resolve_epsilon(
@@ -418,15 +458,18 @@ def _resolve_epsilon(
     total_budget: float | None = None,
     eps_min: float | None = None,
     local_train_size: int | None = None,
-) -> tuple[float, float]:
-    """Return (epsilon, sigma) where sigma is None if no budget enforcement applies."""
+) -> tuple[float, float, float, float, float]:
+    """Return (epsilon, sigma, eps_candidate, bo_time, acct_time)."""
+    bo_time = 0.0
     if scheduler is not None:
+        t0 = perf_counter()
         candidate = scheduler.get_epsilon()
+        bo_time = perf_counter() - t0
     elif config.personalization.enabled:
         if total_budget is not None and total_budget > 0:
             candidate = total_budget / config.federated.num_rounds
         else:
-            return 0.0, 0.0
+            return 0.0, 0.0, 0.0, 0.0, 0.0
     elif config.privacy.target_epsilon is not None:
         candidate = config.privacy.target_epsilon
     elif config.privacy.enabled:
@@ -436,9 +479,12 @@ def _resolve_epsilon(
             "or disable privacy."
         )
     else:
-        return 0.0, 0.0
+        return 0.0, 0.0, 0.0, 0.0, 0.0
+
+    eps_candidate = candidate
 
     if accountant is not None and total_budget is not None:
+        t0 = perf_counter()
         delta = config.privacy.delta
         lower_bound = eps_min if eps_min is not None else 1e-6
         clipping_mode = config.privacy.clipping_mode
@@ -464,9 +510,10 @@ def _resolve_epsilon(
                 candidate, accountant.rdp_per_alpha, total_budget,
                 lower_bound, c, delta,
             )
-        return candidate, computed_sigma
+        acct_time = perf_counter() - t0
+        return candidate, computed_sigma, eps_candidate, bo_time, acct_time
 
-    return candidate, 0.0
+    return candidate, 0.0, eps_candidate, bo_time, 0.0
 
 
 def _resolve_rdp(
@@ -476,23 +523,35 @@ def _resolve_rdp(
     total_budget: float | None = None,
     eps_min: float | None = None,
     local_train_size: int | None = None,
-) -> tuple[float, float]:
-    """Return (rdp_cost, sigma) for RDP-native mode. No epsilon conversion."""
+) -> tuple[float, float, float, float, float]:
+    """Return (rdp_cost, sigma, r_t_candidate, bo_time, acct_time) for RDP-native mode.
+
+    ``r_t_candidate`` is the scheduler's proposed per-round RDP cost before
+    budget enforcement; ``bo_time`` is the wall time of the BO decision (GP fit
+    + acquisition + selection, §4.3) and ``acct_time`` the wall time of the
+    budget check + sigma calibration.
+    """
     alpha = config.privacy.rdp_alpha
 
+    bo_time = 0.0
     if scheduler is not None:
+        t0 = perf_counter()
         candidate = scheduler.get_rdp()
+        bo_time = perf_counter() - t0
     elif config.personalization.enabled:
         if total_budget is not None and total_budget > 0:
             candidate = total_budget / config.federated.num_rounds
         else:
-            return 0.0, 0.0
+            return 0.0, 0.0, 0.0, 0.0, 0.0
     else:
         raise ValueError(
             "RDP-native mode requires a scheduler (bo) or personalization with total_budget."
         )
 
+    r_t_candidate = candidate
+
     if accountant is not None and total_budget is not None:
+        t0 = perf_counter()
         current_rdp = accountant.get_rdp_at_alpha(alpha)
         lower_bound = eps_min if eps_min is not None else 1e-6
         clipping_mode = config.privacy.clipping_mode
@@ -518,9 +577,11 @@ def _resolve_rdp(
                 candidate, current_rdp, total_budget,
                 lower_bound, alpha, c,
             )
-        return candidate, computed_sigma
+        acct_time = perf_counter() - t0
+        return candidate, computed_sigma, r_t_candidate, bo_time, acct_time
 
     # No budget enforcement — compute sigma directly from RDP cost
+    t0 = perf_counter()
     clipping_mode = config.privacy.clipping_mode
     if clipping_mode == "per_example":
         if local_train_size is not None:
@@ -531,7 +592,8 @@ def _resolve_rdp(
     else:
         c = config.privacy.update_clip_norm
         sigma = _sigma_for_rdp_target(candidate, alpha, c)
-    return candidate, sigma
+    acct_time = perf_counter() - t0
+    return candidate, sigma, r_t_candidate, bo_time, acct_time
 
 
 @app.query()
