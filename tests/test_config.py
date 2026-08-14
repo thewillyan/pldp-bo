@@ -111,3 +111,48 @@ def test_clipping_mode_from_override() -> None:
         overrides={"privacy.clipping_mode": "per_example"},
     )
     assert config.privacy.clipping_mode == "per_example"
+
+
+def test_locked_layer_fields_defaults() -> None:
+    config = ExperimentConfig()
+    assert config.method == ""
+    assert config.assert_locked_config is True
+    assert config.federated.aggregation == "attenuation"
+    assert config.privacy.enforce_budget is True
+    assert config.privacy.fixed_rdp_target == 0.5
+
+
+def test_locked_layer_fields_from_yaml(tmp_path: Path) -> None:
+    cfg_file = tmp_path / "matrix.yaml"
+    cfg_file.write_text(
+        yaml.dump({
+            "method": "pldpbo_nun",
+            "assert_locked_config": True,
+            "federated": {"aggregation": "attenuation"},
+            "privacy": {"enforce_budget": True, "fixed_rdp_target": 0.5},
+        })
+    )
+    config = load_config(str(cfg_file))
+    assert config.method == "pldpbo_nun"
+    assert config.assert_locked_config is True
+    assert config.federated.aggregation == "attenuation"
+    assert config.privacy.enforce_budget is True
+    assert config.privacy.fixed_rdp_target == 0.5
+
+
+def test_locked_layer_fields_from_override() -> None:
+    config = load_config(
+        "config/default.yaml",
+        overrides={
+            "method": "nonprivate",
+            "assert_locked_config": "false",
+            "federated.aggregation": "plain",
+            "privacy.enforce_budget": "false",
+            "privacy.fixed_rdp_target": "1.0",
+        },
+    )
+    assert config.method == "nonprivate"
+    assert config.assert_locked_config is False
+    assert config.federated.aggregation == "plain"
+    assert config.privacy.enforce_budget is False
+    assert config.privacy.fixed_rdp_target == 1.0

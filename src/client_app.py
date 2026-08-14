@@ -9,6 +9,7 @@ from flwr.clientapp import ClientApp
 
 from src.client import create_client
 from src.config.loader import ExperimentConfig, load_config
+from src.config.locked import assert_locked_config
 from src.data import create_client_dataloader
 from src.models import create_model
 from src.privacy.accountant import RDPAccountant
@@ -187,6 +188,8 @@ def train(msg: Message, context: Context) -> Message:
         if k not in ("config-path", "app_config_overrides")
     }
     config = load_config(config_path, overrides=overrides)
+
+    assert_locked_config(config)
 
     if config.bo.enabled:
         _VALID_BO_METRICS = {

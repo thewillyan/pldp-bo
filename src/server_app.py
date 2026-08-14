@@ -11,6 +11,7 @@ from flwr.serverapp.strategy import FedAvg, FedProx  # noqa: F401  # used in typ
 from torch.utils.data import DataLoader
 
 from src.config.loader import ExperimentConfig, load_config
+from src.config.locked import assert_locked_config
 from src.data import create_validation_loader
 from src.device import get_device, to_device
 from src.models import create_model
@@ -219,6 +220,8 @@ def main(grid: Grid, context: Context) -> None:
     }
     overrides.update(app_overrides)
     config = load_config(config_path, overrides=overrides)
+
+    assert_locked_config(config)
 
     set_seed(config.seed, deterministic=config.deterministic)
 

@@ -40,6 +40,7 @@ class FederatedConfig:
     min_available_nodes: int = 2
     proximal_mu: float = 0.0
     server_learning_rate: float = 1.0
+    aggregation: str = "attenuation"  # "attenuation" | "plain"
 
 
 @dataclass
@@ -63,6 +64,8 @@ class PrivacyConfig:
     accountant_mode: str = "epsilon"  # "epsilon" | "rdp_native"
     rdp_alpha: float = 10.0  # fixed Renyi order for rdp_native mode
     total_budget: float | None = None  # epsilon budget (or RDP budget in rdp_native mode)
+    enforce_budget: bool = True
+    fixed_rdp_target: float = 0.5  # per-round RDP cost for the fixed-RDP baselines
 
 
 @dataclass
@@ -121,6 +124,8 @@ class ExperimentConfig:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     seed: int = 42
     deterministic: bool = False
+    method: str = ""  # one of the §3 experiment methods (validated in src.config.locked)
+    assert_locked_config: bool = True  # fail fast if §2 constants deviate
 
 
 _CONFIG_KEY_MAP = {
@@ -216,6 +221,7 @@ def load_config(config_path: str, overrides: dict | None = None) -> ExperimentCo
     if path.exists():
         with path.open() as f:
             raw = yaml.safe_load(f) or {}
+        top_level_hints = typing.get_type_hints(ExperimentConfig)
         for key, sub_config in raw.items():
             if key in _CONFIG_KEY_MAP and isinstance(sub_config, dict):
                 dc_type = _CONFIG_KEY_MAP[key]
@@ -234,6 +240,11 @@ def load_config(config_path: str, overrides: dict | None = None) -> ExperimentCo
                                     key, fld.name, value, expected.__name__,
                                 )
                         setattr(current, fld.name, value)
+            elif hasattr(config, key):
+                expected = top_level_hints.get(key)
+                if expected is not None:
+                    sub_config = _coerce_value(sub_config, expected)
+                setattr(config, key, sub_config)
 
     if overrides:
         expanded = _expand_dot_keys(overrides)

@@ -673,3 +673,9 @@ Everything below is the repo-side subset of `EXPERIMENTS-TODO.md` §8:
 
 - 2026-08-14: document created from the approved implementation plan (user decisions: generated
   matrix YAMLs, verification module included, config-flag assertion escape hatch).
+- 2026-08-14: **IMPL-01 closed.** Added `method`/`assert_locked_config` (top level),
+  `federated.aggregation`, `privacy.enforce_budget`, `privacy.fixed_rdp_target`; new
+  `src/config/locked.py` (`LOCKED_CONSTANTS`, method contract, `collect_violations`,
+  `assert_locked_config`, `config_version`); wired into `server_app.main` and `client_app.train`;
+  fixed `load_config` to merge top-level scalar YAML keys (previously `seed` was silently ignored).
+  66 new/updated tests; ruff/mypy baseline unchanged (no new errors); 415 tests green.
