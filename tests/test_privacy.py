@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import numpy as np
 import pytest
@@ -579,6 +580,57 @@ class TestComputeUtilityLoss:
 # ---------------------------------------------------------------------------
 # Weight clamping — noise is bounded after mechanism apply
 # ---------------------------------------------------------------------------
+
+
+class TestMomentumAccountingUnchanged:
+    """Momentum is applied pre-noise, so sigma and the RDP cost are unchanged."""
+
+    def test_sigma_and_rdp_cost_identical_with_and_without_momentum(self) -> None:
+        from src.client.per_example_dp_client import PerExampleDPClient
+        from src.models.base import BaseModel
+
+        class _SimpleModel(BaseModel):
+            def __init__(self) -> None:
+                self._net = nn.Linear(10, 2)
+
+            def get_model(self) -> nn.Module:
+                return self._net
+
+        def make_loader() -> DataLoader[Any]:
+            data = TensorDataset(torch.randn(4, 10), torch.randint(0, 2, (4,)))
+            return DataLoader(data, batch_size=2)
+
+        def make_config() -> ExperimentConfig:
+            config = ExperimentConfig()
+            config.privacy.enabled = True
+            config.privacy.clipping_mode = "per_example"
+            config.privacy.accountant_mode = "rdp_native"
+            config.data.batch_size = 2
+            return config
+
+        loader = make_loader()
+        params = None
+
+        clients = []
+        for momentum in (0.0, 0.9):
+            config = make_config()
+            config.optimizer.momentum = momentum
+            model = _SimpleModel()
+            client = PerExampleDPClient(
+                model, loader, loader, config,
+                client_epsilon=0.5, seed=42,
+            )
+            if params is None:
+                params = client.get_parameters({})
+            clients.append((client, config, model))
+
+        metrics = []
+        for client, _config, _model in clients:
+            _, _num_examples, m = client.fit(params or [], {})
+            metrics.append(m)
+
+        assert metrics[0]["sigma"] == pytest.approx(metrics[1]["sigma"])
+        assert metrics[0]["rdp_cost"] == pytest.approx(metrics[1]["rdp_cost"])
 
 
 

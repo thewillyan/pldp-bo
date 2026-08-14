@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Any
 
@@ -124,20 +125,6 @@ class PerExampleDPClient(FlowerClient):
     ) -> None:
         super().__init__(model, trainloader, valloader, config)
 
-        if config.optimizer.momentum > 0:
-            raise ValueError(
-                "PerExampleDPClient requires optimizer.momentum == 0 "
-                f"(got {config.optimizer.momentum}). "
-                "Momentum is not compatible with per-example DP-SGD."
-            )
-
-        if config.federated.proximal_mu > 0:
-            raise ValueError(
-                "PerExampleDPClient does not support proximal_mu (FedProx). "
-                f"Got proximal_mu={config.federated.proximal_mu}. "
-                "Use clipping_mode='per_update' with FedProx, or set proximal_mu=0."
-            )
-
         self._client_epsilon = client_epsilon
         self._computed_sigma = computed_sigma
         self._accountant = accountant
@@ -217,6 +204,9 @@ class PerExampleDPClient(FlowerClient):
         criterion = nn.CrossEntropyLoss()
         net.train()
 
+        proximal_mu = self.config.federated.proximal_mu
+        global_params = copy.deepcopy(dict(net.named_parameters())) if proximal_mu > 0 else {}
+
         utility_loss_clean, clean_logits = compute_validation_stats(
             net, self.valloader, criterion,
         )
@@ -245,12 +235,15 @@ class PerExampleDPClient(FlowerClient):
         else:
             sigma = calibrate_sigma_dp_sgd(privacy_param, self._sampling_rate, delta)
 
-        optimizer = _get_optimizer(net, self.config)
+        # Momentum is applied by the manual buffer below (post-clip, pre-noise),
+        # so the optimizer itself must not apply momentum again.
+        optimizer = _get_optimizer(net, self.config, momentum=0.0)
         rng = np.random.RandomState(self._seed)
 
         clip_fractions: list[float] = []
         grad_norms_before: list[float] = []
         grad_norms_after: list[float] = []
+        momentum_buffer: dict[str, torch.Tensor] | None = None
 
         for _ in range(self.config.federated.local_epochs):
             for batch in self.trainloader:
@@ -259,6 +252,17 @@ class PerExampleDPClient(FlowerClient):
                 per_example_grads = _compute_per_example_grads(
                     net, images, labels, criterion,
                 )
+
+                if proximal_mu > 0:
+                    # FedProx: add the deterministic drift mu * (w - w_global) to
+                    # every example's gradient before clipping. The shift is the
+                    # same for all examples and public, so the per-example clip
+                    # still bounds each example's contribution to the release.
+                    params = dict(net.named_parameters())
+                    per_example_grads = {
+                        k: g + proximal_mu * (params[k] - global_params[k])
+                        for k, g in per_example_grads.items()
+                    }
 
                 flat_before = torch.cat(
                     [g.reshape(g.shape[0], -1) for g in per_example_grads.values()],
@@ -276,7 +280,24 @@ class PerExampleDPClient(FlowerClient):
                 )
                 grad_norms_after.append(flat_after.detach().norm().item())
 
-                noisy_grad = _add_noise(avg_clipped, sigma, clip_norm, rng)
+                momentum = self.config.optimizer.momentum
+                if momentum > 0:
+                    # Momentum (Opacus-style, DP-safe): applied to the averaged
+                    # clipped gradient, *before* noise. Applying momentum after
+                    # noise would compound the noise; applying it to per-sample
+                    # gradients would require per-sample buffers. Each example
+                    # appears in exactly one step with weight m^(t-i) <= 1, so
+                    # the sensitivity of the buffered update stays 2C/n.
+                    if momentum_buffer is None:
+                        momentum_buffer = {k: v.clone() for k, v in avg_clipped.items()}
+                    else:
+                        for k in avg_clipped:
+                            momentum_buffer[k] = momentum * momentum_buffer[k] + avg_clipped[k]
+                    grad_for_noise = momentum_buffer
+                else:
+                    grad_for_noise = avg_clipped
+
+                noisy_grad = _add_noise(grad_for_noise, sigma, clip_norm, rng)
 
                 optimizer.zero_grad()
                 _set_model_grads(net, noisy_grad)

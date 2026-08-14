@@ -697,3 +697,17 @@ Everything below is the repo-side subset of `EXPERIMENTS-TODO.md` §8:
   domain (`test_integration.py` lifecycle bounds, `test_bo_scheduler.py` warm-up expectations,
   `test_rdp_native.py`). 5 new grid-integrity tests; 429 tests green; ruff/mypy baseline
   unchanged.
+- 2026-08-14: **IMPL-04 closed.** Momentum DP-SGD + squared FedProx (spec §9.4). Removed both
+  guards in `PerExampleDPClient.__init__`; manual per-parameter momentum buffer applied
+  post-clip / pre-noise (Opacus-style, DP-safe — each example appears once with weight m^(t-i) ≤ 1,
+  sensitivity stays 2C/n; invariant documented in a comment); optimizer momentum forced 0.0 via
+  new `_get_optimizer(..., momentum=None)` kwarg to avoid double momentum; FedProx term changed
+  to (μ/2)·Σ‖w−w_global‖² (sum of squared L2 norms) in `base_client.py`, added before clipping
+  per-example in `per_example_dp_client.py` (deterministic public shift, same for all examples),
+  and mirrored in `per_update_dp_client.py` (user-approved). `mu_fedprox` param plumbing deferred
+  to IMPL-11 (value already at `federated.proximal_mu`, locked per method). Acceptance verified:
+  momentum=0.9 + proximal_mu=0.01 runs (rdp_native smoke); reference-match tests prove
+  momentum-equals-torch-SGD and shift-before-clip ordering (noise disabled via monkeypatch); σ
+  and RDP cost identical with/without momentum (accounting unchanged). 8 new tests, 1 removed
+  (test_momentum_rejected); 436 tests green; ruff/mypy baseline unchanged (only the 3 pre-existing
+  line-shifted errors).

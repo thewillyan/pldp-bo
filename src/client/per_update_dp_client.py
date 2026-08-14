@@ -126,7 +126,7 @@ class PerUpdateDPClient(FlowerClient):
 
                 if proximal_mu > 0:
                     proximal_term = sum(
-                        (w - w_global).norm(2)
+                        (w - w_global).pow(2).sum()
                         for w, w_global in zip(net.parameters(), global_params, strict=True)
                     )
                     loss = loss + (proximal_mu / 2) * proximal_term

@@ -13,13 +13,17 @@ from src.device import get_device, to_device
 from src.models.base import BaseModel
 
 
-def _get_optimizer(model: nn.Module, config: ExperimentConfig) -> torch.optim.Optimizer:
+def _get_optimizer(
+    model: nn.Module,
+    config: ExperimentConfig,
+    momentum: float | None = None,
+) -> torch.optim.Optimizer:
     lr = config.optimizer.lr
     if config.optimizer.name == "sgd":
         return torch.optim.SGD(
             model.parameters(),
             lr=lr,
-            momentum=config.optimizer.momentum,
+            momentum=config.optimizer.momentum if momentum is None else momentum,
             weight_decay=config.optimizer.weight_decay,
         )
     if config.optimizer.name == "adam":
@@ -67,7 +71,7 @@ class FlowerClient(fl.client.NumPyClient):
 
                 if proximal_mu > 0:
                     proximal_term = sum(
-                        (w - w_global).norm(2)
+                        (w - w_global).pow(2).sum()
                         for w, w_global in zip(net.parameters(), global_params, strict=True)
                     )
                     loss = loss + (proximal_mu / 2) * proximal_term

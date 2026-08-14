@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+
 import numpy as np
 import pytest
 import torch
@@ -8,7 +10,12 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from src.client import create_client
 from src.client.base_client import FlowerClient, _get_optimizer
-from src.client.per_example_dp_client import _clip_per_example
+from src.client.per_example_dp_client import (
+    _average_grads,
+    _clip_per_example,
+    _compute_per_example_grads,
+    _set_model_grads,
+)
 from src.config.loader import ExperimentConfig
 from src.models.base import BaseModel
 
@@ -24,6 +31,15 @@ class _SimpleModel(BaseModel):
 def _make_loader() -> DataLoader:
     data = TensorDataset(torch.randn(4, 10), torch.randint(0, 2, (4,)))
     return DataLoader(data, batch_size=2)
+
+
+def _identity_noise(
+    grads: dict[str, torch.Tensor],
+    sigma: float,  # noqa: ARG001
+    clip_norm: float,  # noqa: ARG001
+    rng: np.random.RandomState,  # noqa: ARG001
+) -> dict[str, torch.Tensor]:
+    return grads
 
 
 class TestGetOptimizer:
@@ -47,6 +63,15 @@ class TestGetOptimizer:
         with pytest.raises(ValueError, match="Unknown optimizer"):
             _get_optimizer(model, config)
 
+    def test_momentum_override(self) -> None:
+        config = ExperimentConfig()
+        config.optimizer.momentum = 0.9
+        model = nn.Linear(10, 2)
+        opt = _get_optimizer(model, config, momentum=0.0)
+        assert opt.param_groups[0]["momentum"] == 0.0
+        opt_default = _get_optimizer(model, config)
+        assert opt_default.param_groups[0]["momentum"] == 0.9
+
 
 class TestFlowerClient:
     def test_get_parameters_returns_list_of_ndarrays(self) -> None:
@@ -68,6 +93,36 @@ class TestFlowerClient:
         assert isinstance(loss, float)
         assert isinstance(num_examples, int)
         assert "accuracy" in metrics
+
+    def test_fit_proximal_matches_squared_reference(self) -> None:
+        config = ExperimentConfig()
+        config.optimizer.momentum = 0.0
+        mu = 0.01
+        model = _SimpleModel()
+        loader = _make_loader()
+        client = FlowerClient(model, loader, loader, config)
+        params = client.get_parameters({})
+
+        criterion = nn.CrossEntropyLoss()
+        net_ref = copy.deepcopy(model.get_model())
+        global_params = copy.deepcopy(list(net_ref.parameters()))
+        opt = torch.optim.SGD(net_ref.parameters(), lr=config.optimizer.lr)
+        for _ in range(config.federated.local_epochs):
+            for images, labels in loader:
+                opt.zero_grad()
+                loss = criterion(net_ref(images), labels)
+                loss = loss + (mu / 2) * sum(
+                    (w - w_global).pow(2).sum()
+                    for w, w_global in zip(net_ref.parameters(), global_params, strict=True)
+                )
+                loss.backward()
+                opt.step()
+
+        _, num_examples, _ = client.fit(params, {"proximal-mu": mu})
+        assert num_examples > 0
+        trained = model.get_model()
+        for p_ref, p_client in zip(net_ref.parameters(), trained.parameters(), strict=True):
+            assert torch.allclose(p_ref.detach(), p_client.detach(), atol=1e-6)
 
 
 class TestCreateClient:
@@ -95,7 +150,7 @@ class TestCreateClient:
         config = ExperimentConfig()
         config.privacy.enabled = True
         config.privacy.clipping_mode = "per_example"
-        config.optimizer.momentum = 0.0
+        config.optimizer.momentum = 0.9
         model = _SimpleModel()
         loader = _make_loader()
         client = create_client(0, model, loader, loader, config,
@@ -133,16 +188,137 @@ class TestPerExampleDPClient:
         assert "grad_norm_after_clip" in metrics
         assert "num_opt_steps" in metrics
 
-    def test_momentum_rejected(self) -> None:
+    def test_momentum_and_proximal_accepted(self) -> None:
         from src.client.per_example_dp_client import PerExampleDPClient
-        config = ExperimentConfig()
-        config.privacy.enabled = True
-        config.privacy.clipping_mode = "per_example"
-        config.optimizer.momentum = 0.9  # should be rejected
+        config = self._make_config()
+        config.optimizer.momentum = 0.9
+        config.federated.proximal_mu = 0.01
         model = _SimpleModel()
         loader = _make_loader()
-        with pytest.raises(ValueError, match="momentum"):
-            PerExampleDPClient(model, loader, loader, config, client_epsilon=1.0)
+        client = PerExampleDPClient(
+            model, loader, loader, config, client_epsilon=1.0,
+        )
+        assert client is not None
+
+    def test_fit_momentum_proximal_rdp_native_runs(self) -> None:
+        from src.client.per_example_dp_client import PerExampleDPClient
+        config = self._make_config()
+        config.optimizer.momentum = 0.9
+        config.federated.proximal_mu = 0.01
+        config.privacy.accountant_mode = "rdp_native"
+        model = _SimpleModel()
+        loader = _make_loader()
+        client = PerExampleDPClient(
+            model, loader, loader, config,
+            client_epsilon=0.5, seed=42,
+        )
+        params = client.get_parameters({})
+        weights, num_examples, metrics = client.fit(params, {})
+        assert num_examples > 0
+        assert weights
+        assert metrics["num_opt_steps"] > 0
+        assert "rdp_cost" in metrics
+        assert "cumulative_rdp" in metrics
+        assert metrics["sigma"] > 0
+
+    def test_momentum_matches_reference_implementation(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from src.client.per_example_dp_client import PerExampleDPClient
+        monkeypatch.setattr(
+            "src.client.per_example_dp_client._add_noise", _identity_noise,
+        )
+        config = self._make_config()
+        config.optimizer.momentum = 0.9
+        model = _SimpleModel()
+        loader = _make_loader()
+        client = PerExampleDPClient(
+            model, loader, loader, config,
+            client_epsilon=1.0, seed=42,
+        )
+        params = client.get_parameters({})
+
+        criterion = nn.CrossEntropyLoss()
+        net_ref = copy.deepcopy(model.get_model())
+        opt = torch.optim.SGD(
+            net_ref.parameters(),
+            lr=config.optimizer.lr,
+            momentum=0.9,
+        )
+        for _ in range(config.federated.local_epochs):
+            for images, labels in loader:
+                per_example_grads = _compute_per_example_grads(
+                    net_ref, images, labels, criterion,
+                )
+                clipped, _ = _clip_per_example(
+                    per_example_grads, config.privacy.update_clip_norm,
+                )
+                opt.zero_grad()
+                _set_model_grads(net_ref, _average_grads(clipped))
+                opt.step()
+
+        client.fit(params, {})
+        trained = model.get_model()
+        for p_ref, p_client in zip(net_ref.parameters(), trained.parameters(), strict=True):
+            assert torch.allclose(p_ref.detach(), p_client.detach(), atol=1e-6)
+
+    def test_momentum_buffer_resets_between_fits(self) -> None:
+        from src.client.per_example_dp_client import PerExampleDPClient
+        config = self._make_config()
+        config.optimizer.momentum = 0.9
+        model = _SimpleModel()
+        loader = _make_loader()
+        client = PerExampleDPClient(
+            model, loader, loader, config,
+            client_epsilon=1.0, seed=42,
+        )
+        params = client.get_parameters({})
+        first, _, _ = client.fit(params, {})
+        second, _, _ = client.fit(params, {})
+        for w1, w2 in zip(first, second, strict=True):
+            assert np.allclose(w1, w2, atol=1e-12)
+
+    def test_proximal_shifted_grads_before_clipping(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from src.client.per_example_dp_client import PerExampleDPClient
+        monkeypatch.setattr(
+            "src.client.per_example_dp_client._add_noise", _identity_noise,
+        )
+        config = self._make_config()
+        config.optimizer.momentum = 0.0
+        config.federated.proximal_mu = 0.01
+        config.privacy.update_clip_norm = 0.1  # forces clipping, distinguishes
+        config.federated.local_epochs = 1      # shift-before-clip vs after-clip
+        model = _SimpleModel()
+        loader = _make_loader()
+        client = PerExampleDPClient(
+            model, loader, loader, config,
+            client_epsilon=1.0, seed=42,
+        )
+        params = client.get_parameters({})
+
+        mu = config.federated.proximal_mu
+        criterion = nn.CrossEntropyLoss()
+        net_ref = copy.deepcopy(model.get_model())
+        global_params = copy.deepcopy(dict(net_ref.named_parameters()))
+        opt = torch.optim.SGD(net_ref.parameters(), lr=config.optimizer.lr)
+        for images, labels in loader:
+            per_example_grads = _compute_per_example_grads(
+                net_ref, images, labels, criterion,
+            )
+            params_now = dict(net_ref.named_parameters())
+            shifted = {
+                k: g + mu * (params_now[k] - global_params[k])
+                for k, g in per_example_grads.items()
+            }
+            clipped, _ = _clip_per_example(shifted, config.privacy.update_clip_norm)
+            opt.zero_grad()
+            _set_model_grads(net_ref, _average_grads(clipped))
+            opt.step()
+
+        client.fit(params, {})
+        trained = model.get_model()
+        for p_ref, p_client in zip(net_ref.parameters(), trained.parameters(), strict=True):
+            assert torch.allclose(p_ref.detach(), p_client.detach(), atol=1e-6)
 
     def test_clip_fraction_between_0_and_1(self) -> None:
         from src.client.per_example_dp_client import PerExampleDPClient
