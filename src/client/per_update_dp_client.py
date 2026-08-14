@@ -33,12 +33,14 @@ class PerUpdateDPClient(FlowerClient):
         seed: int | None = None,
         mechanism_state: dict | None = None,
         remaining_budget: float | None = None,
+        remaining_rdp: float | None = None,
     ) -> None:
         super().__init__(model, trainloader, valloader, config)
         self._client_epsilon = client_epsilon
         self._computed_sigma = computed_sigma
         self._accountant = accountant
         self._remaining_budget = remaining_budget
+        self._remaining_rdp = remaining_rdp
         self._rdp_native = config.privacy.accountant_mode == "rdp_native"
         self._rdp_alpha = config.privacy.rdp_alpha
         if mechanism_state:
@@ -164,8 +166,9 @@ class PerUpdateDPClient(FlowerClient):
         noisy_flat, sigma = self._mechanism.apply(flat_delta, privacy_param, sigma=self._computed_sigma)
 
         delta_norm = float(np.linalg.norm(flat_delta))
-        clipped_norm = min(delta_norm, self._mechanism.clipping_norm)
-        snr = (clipped_norm ** 2) / max(sigma ** 2, 1e-12)
+        # m_snr = ||Delta||_2^2 / sigma^2 with the clean unclipped update
+        # (spec §9.12); delta_norm is the raw update norm, never clipped.
+        snr = (delta_norm ** 2) / max(sigma ** 2, 1e-12)
 
         if self._accountant is not None:
             self._accountant.step(
@@ -202,16 +205,16 @@ class PerUpdateDPClient(FlowerClient):
         utility_efficiency = -loss_degradation * inv_loss_clean / max(privacy_param, 1e-12)
         utility_retention = utility_loss_noisy * inv_loss_clean
 
-        privacy_remaining = (
-            self._remaining_budget
-            if self._remaining_budget is not None and self._remaining_budget > 0
-            else privacy_param
-        )
+        privacy_remaining = self._resolve_remaining_rdp()
         utility_per_remaining = -loss_degradation * inv_loss_clean / max(privacy_remaining, 1e-12)
 
         clean_flat = clean_logits.view(clean_logits.size(0), -1)
         noisy_flat_logits = noisy_logits.view(noisy_logits.size(0), -1)
         cos_sim = torch.nn.functional.cosine_similarity(clean_flat, noisy_flat_logits, dim=1)
+        # logit_disagreement = 1 - mean(cos_sim) is the minimization-equivalent
+        # complement of the paper's m_agr (maximized logit agreement): minimizing
+        # 1 - cos_sim maximizes cos_sim. The report schema (§6.1 meta.display_names)
+        # presents this metric as "agreement".
         logit_disagreement = 1.0 - cos_sim.mean().item()
 
         if self._rdp_native:

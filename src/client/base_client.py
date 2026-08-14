@@ -32,6 +32,9 @@ def _get_optimizer(
 
 
 class FlowerClient(fl.client.NumPyClient):
+    # Set by the DP client subclasses from the server-sent fit config.
+    _remaining_rdp: float | None = None
+
     def __init__(
         self,
         model: BaseModel,
@@ -46,6 +49,20 @@ class FlowerClient(fl.client.NumPyClient):
 
     def get_parameters(self, config: dict[str, Any]) -> list[Any]:  # noqa: ARG002
         return self.model.get_weights()
+
+    def _resolve_remaining_rdp(self) -> float:
+        """Server-sent remaining RDP budget (B_RDP - cum_rdp) for m_rem.
+
+        The paper defines R_remaining = B_RDP - cum_rdp (spec §9.12); the
+        server sends it per client each round. A missing value is an error —
+        there is deliberately no fallback to R_t.
+        """
+        if self._remaining_rdp is None:
+            raise ValueError(
+                "No remaining_rdp in fit config: the server must send "
+                "remaining_rdp = B_RDP - cum_rdp per client each round."
+            )
+        return max(self._remaining_rdp, 0.0)
 
     def fit(
         self, parameters: list[Any], config: dict[str, Any],

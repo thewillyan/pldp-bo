@@ -171,6 +171,7 @@ class PerExampleDPClient(FlowerClient):
         accountant: RDPAccountant | None = None,
         seed: int | None = None,
         remaining_budget: float | None = None,
+        remaining_rdp: float | None = None,
     ) -> None:
         super().__init__(model, trainloader, valloader, config)
 
@@ -178,6 +179,7 @@ class PerExampleDPClient(FlowerClient):
         self._computed_sigma = computed_sigma
         self._accountant = accountant
         self._remaining_budget = remaining_budget
+        self._remaining_rdp = remaining_rdp
         self._seed = seed or config.seed
         self._rdp_native = config.privacy.accountant_mode == "rdp_native"
         self._rdp_alpha = config.privacy.rdp_alpha
@@ -401,11 +403,7 @@ class PerExampleDPClient(FlowerClient):
             utility_efficiency = -loss_degradation * inv_loss_clean / max(privacy_param, 1e-12)
             utility_retention = utility_loss_noisy * inv_loss_clean
 
-            privacy_remaining = (
-                self._remaining_budget
-                if self._remaining_budget is not None and self._remaining_budget > 0
-                else privacy_param
-            )
+            privacy_remaining = self._resolve_remaining_rdp()
             utility_per_remaining = (
             -loss_degradation * inv_loss_clean / max(privacy_remaining, 1e-12)
         )
@@ -416,6 +414,10 @@ class PerExampleDPClient(FlowerClient):
             cos_sim = torch.nn.functional.cosine_similarity(
                 clean_flat, noisy_flat_logits, dim=1,
             )
+            # logit_disagreement = 1 - mean(cos_sim) is the minimization-equivalent
+            # complement of the paper's m_agr (maximized logit agreement): minimizing
+            # 1 - cos_sim maximizes cos_sim. The report schema (§6.1
+            # meta.display_names) presents this metric as "agreement".
             logit_disagreement = 1.0 - cos_sim.mean().item()
         else:
             utility_efficiency = 0.0
@@ -425,7 +427,14 @@ class PerExampleDPClient(FlowerClient):
 
         mean_before = float(np.mean(grad_norms_before)) if grad_norms_before else 0.0
         mean_after = float(np.mean(grad_norms_after)) if grad_norms_after else 0.0
-        snr = mean_after / max((sigma * clip_norm) ** 2, 1e-12)
+        # m_snr = ||Delta_clean||_2^2 / sigma^2 with the clean unclipped update
+        # (spec §9.12); clean-pass methods get the clean-pass update norm,
+        # others report 0.0 (clean-derived metrics are N/A for them).
+        snr = (
+            (update_norm_clean ** 2) / max(sigma ** 2, 1e-12)
+            if clean_pass
+            else 0.0
+        )
 
         clipped_fraction = float(np.mean(clip_fractions)) if clip_fractions else 0.0
 

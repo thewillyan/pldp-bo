@@ -148,6 +148,18 @@ def _make_rdp_native_scheduler(
     )
 
 
+def _read_remaining_rdp(msg: Message) -> float | None:
+    """Read the server-sent remaining RDP budget (B_RDP - cum_rdp) from a fit message.
+
+    Returns None when absent — the DP clients then raise (IMPL-10: the
+    server must send ``remaining_rdp`` each round; there is no fallback).
+    """
+    raw = (msg.content.config_records.get("config") or ConfigRecord()).get("remaining_rdp")
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    return None
+
+
 def _restore_or_create_scheduler(
     context: Context,
     partition_id: int,
@@ -283,6 +295,10 @@ def train(msg: Message, context: Context) -> Message:
     if server_budget is not None:
         total_budget = float(server_budget)
 
+    # Server-sent remaining RDP budget (B_RDP - cum_rdp) for m_rem (IMPL-10);
+    # required by the DP clients — a missing value raises client-side.
+    server_remaining_rdp = _read_remaining_rdp(msg)
+
     remaining_budget: float | None = None
     if scheduler is not None and accountant is not None and total_budget is not None:
         if rdp_native:
@@ -323,6 +339,7 @@ def train(msg: Message, context: Context) -> Message:
             seed=client_seed,
             mechanism_state=mechanism_state,
             remaining_budget=remaining_budget,
+            remaining_rdp=server_remaining_rdp,
         )
     else:
         epsilon, computed_sigma = _resolve_epsilon(
@@ -351,6 +368,7 @@ def train(msg: Message, context: Context) -> Message:
             seed=client_seed,
             mechanism_state=mechanism_state,
             remaining_budget=remaining_budget,
+            remaining_rdp=server_remaining_rdp,
         )
 
     arrays_raw = msg.content.get("arrays")

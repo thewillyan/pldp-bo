@@ -390,3 +390,40 @@ class TestFemnistClientTestAccuracy:
         tracker = _RecordingTracker()
         _run_femnist_client_test_accuracy(cast(Any, grid), ArrayRecord({}), cast(Any, tracker))
         assert tracker.artifacts == []
+
+
+class TestRemainingRdpMap:
+    def _make_strategy(self) -> Any:
+        from src.server.strategy import MedianRobustAggregation
+        return MedianRobustAggregation(
+            per_client_budgets={0: 10.0, 1: 10.0},
+            node_to_partition={7: 0, 8: 1},
+        )
+
+    def test_round_one_full_budget(self) -> None:
+        strategy = self._make_strategy()
+        assert strategy._remaining_rdp_map() == {0: 10.0, 1: 10.0}
+
+    def test_subtracts_last_reported_cum_rdp(self) -> None:
+        strategy = self._make_strategy()
+        strategy._client_cum_rdp = {0: 4.0, 1: 10.0}
+        assert strategy._remaining_rdp_map() == {0: 6.0, 1: 0.0}
+
+    def test_falls_back_to_cumulative_epsilon(self) -> None:
+        strategy = self._make_strategy()
+        strategy._client_cum_eps = {0: 3.0}
+        assert strategy._remaining_rdp_map() == {0: 7.0, 1: 10.0}
+
+    def test_node_keyed_budgets_resolve_partitions(self) -> None:
+        from src.server.strategy import MedianRobustAggregation
+        strategy = MedianRobustAggregation(
+            per_client_budgets={7: 10.0, 8: 10.0},
+            node_to_partition={7: 0, 8: 1},
+        )
+        strategy._client_cum_rdp = {0: 2.5}
+        assert strategy._remaining_rdp_map() == {7: 7.5, 8: 10.0}
+
+    def test_none_when_no_budgets(self) -> None:
+        from src.server.strategy import MedianRobustAggregation
+        strategy = MedianRobustAggregation()
+        assert strategy._remaining_rdp_map() is None

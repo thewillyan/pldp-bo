@@ -175,6 +175,26 @@ class TestCreateClient:
                                client_epsilon=1.0)
         assert isinstance(client, PerExampleDPClient)
 
+    def test_forwards_remaining_rdp_to_dp_clients(self) -> None:
+        from src.client.per_example_dp_client import PerExampleDPClient
+        from src.client.per_update_dp_client import PerUpdateDPClient
+        model = _SimpleModel()
+        loader = _make_loader()
+        per_example_cfg = ExperimentConfig()
+        per_example_cfg.privacy.enabled = True
+        per_example_cfg.privacy.clipping_mode = "per_example"
+        per_update_cfg = ExperimentConfig()
+        per_update_cfg.privacy.enabled = True
+        per_update_cfg.privacy.clipping_mode = "per_update"
+        pe = create_client(0, model, loader, loader, per_example_cfg,
+                           client_epsilon=1.0, remaining_rdp=6.5)
+        pu = create_client(0, model, loader, loader, per_update_cfg,
+                           client_epsilon=1.0, remaining_rdp=6.5)
+        assert isinstance(pe, PerExampleDPClient)
+        assert isinstance(pu, PerUpdateDPClient)
+        assert pe._remaining_rdp == 6.5
+        assert pu._remaining_rdp == 6.5
+
 
 class TestPerExampleDPClient:
     def _make_config(self) -> ExperimentConfig:
@@ -253,6 +273,7 @@ class TestPerExampleDPClient:
         client = PerExampleDPClient(
             model, loader, loader, config,
             client_epsilon=1.0, seed=42,
+            remaining_rdp=5.0,
         )
         params = client.get_parameters({})
 
@@ -289,6 +310,7 @@ class TestPerExampleDPClient:
         client = PerExampleDPClient(
             model, loader, loader, config,
             client_epsilon=1.0, seed=42,
+            remaining_rdp=5.0,
         )
         params = client.get_parameters({})
         first, _, _ = client.fit(params, {})
@@ -311,6 +333,7 @@ class TestPerExampleDPClient:
         client = PerExampleDPClient(
             model, loader, loader, config,
             client_epsilon=1.0, seed=42,
+            remaining_rdp=5.0,
         )
         params = client.get_parameters({})
 
@@ -375,6 +398,7 @@ class TestPerExampleDPClient:
         client = PerExampleDPClient(
             model, loader, loader, config,
             client_epsilon=1.0, seed=42,
+            remaining_rdp=5.0,
         )
         params = client.get_parameters({})
         _, _, metrics = client.fit(params, {})
@@ -391,6 +415,7 @@ class TestPerExampleDPClient:
         client = PerExampleDPClient(
             model, loader, loader, config,
             client_epsilon=1.0, seed=42,
+            remaining_rdp=5.0,
         )
         params = client.get_parameters({})
         _, _, metrics = client.fit(params, {})
@@ -412,6 +437,7 @@ class TestPerExampleDPClient:
         client = PerExampleDPClient(
             model, loader, loader, config,
             client_epsilon=1.0, seed=42,
+            remaining_rdp=5.0,
         )
         params = client.get_parameters({})
         model.set_weights(params)
@@ -433,10 +459,12 @@ class TestPerExampleDPClient:
         reference = PerExampleDPClient(
             _SimpleModel(), loader, loader, reference_config,
             client_epsilon=1.0, seed=42,
+            remaining_rdp=5.0,
         )
         nun = PerExampleDPClient(
             model, loader, loader, nun_config,
             client_epsilon=1.0, seed=42,
+            remaining_rdp=5.0,
         )
         params = nun.get_parameters({})
         _, _, ref_metrics = reference.fit(params, {})
@@ -460,10 +488,12 @@ class TestPerExampleDPClient:
         client_a = PerExampleDPClient(
             _SimpleModel(), loader_a, loader_a, config,
             client_epsilon=1.0, seed=42,
+            remaining_rdp=5.0,
         )
         client_b = PerExampleDPClient(
             _SimpleModel(), loader_b, loader_b, config,
             client_epsilon=1.0, seed=42,
+            remaining_rdp=5.0,
         )
         _, _, metrics_a = client_a.fit(params, {})
         _, _, metrics_b = client_b.fit(params, {})
@@ -494,11 +524,71 @@ class TestPerExampleDPClient:
         client = PerExampleDPClient(
             model, loader, loader, config,
             client_epsilon=1.0, seed=42,
+            remaining_rdp=5.0,
         )
         params = client.get_parameters({})
         client.fit(params, {})
         assert dp_steps[0] > 0
         assert clean_steps[0] == dp_steps[0]
+
+    def test_snr_uses_clean_unclipped_update_norm(self) -> None:
+        from src.client.per_example_dp_client import PerExampleDPClient
+        config = self._make_config()
+        config.method = "pldpbo_snr"
+        model = _SimpleModel()
+        loader = _make_loader()
+        client = PerExampleDPClient(
+            model, loader, loader, config,
+            client_epsilon=1.0, seed=42,
+            remaining_rdp=5.0,
+        )
+        params = client.get_parameters({})
+        _, _, metrics = client.fit(params, {})
+        expected = metrics["update_norm_clean"] ** 2 / max(metrics["sigma"] ** 2, 1e-12)
+        assert metrics["snr"] == pytest.approx(expected, rel=1e-9)
+        assert metrics["update_norm_clean"] > 0
+
+    def test_snr_zero_without_clean_pass(self) -> None:
+        from src.client.per_example_dp_client import PerExampleDPClient
+        config = self._make_config()
+        config.method = "pldpbo_nun"
+        model = _SimpleModel()
+        loader = _make_loader()
+        client = PerExampleDPClient(
+            model, loader, loader, config,
+            client_epsilon=1.0, seed=42,
+        )
+        params = client.get_parameters({})
+        _, _, metrics = client.fit(params, {})
+        assert metrics["snr"] == 0.0
+
+    def test_missing_remaining_rdp_raises_for_clean_pass(self) -> None:
+        from src.client.per_example_dp_client import PerExampleDPClient
+        config = self._make_config()
+        config.method = "pldpbo_retention"
+        model = _SimpleModel()
+        loader = _make_loader()
+        client = PerExampleDPClient(
+            model, loader, loader, config,
+            client_epsilon=1.0, seed=42,
+        )
+        params = client.get_parameters({})
+        with pytest.raises(ValueError, match="remaining_rdp"):
+            client.fit(params, {})
+
+    def test_missing_remaining_rdp_ok_for_non_clean_pass(self) -> None:
+        from src.client.per_example_dp_client import PerExampleDPClient
+        config = self._make_config()
+        config.method = "pldpbo_nun"
+        model = _SimpleModel()
+        loader = _make_loader()
+        client = PerExampleDPClient(
+            model, loader, loader, config,
+            client_epsilon=1.0, seed=42,
+        )
+        params = client.get_parameters({})
+        _, _, metrics = client.fit(params, {})
+        assert metrics["utility_per_remaining"] == 0.0
 
 
 class TestPerUpdateDPClient:
@@ -517,11 +607,42 @@ class TestPerUpdateDPClient:
         client = PerUpdateDPClient(
             model, loader, loader, config,
             client_epsilon=1.0, seed=42,
+            remaining_rdp=5.0,
         )
         params = client.get_parameters({})
         _, _, metrics = client.fit(params, {})
         assert metrics["update_norm_clean"] > 0
         assert "update_norm_clean" in metrics
+
+    def test_snr_uses_raw_unclipped_update_norm(self) -> None:
+        from src.client.per_update_dp_client import PerUpdateDPClient
+        config = self._make_config()
+        config.privacy.update_clip_norm = 1e-6  # forces clipping; snr must stay raw
+        model = _SimpleModel()
+        loader = _make_loader()
+        client = PerUpdateDPClient(
+            model, loader, loader, config,
+            client_epsilon=1.0, seed=42,
+            remaining_rdp=5.0,
+        )
+        params = client.get_parameters({})
+        _, _, metrics = client.fit(params, {})
+        expected = metrics["update_norm_clean"] ** 2 / max(metrics["sigma"] ** 2, 1e-12)
+        assert metrics["snr"] == pytest.approx(expected, rel=1e-9)
+        assert metrics["update_norm_clean"] > config.privacy.update_clip_norm
+
+    def test_missing_remaining_rdp_raises(self) -> None:
+        from src.client.per_update_dp_client import PerUpdateDPClient
+        config = self._make_config()
+        model = _SimpleModel()
+        loader = _make_loader()
+        client = PerUpdateDPClient(
+            model, loader, loader, config,
+            client_epsilon=1.0, seed=42,
+        )
+        params = client.get_parameters({})
+        with pytest.raises(ValueError, match="remaining_rdp"):
+            client.fit(params, {})
 
 
 class TestClipPerExample:
@@ -695,3 +816,32 @@ class TestClientTestAccuracyQuery:
         )
         with pytest.raises(ValueError, match="femnist"):
             query(msg, cast(Any, _FakeQueryContext()))
+
+
+class TestReadRemainingRdp:
+    def test_reads_float_from_config(self) -> None:
+        from src.client_app import _read_remaining_rdp
+        msg = Message(
+            content=RecordDict({"config": ConfigRecord({"remaining_rdp": 6.5})}),
+            message_type="train",
+            dst_node_id=0,
+        )
+        assert _read_remaining_rdp(msg) == 6.5
+
+    def test_none_when_missing(self) -> None:
+        from src.client_app import _read_remaining_rdp
+        msg = Message(
+            content=RecordDict({"config": ConfigRecord({})}),
+            message_type="train",
+            dst_node_id=0,
+        )
+        assert _read_remaining_rdp(msg) is None
+
+    def test_none_when_no_config_record(self) -> None:
+        from src.client_app import _read_remaining_rdp
+        msg = Message(
+            content=RecordDict({}),
+            message_type="train",
+            dst_node_id=0,
+        )
+        assert _read_remaining_rdp(msg) is None

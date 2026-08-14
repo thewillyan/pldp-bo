@@ -22,6 +22,7 @@ def create_client(
     seed: int | None = None,
     mechanism_state: dict | None = None,
     remaining_budget: float | None = None,
+    remaining_rdp: float | None = None,
 ) -> FlowerClient:
     if config.privacy.enabled:
         if config.privacy.clipping_mode == "per_example":
@@ -35,6 +36,7 @@ def create_client(
                 accountant=accountant,
                 seed=seed,
                 remaining_budget=remaining_budget,
+                remaining_rdp=remaining_rdp,
             )
         return PerUpdateDPClient(
             model,
@@ -47,5 +49,6 @@ def create_client(
             seed=seed,
             mechanism_state=mechanism_state,
             remaining_budget=remaining_budget,
+            remaining_rdp=remaining_rdp,
         )
     return FlowerClient(model, trainloader, valloader, config)

@@ -792,4 +792,26 @@ Everything below is the repo-side subset of `EXPERIMENTS-TODO.md` §8:
    test (n=4 of 6 test samples, acc=0.75). 16 new tests (3 data, 10 server, 3 client); 511 tests
    green; ruff/mypy zero new errors vs git HEAD (ruff 54 pre-existing findings unchanged;
    mypy 261 = 261; only line-shifted pre-existing notes). `src/data/` still untracked/gitignored.
+- 2026-08-14: **IMPL-10 closed.** Formula-fidelity fixes (spec §9.12).
+   SNR (both clients): `m_snr = ‖Δ_clean‖²/σ²` — per_update now uses the raw unclipped
+   `delta_norm` (previously `min(delta_norm, clip)`); per_example uses the clean-pass
+   `update_norm_clean` (previously a gradient-scale `mean_after/(σ·C)²`), 0.0 for non-clean-pass
+   methods (N/A rule, consistent with other clean-derived metrics). PerRemaining: no fallback
+   path remains — the server tracks per-client `cumulative_rdp` (eps fallback) from fit replies
+   and injects `remaining_rdp = max(0, B_RDP − cum)` into every fit config alongside
+   `per_client_budget` (`_add_budgets_to_messages` + `MetricLoggingMixin._remaining_rdp_map`;
+   round 1 = full budget; node/partition keying matches the budget map); `client_app`
+   reads it via `_read_remaining_rdp(msg)` and forwards through `create_client`; both DP
+   clients raise `ValueError` when it is missing (per_example only in the clean-pass branch
+   where m_rem is computed; per_update always — budget-exhausted early return unaffected).
+   The client's own `remaining_budget` stays solely for the BO scheduler. Agreement: kept
+   `1 − cos_sim`, documented the minimization equivalence in comments at both computation
+   sites (the report schema's `meta.display_names` presents it as agreement, §6.1).
+   Acceptance verified: SNR formula pinned by identity tests (per_example clean-pass and
+   per_update with `update_clip_norm=1e-6` proving the raw norm is used), 0.0 without clean
+   pass, raise-on-missing in both clients (and no raise for non-clean per_example), server
+   round-1/round-2 injection, node-keyed partition resolution, `_read_remaining_rdp`
+   read logic, create_client forwarding. 17 new tests; 528 tests green; ruff/mypy zero new
+   errors vs git HEAD (ruff 55 = 55; mypy 255 lines, only line-shifted pre-existing notes).
+   `src/data/` still untracked/gitignored.
 

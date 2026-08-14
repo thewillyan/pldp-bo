@@ -37,6 +37,7 @@ def _add_budgets_to_messages(
     budgets: dict[int, float] | None,
     configrecord_key: str,
     node_to_partition: dict[int, int] | None = None,
+    remaining_rdp_by_client: dict[int, float] | None = None,
 ) -> Iterable[Message]:
     if budgets is None:
         yield from messages
@@ -49,9 +50,13 @@ def _add_budgets_to_messages(
             content = RecordDict()
             for key, rec in msg.content.config_records.items():
                 if key == configrecord_key:
+                    extra: dict[str, float] = {"per_client_budget": budget}
+                    remaining = (remaining_rdp_by_client or {}).get(partition_id)
+                    if remaining is not None:
+                        extra["remaining_rdp"] = remaining
                     content[key] = ConfigRecord({
                         **rec,
-                        "per_client_budget": budget,
+                        **extra,
                     })
                 else:
                     content[key] = rec
@@ -82,10 +87,30 @@ def _add_budgets_to_messages(
 class MetricLoggingMixin(FedAvg):
     _tracker: ExperimentTracker | None
     _per_client_budgets: dict[int, float] | None
+    _node_to_partition: dict[int, int]
+    _client_cum_rdp: dict[int, float]
+    _client_cum_eps: dict[int, float]
 
     def _log_metric(self, key: str, value: float, step: int) -> None:
         if self._tracker is not None:
             self._tracker.log_metrics({key: value}, step=step)
+
+    def _remaining_rdp_map(self) -> dict[int, float] | None:
+        """Remaining per-client RDP budget (B_RDP - last reported cum_rdp).
+
+        Keyed exactly like ``_per_client_budgets`` (node or partition ids);
+        clients without a prior reply get the full budget (round 1).
+        """
+        if self._per_client_budgets is None:
+            return None
+        result: dict[int, float] = {}
+        for key, budget in self._per_client_budgets.items():
+            partition_id = self._node_to_partition.get(key, key)
+            cum = self._client_cum_rdp.get(partition_id)
+            if cum is None:
+                cum = self._client_cum_eps.get(partition_id)
+            result[key] = max(0.0, budget - (cum if cum is not None else 0.0))
+        return result
 
     def _log_metric_stats(self, prefix: str, values: list[float], server_round: int) -> None:
         if not values:
@@ -200,6 +225,7 @@ class MetricLoggingMixin(FedAvg):
             cum_eps = float(cum_eps_val) if cum_eps_val is not None else None
             if cum_eps is not None:
                 cumulative_epsilons.append(cum_eps)
+                self._client_cum_eps[cid] = cum_eps
                 self._log_metric(f"client_{cid}_cumulative_epsilon", cum_eps, step=server_round)
 
             client_eps = m.get("client_epsilon")
@@ -221,6 +247,7 @@ class MetricLoggingMixin(FedAvg):
             cum_rdp = float(cum_rdp_val) if cum_rdp_val is not None else None
             if cum_rdp is not None:
                 cumulative_rdps.append(cum_rdp)
+                self._client_cum_rdp[cid] = cum_rdp
                 self._log_metric(f"client_{cid}_cumulative_rdp", cum_rdp, step=server_round)
 
             sigma = m.get("sigma")
@@ -264,7 +291,9 @@ class MetricLoggingMixin(FedAvg):
                 budget = self._per_client_budgets.get(cid)
                 if budget is None and self._node_to_partition:
                     reversed_map = {v: k for k, v in self._node_to_partition.items()}
-                    budget = self._per_client_budgets.get(reversed_map.get(cid))
+                    node_id = reversed_map.get(cid)
+                    if node_id is not None:
+                        budget = self._per_client_budgets.get(node_id)
                 if budget is not None:
                     remaining = max(0.0, budget - float(cum_eps))
                     self._log_metric(f"client_{cid}_remaining_budget", remaining, step=server_round)
@@ -273,7 +302,9 @@ class MetricLoggingMixin(FedAvg):
                 budget = self._per_client_budgets.get(cid)
                 if budget is None and self._node_to_partition:
                     reversed_map = {v: k for k, v in self._node_to_partition.items()}
-                    budget = self._per_client_budgets.get(reversed_map.get(cid))
+                    node_id = reversed_map.get(cid)
+                    if node_id is not None:
+                        budget = self._per_client_budgets.get(node_id)
                 if budget is not None:
                     remaining = max(0.0, budget - float(cum_rdp))
                     self._log_metric(f"client_{cid}_remaining_rdp_budget", remaining, step=server_round)
@@ -334,6 +365,8 @@ class MedianRobustAggregation(MetricLoggingMixin, FedAvg):
         self._tracker = tracker
         self._per_client_budgets = per_client_budgets
         self._node_to_partition = node_to_partition or {}
+        self._client_cum_rdp = {}
+        self._client_cum_eps = {}
 
     def configure_train(
         self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid,
@@ -344,6 +377,7 @@ class MedianRobustAggregation(MetricLoggingMixin, FedAvg):
             self._per_client_budgets,
             self.configrecord_key,
             node_to_partition=self._node_to_partition,
+            remaining_rdp_by_client=self._remaining_rdp_map(),
         )
 
     def aggregate_train(
@@ -462,6 +496,8 @@ class SafeFedAvg(MetricLoggingMixin, FedAvg):
         self._tracker = tracker
         self._per_client_budgets = per_client_budgets
         self._node_to_partition = node_to_partition or {}
+        self._client_cum_rdp = {}
+        self._client_cum_eps = {}
         self._server_learning_rate = server_learning_rate
         self._current_arrays: ArrayRecord | None = None
 
@@ -474,6 +510,7 @@ class SafeFedAvg(MetricLoggingMixin, FedAvg):
             self._per_client_budgets,
             self.configrecord_key,
             node_to_partition=self._node_to_partition,
+            remaining_rdp_by_client=self._remaining_rdp_map(),
         )
 
     def aggregate_train(
@@ -514,6 +551,8 @@ class SafeFedProx(MetricLoggingMixin, FedProx):
         self._tracker = tracker
         self._per_client_budgets = per_client_budgets
         self._node_to_partition = node_to_partition or {}
+        self._client_cum_rdp = {}
+        self._client_cum_eps = {}
         self._server_learning_rate = server_learning_rate
         self._current_arrays: ArrayRecord | None = None
 
@@ -526,6 +565,7 @@ class SafeFedProx(MetricLoggingMixin, FedProx):
             self._per_client_budgets,
             self.configrecord_key,
             node_to_partition=self._node_to_partition,
+            remaining_rdp_by_client=self._remaining_rdp_map(),
         )
 
     def aggregate_train(

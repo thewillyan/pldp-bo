@@ -138,6 +138,34 @@ class TestAddBudgetsToMessages:
         total = sum(float(c["per_client_budget"]) for c in configs)
         assert total == pytest.approx(6.0)
 
+    def test_remaining_rdp_injected_with_budget(self) -> None:
+        budgets = {0: 10.0, 1: 10.0}
+        remaining = {0: 10.0, 1: 6.5}
+        messages = [self._make_train_message(0), self._make_train_message(1)]
+
+        result = list(_add_budgets_to_messages(
+            messages, budgets, "config",
+            remaining_rdp_by_client=remaining,
+        ))
+
+        for msg, expected_remaining in zip(result, [10.0, 6.5], strict=True):
+            config = msg.content.config_records["config"]
+            assert config["remaining_rdp"] == pytest.approx(expected_remaining)
+            assert config["per_client_budget"] == pytest.approx(10.0)
+
+    def test_remaining_rdp_absent_when_unknown(self) -> None:
+        budgets = {0: 10.0}
+        messages = [self._make_train_message(0)]
+
+        result = list(_add_budgets_to_messages(
+            messages, budgets, "config",
+            remaining_rdp_by_client={},
+        ))
+
+        config = result[0].content.config_records["config"]
+        assert config["per_client_budget"] == pytest.approx(10.0)
+        assert "remaining_rdp" not in config
+
 
 class TestIsBudgetExhausted:
     def _make_reply(self, budget_exhausted: int = 0) -> Message:
