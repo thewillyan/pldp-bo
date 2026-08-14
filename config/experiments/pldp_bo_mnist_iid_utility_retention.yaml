@@ -9,10 +9,10 @@ model:
   num_classes: 10
 
 federated:
-  num_rounds: 25
-  fraction_fit: 0.5
+  num_rounds: 15
+  fraction_fit: 0.6
   fraction_evaluate: 0.2
-  local_epochs: 2
+  local_epochs: 1
   strategy: pldp_bo
   min_fit_clients: 2
   min_evaluate_clients: 2
@@ -46,8 +46,8 @@ personalization:
 bo:
   enabled: true
   optimization_metric: utility_retention
-  rdp_min: 0.01
-  rdp_max: 1.5
+  rdp_min: 0.75
+  rdp_max: 1.25
   max_warmup_ratio: 0.2
   min_warmup: 5
   acquisition_penalty: 0.3

@@ -24,10 +24,10 @@ _OPTIMIZATION_METRIC_KEY_MAP: dict[str, str] = {
 
 class TestConfigLoading:
     def test_pldp_bo_nun_config_loads(self) -> None:
-        config = load_config("config/experiments/pldp_bo_mnist_iid_agreement.yaml")
+        config = load_config("config/experiments/pldp_bo_mnist_iid_logit_disagreement.yaml")
         assert config.federated.strategy == "pldp_bo"
         assert config.bo.enabled
-        assert config.bo.optimization_metric == "agreement"
+        assert config.bo.optimization_metric == "logit_disagreement"
         assert config.personalization.enabled
         assert config.personalization.strategy == "data_proportional"
         assert config.federated.server_learning_rate == 0.5
@@ -41,7 +41,7 @@ class TestConfigLoading:
         assert config.bo.optimization_metric == "utility_retention"
 
     def test_pldp_bo_noniid_config_loads(self) -> None:
-        config = load_config("config/experiments/pldp_bo_cifar100_noniid_agreement.yaml")
+        config = load_config("config/experiments/pldp_bo_cifar100_noniid_logit_disagreement.yaml")
         assert config.data.partition_type == "noniid"
         assert config.data.partition_alpha == 0.5
         assert config.model.name == "cnn"
@@ -55,10 +55,10 @@ class TestConfigLoading:
 
     def test_all_pldp_bo_configs_load(self) -> None:
         paths = [
-            "config/experiments/pldp_bo_mnist_iid_agreement.yaml",
-            "config/experiments/pldp_bo_mnist_noniid_agreement.yaml",
-            "config/experiments/pldp_bo_cifar100_iid_agreement.yaml",
-            "config/experiments/pldp_bo_cifar100_noniid_agreement.yaml",
+            "config/experiments/pldp_bo_mnist_iid_logit_disagreement.yaml",
+            "config/experiments/pldp_bo_mnist_noniid_logit_disagreement.yaml",
+            "config/experiments/pldp_bo_cifar100_iid_logit_disagreement.yaml",
+            "config/experiments/pldp_bo_cifar100_noniid_logit_disagreement.yaml",
             "config/experiments/pldp_bo_mnist_iid_utility_retention.yaml",
             "config/experiments/pldp_bo_mnist_noniid_utility_retention.yaml",
             "config/experiments/pldp_bo_cifar100_iid_utility_retention.yaml",
@@ -84,7 +84,7 @@ class TestFullRoundLifecycle:
 
     @pytest.fixture
     def config(self) -> object:
-        return load_config("config/experiments/pldp_bo_mnist_iid_nun.yaml")
+        return load_config("config/experiments/pldp_bo_mnist_iid_logit_disagreement.yaml")
 
     @pytest.fixture
     def accountant(self) -> RDPAccountant:
@@ -331,7 +331,7 @@ class TestFullRoundLifecycle:
                 eps = scheduler_copy.get_epsilon()
                 scheduler_copy.step(eps, 0.5)
 
-            metric_key = _OPTIMIZATION_METRIC_KEY_MAP[metric_config]
+            _OPTIMIZATION_METRIC_KEY_MAP[metric_config]
             scheduler_copy.step(epsilon, value)
 
             assert scheduler_copy._observations[-1][1] == pytest.approx(value)

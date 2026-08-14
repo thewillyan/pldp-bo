@@ -9,10 +9,10 @@ model:
   num_classes: 10
 
 federated:
-  num_rounds: 25
-  fraction_fit: 0.5
+  num_rounds: 15
+  fraction_fit: 0.6
   fraction_evaluate: 0.2
-  local_epochs: 2
+  local_epochs: 1
   strategy: fedavg
   min_fit_clients: 2
   min_evaluate_clients: 2

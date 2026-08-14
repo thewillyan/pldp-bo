@@ -77,7 +77,7 @@ class PerUpdateDPClient(FlowerClient):
                 "utility_loss_clean": 0.0,
                 "utility_retention": 0.0,
                 "utility_per_remaining": 0.0,
-                "agreement": 0.0,
+                "logit_disagreement": 0.0,
                 "budget_exhausted": budget_exhausted,
             }
         return {
@@ -92,7 +92,7 @@ class PerUpdateDPClient(FlowerClient):
             "utility_loss_clean": 0.0,
             "utility_retention": 0.0,
             "utility_per_remaining": 0.0,
-            "agreement": 0.0,
+            "logit_disagreement": 0.0,
             "budget_exhausted": budget_exhausted,
         }
 
@@ -210,7 +210,7 @@ class PerUpdateDPClient(FlowerClient):
         clean_flat = clean_logits.view(clean_logits.size(0), -1)
         noisy_flat_logits = noisy_logits.view(noisy_logits.size(0), -1)
         cos_sim = torch.nn.functional.cosine_similarity(clean_flat, noisy_flat_logits, dim=1)
-        agreement = 1.0 - cos_sim.mean().item()
+        logit_disagreement = 1.0 - cos_sim.mean().item()
 
         if self._rdp_native:
             metrics = {
@@ -225,7 +225,7 @@ class PerUpdateDPClient(FlowerClient):
                 "utility_loss_clean": utility_loss_clean,
                 "utility_retention": utility_retention,
                 "utility_per_remaining": utility_per_remaining,
-                "agreement": agreement,
+                "logit_disagreement": logit_disagreement,
                 "budget_exhausted": False,
             }
         else:
@@ -241,7 +241,7 @@ class PerUpdateDPClient(FlowerClient):
                 "utility_loss_clean": utility_loss_clean,
                 "utility_retention": utility_retention,
                 "utility_per_remaining": utility_per_remaining,
-                "agreement": agreement,
+                "logit_disagreement": logit_disagreement,
                 "budget_exhausted": False,
             }
 

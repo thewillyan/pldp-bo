@@ -172,7 +172,7 @@ class PerExampleDPClient(FlowerClient):
                 "utility_loss_clean": 0.0,
                 "utility_retention": 0.0,
                 "utility_per_remaining": 0.0,
-                "agreement": 0.0,
+                "logit_disagreement": 0.0,
                 "budget_exhausted": budget_exhausted,
                 "per_example_clip_fraction": 0.0,
                 "grad_norm_before_clip": 0.0,
@@ -191,7 +191,7 @@ class PerExampleDPClient(FlowerClient):
             "utility_loss_clean": 0.0,
             "utility_retention": 0.0,
             "utility_per_remaining": 0.0,
-            "agreement": 0.0,
+            "logit_disagreement": 0.0,
             "budget_exhausted": budget_exhausted,
             "per_example_clip_fraction": 0.0,
             "grad_norm_before_clip": 0.0,
@@ -271,10 +271,9 @@ class PerExampleDPClient(FlowerClient):
                 flat_after = torch.cat(
                     [v.reshape(1, -1) for v in avg_clipped.values()], dim=1,
                 )
-                grad_norms_after.append(flat_after.detach().square().sum().item())
+                grad_norms_after.append(flat_after.detach().norm().item())
 
-                avg_grad = _average_grads(clipped)
-                noisy_grad = _add_noise(avg_grad, sigma, clip_norm, rng)
+                noisy_grad = _add_noise(avg_clipped, sigma, clip_norm, rng)
 
                 optimizer.zero_grad()
                 _set_model_grads(net, noisy_grad)
@@ -322,7 +321,7 @@ class PerExampleDPClient(FlowerClient):
         cos_sim = torch.nn.functional.cosine_similarity(
             clean_flat, noisy_flat_logits, dim=1,
         )
-        agreement = 1.0 - cos_sim.mean().item()
+        logit_disagreement = 1.0 - cos_sim.mean().item()
 
         mean_before = float(np.mean(grad_norms_before)) if grad_norms_before else 0.0
         mean_after = float(np.mean(grad_norms_after)) if grad_norms_after else 0.0
@@ -332,7 +331,7 @@ class PerExampleDPClient(FlowerClient):
 
         if self._rdp_native:
             metrics = {
-                "rdp_cost": privacy_param,
+                "rdp_cost": privacy_param * self._total_steps_per_round,
                 "cumulative_rdp": cumulative_privacy,
                 "client_rdp": self._client_epsilon or 0.0,
                 "update_norm": update_norm,
@@ -343,7 +342,7 @@ class PerExampleDPClient(FlowerClient):
                 "utility_loss_clean": utility_loss_clean,
                 "utility_retention": utility_retention,
                 "utility_per_remaining": utility_per_remaining,
-                "agreement": agreement,
+                "logit_disagreement": logit_disagreement,
                 "budget_exhausted": False,
                 "per_example_clip_fraction": clipped_fraction,
                 "grad_norm_before_clip": mean_before,
@@ -363,7 +362,7 @@ class PerExampleDPClient(FlowerClient):
                 "utility_loss_clean": utility_loss_clean,
                 "utility_retention": utility_retention,
                 "utility_per_remaining": utility_per_remaining,
-                "agreement": agreement,
+                "logit_disagreement": logit_disagreement,
                 "budget_exhausted": False,
                 "per_example_clip_fraction": clipped_fraction,
                 "grad_norm_before_clip": mean_before,

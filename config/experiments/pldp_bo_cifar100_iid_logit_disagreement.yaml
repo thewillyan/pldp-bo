@@ -1,8 +1,7 @@
 data:
   name: cifar100
   num_clients: 8
-  partition_type: noniid
-  partition_alpha: 0.5
+  partition_type: iid
   batch_size: 64
 
 model:
@@ -46,10 +45,9 @@ personalization:
 
 bo:
   enabled: true
-  optimization_metric: agreement
-  bounds_strategy: from_rdp
-  bounds_ratio_min: 0.08
-  bounds_ratio_max: 1.2
+  optimization_metric: logit_disagreement
+  rdp_min: 0.01
+  rdp_max: 0.8
   max_warmup_ratio: 0.2
   min_warmup: 5
   acquisition_penalty: 0.3
@@ -60,9 +58,9 @@ bo:
 logging:
   tracker: mlflow
   experiment_name: pldp-bo
-  run_name: pldp-bo-cifar100-noniid-agreement
+  run_name: pldp-bo-cifar100-iid-logit-disagreement
   tracking_uri: sqlite:///./mlflow.db
-  group: cifar100_noniid
+  group: cifar100_iid
 
 seed: 42
 deterministic: false

@@ -337,10 +337,12 @@ def _hypothetical_epsilon(
     delta: float,
     clipping_mode: str = "per_update",
     num_steps: int = 1,
+    sampling_rate: float | None = None,
 ) -> float:
     if clipping_mode == "per_example":
+        rate = sampling_rate if sampling_rate is not None else clipping_norm
         cost = np.array(
-            [compute_rdp_cost_dp_sgd(float(a), sigma, clipping_norm) for a in RDP_ALPHAS],
+            [compute_rdp_cost_dp_sgd(float(a), sigma, rate) for a in RDP_ALPHAS],
             dtype=np.float64,
         )
     else:
@@ -366,14 +368,18 @@ def _is_epsilon_within_budget(
     delta: float,
     clipping_mode: str = "per_update",
     num_steps: int = 1,
+    sampling_rate: float | None = None,
 ) -> bool:
     if clipping_mode == "per_example":
-        sigma = calibrate_sigma_dp_sgd(epsilon, clipping_norm, delta)
+        if sampling_rate is None:
+            raise ValueError("sampling_rate is required for per_example mode")
+        sigma = calibrate_sigma_dp_sgd(epsilon, sampling_rate, delta)
     else:
         sigma = calibrate_sigma(epsilon, clipping_norm, delta)
     projected = _hypothetical_epsilon(
         current_rdp, sigma, clipping_norm, delta,
         clipping_mode=clipping_mode, num_steps=num_steps,
+        sampling_rate=sampling_rate,
     )
     return projected <= epsilon_budget
 
@@ -387,6 +393,7 @@ def enforce_epsilon_budget(
     delta: float,
     clipping_mode: str = "per_update",
     num_steps: int = 1,
+    sampling_rate: float | None = None,
 ) -> tuple[float, float]:
     """Return (ε, σ) where ε is the largest epsilon ≤ candidate_epsilon that fits the budget,
     and σ is the corresponding noise scale.
@@ -394,9 +401,8 @@ def enforce_epsilon_budget(
     Binary-searches over σ directly instead of ε to avoid calling
     ``calibrate_sigma`` (itself a binary search) inside the outer loop.
 
-    When *clipping_mode* is ``"per_example"``, *clipping_norm* is interpreted as
-    the sampling rate (batch_size / dataset_size) and the DP-SGD RDP cost
-    formula is used.
+    When *clipping_mode* is ``"per_example"``, *sampling_rate* (batch_size /
+    dataset_size) is used for the DP-SGD RDP cost formula.
 
     *num_steps* is the number of optimization steps per round (e.g.
     ``local_epochs × len(trainloader)``).  For ``per_update`` mode this is
@@ -406,7 +412,17 @@ def enforce_epsilon_budget(
     Returns (-1.0, 0.0) if even *epsilon_min* would exceed the remaining budget,
     signalling that the client's privacy budget is exhausted.
     """
-    _calibrate = calibrate_sigma_dp_sgd if clipping_mode == "per_example" else calibrate_sigma
+    if clipping_mode == "per_example":
+        if sampling_rate is None:
+            raise ValueError("sampling_rate is required for per_example mode")
+        _sr: float = sampling_rate
+    else:
+        _sr = 0.0  # unused placeholder; only accessed in per_example branches
+
+    def _calibrate(eps: float) -> float:
+        if clipping_mode == "per_example":
+            return calibrate_sigma_dp_sgd(eps, _sr, delta)
+        return calibrate_sigma(eps, clipping_norm, delta)
 
     if candidate_epsilon <= 0:
         return -1.0, 0.0
@@ -415,15 +431,17 @@ def enforce_epsilon_budget(
         if _is_epsilon_within_budget(candidate_epsilon, current_rdp,
                                      epsilon_budget, clipping_norm, delta,
                                      clipping_mode=clipping_mode,
-                                     num_steps=num_steps):
-            sigma = _calibrate(candidate_epsilon, clipping_norm, delta)
+                                     num_steps=num_steps,
+                                     sampling_rate=sampling_rate):
+            sigma = _calibrate(candidate_epsilon)
             return candidate_epsilon, sigma
         return -1.0, 0.0
 
-    sigma_candidate = _calibrate(candidate_epsilon, clipping_norm, delta)
+    sigma_candidate = _calibrate(candidate_epsilon)
     hypothetical = _hypothetical_epsilon(
         current_rdp, sigma_candidate, clipping_norm, delta,
         clipping_mode=clipping_mode, num_steps=num_steps,
+        sampling_rate=sampling_rate,
     )
 
     if hypothetical <= epsilon_budget:
@@ -432,11 +450,12 @@ def enforce_epsilon_budget(
     if not _is_epsilon_within_budget(epsilon_min, current_rdp, epsilon_budget,
                                      clipping_norm, delta,
                                      clipping_mode=clipping_mode,
-                                     num_steps=num_steps):
+                                     num_steps=num_steps,
+                                     sampling_rate=sampling_rate):
         return -1.0, 0.0
 
     # Binary search over σ (monotonic: larger σ → smaller ε → lower RDP cost).
-    sigma_min_eps = _calibrate(epsilon_min, clipping_norm, delta)
+    sigma_min_eps = _calibrate(epsilon_min)
     lo_sigma, hi_sigma = sigma_candidate, sigma_min_eps
 
     for _ in range(30):
@@ -444,6 +463,7 @@ def enforce_epsilon_budget(
         projected = _hypothetical_epsilon(
             current_rdp, mid_sigma, clipping_norm, delta,
             clipping_mode=clipping_mode, num_steps=num_steps,
+            sampling_rate=sampling_rate,
         )
         if projected <= epsilon_budget:
             hi_sigma = mid_sigma  # this σ fits; try smaller σ (larger ε)
@@ -453,7 +473,7 @@ def enforce_epsilon_budget(
     result_sigma = (lo_sigma + hi_sigma) / 2.0
     if clipping_mode == "per_example":
         result_epsilon = _rdp_epsilon_for_sigma_dp_sgd(
-            result_sigma, clipping_norm, delta,
+            result_sigma, _sr, delta,
         )
     else:
         result_epsilon = _rdp_epsilon_for_sigma(result_sigma, clipping_norm, delta)

@@ -21,7 +21,10 @@ from src.privacy.epsilon_scheduler import (
     UniformRandomEpsilonScheduler,
     UniformRandomRDPScheduler,
 )
-from src.privacy.per_update_dp import enforce_epsilon_budget, enforce_rdp_budget
+from src.privacy.per_update_dp import (
+    enforce_epsilon_budget, enforce_rdp_budget,
+    _sigma_for_rdp_target, _sigma_for_rdp_target_dp_sgd,
+)
 from src.privacy.personalization import assign_epsilon_bounds, compute_budget_weight
 from src.utils import set_seed
 
@@ -52,7 +55,7 @@ _OPTIMIZATION_METRIC_KEY_MAP: dict[str, str] = {
     "snr": "snr",
     "utility_retention": "utility_retention",
     "utility_per_remaining": "utility_per_remaining",
-    "agreement": "agreement",
+    "logit_disagreement": "logit_disagreement",
 }
 
 
@@ -81,7 +84,7 @@ def _make_scheduler(
     if config.bo.enabled:
         e_min = eps_min if eps_min is not None else config.bo.epsilon_min
         e_max = eps_max if eps_max is not None else config.bo.epsilon_max
-        w_rounds = warmup_rounds if warmup_rounds is not None else 0
+        w_rounds = warmup_rounds if warmup_rounds is not None else config.bo.min_warmup
         return PLDPBOScheduler(
             epsilon_min=e_min,
             epsilon_max=e_max,
@@ -116,7 +119,7 @@ def _make_rdp_native_scheduler(
     if config.bo.enabled:
         r_min = rdp_min if rdp_min is not None else config.bo.rdp_min
         r_max = rdp_max if rdp_max is not None else config.bo.rdp_max
-        w_rounds = warmup_rounds if warmup_rounds is not None else 0
+        w_rounds = warmup_rounds if warmup_rounds is not None else config.bo.min_warmup
         return PLDPBORDPScheduler(
             rdp_min=r_min,
             rdp_max=r_max,
@@ -180,14 +183,15 @@ def _restore_or_create_scheduler(
 def train(msg: Message, context: Context) -> Message:
     config_path = str(context.run_config.get("config-path", "config/default.yaml"))
     overrides = {
-        k: v for k, v in context.run_config.items() if k != "config-path"
+        k: v for k, v in context.run_config.items()
+        if k not in ("config-path", "app_config_overrides")
     }
     config = load_config(config_path, overrides=overrides)
 
     if config.bo.enabled:
         _VALID_BO_METRICS = {
             "nun", "utility", "utility_efficiency", "snr",
-            "utility_retention", "utility_per_remaining", "agreement",
+            "utility_retention", "utility_per_remaining", "logit_disagreement",
         }
         if config.bo.optimization_metric not in _VALID_BO_METRICS:
             raise ValueError(
@@ -315,16 +319,6 @@ def train(msg: Message, context: Context) -> Message:
             remaining_budget=remaining_budget,
         )
     else:
-        # Epsilon-based path (unchanged)
-        if remaining_budget is not None:
-            eps_min_per_client: float | None = None
-            if config.privacy.target_epsilon is not None:
-                eps_min_per_client = config.privacy.target_epsilon * 0.01
-            elif config.privacy.total_budget is not None:
-                eps_min_per_client = config.privacy.total_budget * 0.01 / config.federated.num_rounds
-            if eps_min_per_client is not None:
-                remaining_budget = min(remaining_budget, eps_min_per_client)
-
         epsilon, computed_sigma = _resolve_epsilon(
             scheduler, accountant, config, total_budget,
             total_steps_per_round=config.federated.local_epochs * len(trainloader),
@@ -366,11 +360,10 @@ def train(msg: Message, context: Context) -> Message:
         metric_value = fit_metrics.get(metric_key)
         if metric_value is not None:
             if rdp_native:
-                rdp_step = fit_metrics.get("rdp_cost", 0.0)
-                # The scheduler operates in per-round RDP space; the client
-                # reports per-step rdp_cost, so scale back up by num_steps.
-                num_steps = config.federated.local_epochs * len(trainloader)
-                scheduler.step(rdp_step * num_steps, float(metric_value))
+                rdp_round = fit_metrics.get("rdp_cost", 0.0)
+                # Both per_update and per_example clients report per-round
+                # RDP cost, matching the scheduler's grid domain.
+                scheduler.step(rdp_round, float(metric_value))
             else:
                 epsilon_val = fit_metrics.get("epsilon", 0.0)
                 scheduler.step(epsilon_val, float(metric_value))
@@ -438,8 +431,9 @@ def _resolve_epsilon(
             num_steps = total_steps_per_round if total_steps_per_round is not None else 1
             candidate, computed_sigma = enforce_epsilon_budget(
                 candidate, accountant.rdp_per_alpha, total_budget,
-                lower_bound, sampling_rate, delta,
+                lower_bound, 0.0, delta,
                 clipping_mode="per_example", num_steps=num_steps,
+                sampling_rate=sampling_rate,
             )
         else:
             c = config.privacy.update_clip_norm
@@ -507,14 +501,27 @@ def _resolve_rdp(
             )
         return candidate, computed_sigma
 
-    return candidate, 0.0
+    # No budget enforcement — compute sigma directly from RDP cost
+    clipping_mode = config.privacy.clipping_mode
+    if clipping_mode == "per_example":
+        num_steps = total_steps_per_round if total_steps_per_round is not None else 1
+        if local_train_size is not None:
+            sampling_rate = config.data.batch_size / local_train_size
+            sigma = _sigma_for_rdp_target_dp_sgd(candidate / num_steps, alpha, sampling_rate)
+        else:
+            sigma = 0.0
+    else:
+        c = config.privacy.update_clip_norm
+        sigma = _sigma_for_rdp_target(candidate, alpha, c)
+    return candidate, sigma
 
 
 @app.query()
 def query(msg: Message, context: Context) -> Message:
     config_path = str(context.run_config.get("config-path", "config/default.yaml"))
     overrides = {
-        k: v for k, v in context.run_config.items() if k != "config-path"
+        k: v for k, v in context.run_config.items()
+        if k not in ("config-path", "app_config_overrides")
     }
     config = load_config(config_path, overrides=overrides)
 
@@ -551,7 +558,8 @@ def query(msg: Message, context: Context) -> Message:
 def evaluate(msg: Message, context: Context) -> Message:
     config_path = str(context.run_config.get("config-path", "config/default.yaml"))
     overrides = {
-        k: v for k, v in context.run_config.items() if k != "config-path"
+        k: v for k, v in context.run_config.items()
+        if k not in ("config-path", "app_config_overrides")
     }
     config = load_config(config_path, overrides=overrides)
 

@@ -99,7 +99,7 @@ def _get_targets(dataset: Dataset | Subset) -> np.ndarray:
         dataset = dataset.dataset
     try:
         targets = np.array(dataset.targets)
-    except AttributeError:
+    except (AttributeError, IndexError):
         targets = dataset.tensors[1].numpy()
     if indices is not None:
         targets = targets[indices]

@@ -241,7 +241,7 @@ def cmd_single(
     run_id = None
     if process.returncode == 0 and run_name:
         run_id = _resolve_run_id(tracking_uri, run_name)
-        if run_id is None and env_uri:
+        if run_id is None and cfg_tracking_uri:
             run_id = _resolve_run_id(cfg_tracking_uri, run_name)
 
     if flwr_json:

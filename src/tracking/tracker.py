@@ -72,4 +72,5 @@ class ExperimentTracker:
 
     @staticmethod
     def get_run_id() -> str | None:
-        return mlflow.active_run().info.run_id if mlflow.active_run() else None
+        run = mlflow.active_run()
+        return run.info.run_id if run else None

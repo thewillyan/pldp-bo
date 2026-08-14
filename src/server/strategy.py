@@ -115,7 +115,7 @@ class MetricLoggingMixin:
         utility_losses_clean: list[float] = []
         utility_retentions: list[float] = []
         utility_per_remainings: list[float] = []
-        agreements: list[float] = []
+        logit_disagreements: list[float] = []
         cumulative_epsilons: list[float] = []
         sigmas: list[float] = []
         per_example_clip_fractions: list[float] = []
@@ -173,10 +173,10 @@ class MetricLoggingMixin:
                 utility_per_remainings.append(float(utility_per_rem))
                 self._log_metric(f"client_{cid}_utility_per_remaining", float(utility_per_rem), step=server_round)
 
-            agreement_val = m.get("agreement")
-            if agreement_val is not None:
-                agreements.append(float(agreement_val))
-                self._log_metric(f"client_{cid}_agreement", float(agreement_val), step=server_round)
+            logit_disagreement_val = m.get("logit_disagreement")
+            if logit_disagreement_val is not None:
+                logit_disagreements.append(float(logit_disagreement_val))
+                self._log_metric(f"client_{cid}_logit_disagreement", float(logit_disagreement_val), step=server_round)
 
             cum_eps_val = m.get("cumulative_epsilon")
             cum_eps = float(cum_eps_val) if cum_eps_val is not None else None
@@ -272,7 +272,7 @@ class MetricLoggingMixin:
         self._log_metric_stats("utility_loss_clean", utility_losses_clean, server_round)
         self._log_metric_stats("utility_retention", utility_retentions, server_round)
         self._log_metric_stats("utility_per_remaining", utility_per_remainings, server_round)
-        self._log_metric_stats("agreement", agreements, server_round)
+        self._log_metric_stats("logit_disagreement", logit_disagreements, server_round)
         self._log_metric_stats("cumulative_epsilon", cumulative_epsilons, server_round)
         self._log_metric_stats("sigma", sigmas, server_round)
         self._log_metric_stats("per_example_clip_fraction", per_example_clip_fractions, server_round)

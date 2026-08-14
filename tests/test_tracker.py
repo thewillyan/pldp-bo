@@ -60,7 +60,7 @@ class TestExperimentTracker:
             mock_mlflow.log_artifact.assert_called_once_with("/path/to/file")
 
     def test_get_run_id_returns_none_when_no_active_run(self) -> None:
-        tracker = self._make_tracker()
+        self._make_tracker()
 
         with patch("src.tracking.tracker.mlflow") as mock_mlflow:
             mock_mlflow.active_run.return_value = None

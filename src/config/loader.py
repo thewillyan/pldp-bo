@@ -180,14 +180,12 @@ def _coerce_value(value: object, expected: type) -> object:
         try:
             return int(value)
         except (ValueError, TypeError):
-            logger.warning("Cannot convert override value '%s' to int", value)
-            return value
+            raise ValueError(f"Cannot convert override value '{value}' to int") from None
     if expected is float:
         try:
             return float(value)
         except (ValueError, TypeError):
-            logger.warning("Cannot convert override value '%s' to float", value)
-            return value
+            raise ValueError(f"Cannot convert override value '{value}' to float") from None
     return value
 
 

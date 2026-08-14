@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import numpy as np
 import pytest
 import torch
 from torch.utils.data import TensorDataset
 
 from src.data.partitioner import (
-    partition_dataset,
     partition_iid,
     partition_noniid_dirichlet,
     partition_single,

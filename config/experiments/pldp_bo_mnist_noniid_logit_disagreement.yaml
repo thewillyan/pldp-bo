@@ -1,15 +1,16 @@
 data:
-  name: cifar100
+  name: mnist
   num_clients: 8
-  partition_type: iid
+  partition_type: noniid
+  partition_alpha: 0.5
   batch_size: 64
 
 model:
-  name: cnn
-  num_classes: 100
+  name: mlp
+  num_classes: 10
 
 federated:
-  num_rounds: 50
+  num_rounds: 25
   fraction_fit: 0.5
   fraction_evaluate: 0.2
   local_epochs: 4
@@ -45,9 +46,10 @@ personalization:
 
 bo:
   enabled: true
-  optimization_metric: agreement
-  rdp_min: 0.01
-  rdp_max: 0.8
+  optimization_metric: logit_disagreement
+  bounds_strategy: from_rdp
+  bounds_ratio_min: 0.16
+  bounds_ratio_max: 2.4
   max_warmup_ratio: 0.2
   min_warmup: 5
   acquisition_penalty: 0.3
@@ -58,9 +60,9 @@ bo:
 logging:
   tracker: mlflow
   experiment_name: pldp-bo
-  run_name: pldp-bo-cifar100-iid-agreement
+  run_name: pldp-bo-mnist-noniid-logit-disagreement
   tracking_uri: sqlite:///./mlflow.db
-  group: cifar100_iid
+  group: mnist_noniid
 
 seed: 42
 deterministic: false

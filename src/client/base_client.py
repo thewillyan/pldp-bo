@@ -52,7 +52,7 @@ class FlowerClient(fl.client.NumPyClient):
         net = self.model.get_model().to(get_device())
         net.train()
 
-        proximal_mu = config.get("proximal-mu", 0.0)
+        proximal_mu = float(config.get("proximal-mu", 0.0))
         global_params = copy.deepcopy(list(net.parameters())) if proximal_mu > 0 else []
 
         optimizer = _get_optimizer(net, self.config)

@@ -39,15 +39,16 @@ def compute_validation_stats(
         criterion = nn.CrossEntropyLoss()
     model.eval()
     total_loss = 0.0
-    num_batches = 0
+    total_samples = 0
     all_logits: list[torch.Tensor] = []
     with torch.no_grad():
         for batch_images, batch_labels in valloader:
             images, labels = to_device((batch_images, batch_labels))
             outputs = model(images)
-            total_loss += criterion(outputs, labels).item()
+            batch_size = images.size(0)
+            total_loss += criterion(outputs, labels).item() * batch_size
+            total_samples += batch_size
             all_logits.append(outputs.cpu())
-            num_batches += 1
-    avg_loss = total_loss / max(num_batches, 1)
-    logits = torch.cat(all_logits, dim=0) if all_logits else torch.empty(0)
+    avg_loss = total_loss / max(total_samples, 1)
+    logits = torch.cat(all_logits, dim=0) if all_logits else torch.empty(0, 0)
     return avg_loss, logits

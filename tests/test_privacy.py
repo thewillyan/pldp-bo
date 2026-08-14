@@ -390,9 +390,10 @@ class TestEnforceBudgetPerExample:
             current_rdp=accountant.rdp_per_alpha,
             epsilon_budget=8.0,
             epsilon_min=0.1,
-            clipping_norm=0.1,  # sampling rate
+            clipping_norm=0.0,
             delta=1e-5,
             clipping_mode="per_example",
+            sampling_rate=0.1,
         )
         assert result_eps == pytest.approx(2.0, rel=1e-3)
         assert result_sigma > 0
@@ -405,9 +406,10 @@ class TestEnforceBudgetPerExample:
             current_rdp=accountant.rdp_per_alpha,
             epsilon_budget=0.5,
             epsilon_min=0.5,
-            clipping_norm=0.1,
+            clipping_norm=0.0,
             delta=1e-5,
             clipping_mode="per_example",
+            sampling_rate=0.1,
         )
         assert result_eps == pytest.approx(-1.0)
         assert result_sigma == pytest.approx(0.0)
@@ -425,10 +427,11 @@ class TestEnforceBudgetPerExample:
             current_rdp=accountant.rdp_per_alpha,
             epsilon_budget=budget,
             epsilon_min=0.1,
-            clipping_norm=sampling_rate,
+            clipping_norm=0.0,
             delta=1e-5,
             clipping_mode="per_example",
             num_steps=1,
+            sampling_rate=sampling_rate,
         )
 
         eps_with_steps, sigma_with_steps = enforce_epsilon_budget(
@@ -436,10 +439,11 @@ class TestEnforceBudgetPerExample:
             current_rdp=accountant.rdp_per_alpha,
             epsilon_budget=budget,
             epsilon_min=0.1,
-            clipping_norm=sampling_rate,
+            clipping_norm=0.0,
             delta=1e-5,
             clipping_mode="per_example",
             num_steps=10,
+            sampling_rate=sampling_rate,
         )
 
         # With num_steps=10, the enforcement sees 10× the cost, so it must
@@ -463,10 +467,11 @@ class TestEnforceBudgetPerExample:
             current_rdp=accountant.rdp_per_alpha,
             epsilon_budget=100.0,
             epsilon_min=0.1,
-            clipping_norm=sampling_rate,
+            clipping_norm=0.0,
             delta=1e-5,
             clipping_mode="per_example",
             num_steps=1,
+            sampling_rate=sampling_rate,
         )
 
         eps_with_steps, _ = enforce_epsilon_budget(
@@ -474,10 +479,11 @@ class TestEnforceBudgetPerExample:
             current_rdp=accountant.rdp_per_alpha,
             epsilon_budget=100.0,
             epsilon_min=0.1,
-            clipping_norm=sampling_rate,
+            clipping_norm=0.0,
             delta=1e-5,
             clipping_mode="per_example",
             num_steps=10,
+            sampling_rate=sampling_rate,
         )
 
         # Both may succeed with a large budget, but with_steps should be
