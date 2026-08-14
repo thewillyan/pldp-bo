@@ -679,3 +679,10 @@ Everything below is the repo-side subset of `EXPERIMENTS-TODO.md` §8:
   `assert_locked_config`, `config_version`); wired into `server_app.main` and `client_app.train`;
   fixed `load_config` to merge top-level scalar YAML keys (previously `seed` was silently ignored).
   66 new/updated tests; ruff/mypy baseline unchanged (no new errors); 415 tests green.
+- 2026-08-14: **IMPL-02 closed.** Per-round accounting: `_resolve_rdp` per_example branch now
+  calibrates σ_t = √(α₀·q²/(2·R_t)) against the per-round candidate (no per-step conversion;
+  `total_steps_per_round` param dropped from `_resolve_rdp`/`_resolve_epsilon`); mirrored in the
+  epsilon path (user-approved); `per_example_dp_client` steps the accountant once per round
+  (`num_steps=1`), reports `rdp_cost = R_t`, and adds `r_t_final`/`acct_cost` metrics (identical
+  by construction, rel ≤ 1e-6, verified at fit level). 14 new tests; 424 tests green; ruff/mypy
+  baseline unchanged. `acct_cost`/`r_t_final` server-side logging deferred to IMPL-11.

@@ -15,7 +15,10 @@ from src.device import get_device, to_device
 from src.models.base import BaseModel
 from src.privacy.accountant import RDPAccountant
 from src.privacy.metrics import compute_validation_stats
-from src.privacy.per_update_dp import calibrate_sigma_dp_sgd
+from src.privacy.per_update_dp import (
+    calibrate_sigma_dp_sgd,
+    compute_rdp_cost_dp_sgd,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -282,10 +285,12 @@ class PerExampleDPClient(FlowerClient):
         local_weights = self.model.get_weights()
 
         if self._accountant is not None:
+            # One communication round = one Gaussian release (spec §2): the
+            # accountant steps once at the per-round sigma.
             self._accountant.step(
                 sigma=sigma,
                 clipping_norm=self._sampling_rate,
-                num_steps=self._total_steps_per_round,
+                num_steps=1,
                 mode="per_example",
             )
             if self._rdp_native:
@@ -331,7 +336,11 @@ class PerExampleDPClient(FlowerClient):
 
         if self._rdp_native:
             metrics = {
-                "rdp_cost": privacy_param * self._total_steps_per_round,
+                "rdp_cost": privacy_param,
+                "r_t_final": privacy_param,
+                "acct_cost": compute_rdp_cost_dp_sgd(
+                    self._rdp_alpha, sigma, self._sampling_rate,
+                ),
                 "cumulative_rdp": cumulative_privacy,
                 "client_rdp": self._client_epsilon or 0.0,
                 "update_norm": update_norm,

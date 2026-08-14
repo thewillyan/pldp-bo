@@ -293,7 +293,6 @@ def train(msg: Message, context: Context) -> Message:
     if rdp_native:
         rdp_cost, computed_sigma = _resolve_rdp(
             scheduler, accountant, config, total_budget,
-            total_steps_per_round=config.federated.local_epochs * len(trainloader),
             local_train_size=len(client_subset),
         )
         if rdp_cost < 0:
@@ -324,7 +323,6 @@ def train(msg: Message, context: Context) -> Message:
     else:
         epsilon, computed_sigma = _resolve_epsilon(
             scheduler, accountant, config, total_budget,
-            total_steps_per_round=config.federated.local_epochs * len(trainloader),
             local_train_size=len(client_subset),
         )
         if epsilon < 0:
@@ -397,7 +395,6 @@ def _resolve_epsilon(
     config: ExperimentConfig,
     total_budget: float | None = None,
     eps_min: float | None = None,
-    total_steps_per_round: int | None = None,
     local_train_size: int | None = None,
 ) -> tuple[float, float]:
     """Return (epsilon, sigma) where sigma is None if no budget enforcement applies."""
@@ -431,11 +428,12 @@ def _resolve_epsilon(
                     "to compute sampling rate for budget enforcement."
                 )
             sampling_rate = config.data.batch_size / local_train_size
-            num_steps = total_steps_per_round if total_steps_per_round is not None else 1
+            # One communication round = one Gaussian release: keep the epsilon
+            # path in sync with the per-round RDP accounting convention.
             candidate, computed_sigma = enforce_epsilon_budget(
                 candidate, accountant.rdp_per_alpha, total_budget,
                 lower_bound, 0.0, delta,
-                clipping_mode="per_example", num_steps=num_steps,
+                clipping_mode="per_example", num_steps=1,
                 sampling_rate=sampling_rate,
             )
         else:
@@ -455,7 +453,6 @@ def _resolve_rdp(
     config: ExperimentConfig,
     total_budget: float | None = None,
     eps_min: float | None = None,
-    total_steps_per_round: int | None = None,
     local_train_size: int | None = None,
 ) -> tuple[float, float]:
     """Return (rdp_cost, sigma) for RDP-native mode. No epsilon conversion."""
@@ -484,16 +481,13 @@ def _resolve_rdp(
                     "clipping_mode='per_example' requires local_train_size."
                 )
             sampling_rate = config.data.batch_size / local_train_size
-            num_steps = total_steps_per_round if total_steps_per_round is not None else 1
-            # The scheduler operates in per-round RDP space; enforce_rdp_budget
-            # works with per-step costs (projected = current + cost * num_steps),
-            # so convert both the candidate and the lower bound to per-step.
-            candidate_per_step = candidate / num_steps
-            lower_bound_per_step = lower_bound / num_steps
+            # One communication round = one Gaussian release (spec §2): the
+            # scheduler's candidate is the per-round RDP cost R_t and sigma is
+            # calibrated per-round, sigma_t = sqrt(alpha * q^2 / (2 * R_t)).
             candidate, computed_sigma = enforce_rdp_budget(
-                candidate_per_step, current_rdp, total_budget,
-                lower_bound_per_step, alpha, config.privacy.update_clip_norm,
-                clipping_mode="per_example", num_steps=num_steps,
+                candidate, current_rdp, total_budget,
+                lower_bound, alpha, config.privacy.update_clip_norm,
+                clipping_mode="per_example", num_steps=1,
                 sampling_rate=sampling_rate,
             )
         else:
@@ -507,10 +501,9 @@ def _resolve_rdp(
     # No budget enforcement — compute sigma directly from RDP cost
     clipping_mode = config.privacy.clipping_mode
     if clipping_mode == "per_example":
-        num_steps = total_steps_per_round if total_steps_per_round is not None else 1
         if local_train_size is not None:
             sampling_rate = config.data.batch_size / local_train_size
-            sigma = _sigma_for_rdp_target_dp_sgd(candidate / num_steps, alpha, sampling_rate)
+            sigma = _sigma_for_rdp_target_dp_sgd(candidate, alpha, sampling_rate)
         else:
             sigma = 0.0
     else:

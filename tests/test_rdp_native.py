@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 
 import pytest
 
@@ -16,7 +17,6 @@ from src.privacy.per_update_dp import (
     compute_rdp_cost_dp_sgd,
     enforce_rdp_budget,
 )
-
 
 # ---------------------------------------------------------------------------
 # Sigma calibration (per_update)
@@ -356,3 +356,173 @@ class TestConfigIntegration:
         bc = BOConfig()
         assert bc.rdp_min == 0.01
         assert bc.rdp_max == 2.0
+
+
+# ---------------------------------------------------------------------------
+# Per-round RDP accounting (spec §2): 1 round = 1 Gaussian release
+# ---------------------------------------------------------------------------
+
+
+class TestPerRoundRDPCalibration:
+    @pytest.mark.parametrize("r_t,q", [(0.5, 0.1), (0.01, 0.05), (1.0, 0.5)])
+    def test_sigma_hits_per_round_target(self, r_t: float, q: float) -> None:
+        alpha = 10.0
+        sigma = _sigma_for_rdp_target_dp_sgd(r_t, alpha, q)
+        # sigma_t = sqrt(alpha * q^2 / (2 * R_t)) — the paper's closed form
+        assert sigma == pytest.approx(
+            math.sqrt(alpha * q**2 / (2.0 * r_t)), rel=1e-12,
+        )
+        rdp = compute_rdp_cost_dp_sgd(alpha, sigma, q)
+        assert rdp == pytest.approx(r_t, rel=1e-9)
+
+    def test_accountant_round_step_cost_matches_target(self) -> None:
+        alpha, q, r_t = 10.0, 0.064, 0.5
+        sigma = _sigma_for_rdp_target_dp_sgd(r_t, alpha, q)
+        accountant = RDPAccountant(delta=1e-5)
+        accountant.step(
+            sigma=sigma, clipping_norm=q, num_steps=1, mode="per_example",
+        )
+        cost = accountant.get_rdp_at_alpha(alpha)
+        assert cost == pytest.approx(r_t, rel=1e-6)
+
+
+class TestResolveRDPerRound:
+    """_resolve_rdp per_example branch: candidate/sigma stay per-round."""
+
+    @staticmethod
+    def _make_config():
+        from src.config.loader import ExperimentConfig
+        cfg = ExperimentConfig()
+        cfg.privacy.enabled = True
+        cfg.privacy.accountant_mode = "rdp_native"
+        cfg.privacy.clipping_mode = "per_example"
+        cfg.privacy.rdp_alpha = 10.0
+        cfg.privacy.update_clip_norm = 1.0
+        cfg.data.batch_size = 64
+        return cfg
+
+    @staticmethod
+    def _expected_sigma(r_t: float, q: float, alpha: float = 10.0) -> float:
+        return math.sqrt(alpha * q**2 / (2.0 * r_t))
+
+    def test_candidate_fits_uses_per_round_sigma(self) -> None:
+        from src.client_app import _resolve_rdp
+        from src.privacy.epsilon_scheduler import FixedRDPScheduler
+        config = self._make_config()
+        accountant = RDPAccountant(delta=1e-5)
+        q = 64 / 1000
+        r_t = 0.5
+        rdp_cost, sigma = _resolve_rdp(
+            FixedRDPScheduler(rdp_target=r_t), accountant, config,
+            total_budget=10.0, eps_min=0.01, local_train_size=1000,
+        )
+        assert rdp_cost == pytest.approx(r_t, rel=1e-9)
+        assert sigma == pytest.approx(self._expected_sigma(r_t, q), rel=1e-9)
+
+    def test_candidate_reduced_to_fit_budget(self) -> None:
+        from src.client_app import _resolve_rdp
+        from src.privacy.epsilon_scheduler import FixedRDPScheduler
+        config = self._make_config()
+        alpha = config.privacy.rdp_alpha
+        q = 64 / 1000
+        current = 0.9
+        accountant = RDPAccountant(delta=1e-5)
+        sigma_current = _sigma_for_rdp_target_dp_sgd(current, alpha, q)
+        accountant.step(
+            sigma=sigma_current, clipping_norm=q, num_steps=1,
+            mode="per_example",
+        )
+        rdp_cost, sigma = _resolve_rdp(
+            FixedRDPScheduler(rdp_target=0.5), accountant, config,
+            total_budget=1.0, eps_min=0.01, local_train_size=1000,
+        )
+        assert 0.01 <= rdp_cost < 0.5
+        assert current + rdp_cost <= 1.0 + 1e-9
+        # sigma must be consistent with the enforced per-round cost
+        assert compute_rdp_cost_dp_sgd(alpha, sigma, q) == pytest.approx(
+            rdp_cost, rel=1e-9,
+        )
+
+    def test_budget_exhausted_returns_minus_one(self) -> None:
+        from src.client_app import _resolve_rdp
+        from src.privacy.epsilon_scheduler import FixedRDPScheduler
+        config = self._make_config()
+        alpha = config.privacy.rdp_alpha
+        q = 64 / 1000
+        accountant = RDPAccountant(delta=1e-5)
+        sigma_used = _sigma_for_rdp_target_dp_sgd(0.995, alpha, q)
+        accountant.step(
+            sigma=sigma_used, clipping_norm=q, num_steps=1, mode="per_example",
+        )
+        rdp_cost, sigma = _resolve_rdp(
+            FixedRDPScheduler(rdp_target=0.5), accountant, config,
+            total_budget=1.0, eps_min=0.01, local_train_size=1000,
+        )
+        assert rdp_cost == -1.0
+        assert sigma == 0.0
+
+    def test_no_budget_direct_calibration(self) -> None:
+        from src.client_app import _resolve_rdp
+        from src.privacy.epsilon_scheduler import FixedRDPScheduler
+        config = self._make_config()
+        q = 64 / 1000
+        r_t = 0.5
+        rdp_cost, sigma = _resolve_rdp(
+            FixedRDPScheduler(rdp_target=r_t), None, config,
+            local_train_size=1000,
+        )
+        assert rdp_cost == pytest.approx(r_t, rel=1e-9)
+        assert sigma == pytest.approx(self._expected_sigma(r_t, q), rel=1e-9)
+
+
+class TestPerExampleClientRoundParity:
+    """Fit-level parity: acct_cost == r_t_final == accountant cumulative."""
+
+    def test_fit_reports_round_parity(self) -> None:
+        import torch
+        from torch import nn
+        from torch.utils.data import DataLoader, TensorDataset
+
+        from src.client.per_example_dp_client import PerExampleDPClient
+        from src.config.loader import ExperimentConfig
+        from src.models.base import BaseModel
+
+        class _TinyModel(BaseModel):
+            def __init__(self) -> None:
+                self._net = nn.Linear(10, 2)
+
+            def get_model(self) -> nn.Module:
+                return self._net
+
+        config = ExperimentConfig()
+        config.privacy.enabled = True
+        config.privacy.accountant_mode = "rdp_native"
+        config.privacy.clipping_mode = "per_example"
+        config.privacy.rdp_alpha = 10.0
+        config.privacy.update_clip_norm = 1.0
+        config.optimizer.momentum = 0.0
+        config.data.batch_size = 2
+
+        data = TensorDataset(torch.randn(4, 10), torch.randint(0, 2, (4,)))
+        loader = DataLoader(data, batch_size=2)
+        alpha, q, r_t = 10.0, 2 / 4, 0.5
+        sigma = _sigma_for_rdp_target_dp_sgd(r_t, alpha, q)
+
+        client = PerExampleDPClient(
+            _TinyModel(), loader, loader, config,
+            client_epsilon=r_t, computed_sigma=sigma,
+            accountant=RDPAccountant(delta=1e-5),
+        )
+        weights, num_examples, metrics = client.fit(
+            client.get_parameters({}), {},
+        )
+        assert isinstance(weights, list)
+        assert num_examples == 4
+        assert metrics["r_t_final"] == pytest.approx(r_t, rel=1e-6)
+        assert metrics["rdp_cost"] == pytest.approx(r_t, rel=1e-6)
+        assert metrics["acct_cost"] == pytest.approx(
+            metrics["r_t_final"], rel=1e-6,
+        )
+        assert metrics["cumulative_rdp"] == pytest.approx(
+            metrics["acct_cost"], rel=1e-6,
+        )
