@@ -6,7 +6,7 @@ from src.models.cnn import CNNModel
 from src.models.mlp import MLPModel
 
 _MODEL_DATA_COMPAT: dict[str, list[str]] = {
-    "cnn": ["cifar10", "cifar100"],
+    "cnn": ["cifar10", "cifar100", "femnist"],
     "mlp": ["mnist", "cifar10", "cifar100"],
 }
 

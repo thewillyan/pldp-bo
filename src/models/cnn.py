@@ -10,6 +10,14 @@ _INPUT_CHANNELS_MAP: dict[str, int] = {
     "mnist": 1,
     "cifar10": 3,
     "cifar100": 3,
+    "femnist": 1,
+}
+
+_INPUT_DIMS_MAP: dict[str, tuple[int, int]] = {
+    "mnist": (28, 28),
+    "cifar10": (32, 32),
+    "cifar100": (32, 32),
+    "femnist": (28, 28),
 }
 
 
@@ -44,8 +52,12 @@ class CNN(nn.Module):
 class CNNModel(BaseModel):
     def __init__(self, num_classes: int = 10, dataset_name: str | None = None) -> None:
         super().__init__()
-        in_channels = _INPUT_CHANNELS_MAP.get(dataset_name or "cifar10", 3)
-        self._model = CNN(num_classes, in_channels=in_channels)
+        dataset_name = dataset_name or "cifar10"
+        in_channels = _INPUT_CHANNELS_MAP.get(dataset_name, 3)
+        input_h, input_w = _INPUT_DIMS_MAP.get(dataset_name, (32, 32))
+        self._model = CNN(
+            num_classes, in_channels=in_channels, input_h=input_h, input_w=input_w,
+        )
 
     def get_model(self) -> nn.Module:
         return self._model

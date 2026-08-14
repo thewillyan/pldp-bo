@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 
 import pytest
 import torch
 from torch.utils.data import TensorDataset
 
 from src.config.loader import DataConfig
+from src.data.dataloaders import (
+    DATASET_REGISTRY,
+    NUM_CLASSES_MAP,
+    TRANSFORMS_MAP,
+    get_num_classes,
+)
+from src.data.femnist import FEMNISTDataset, femnist_counts
 from src.data.partitioner import (
     build_partition_kwargs,
     partition_dataset,
@@ -190,9 +198,9 @@ class TestPartitionTypes:
         assert len(subsets) == 5
         assert sum(len(s) for s in subsets) == 200
 
-    def test_writer_raises_not_implemented(self) -> None:
+    def test_writer_requires_users_attr(self) -> None:
         dataset = _make_toy_dataset(100)
-        with pytest.raises(NotImplementedError, match="IMPL-07"):
+        with pytest.raises(ValueError, match="users"):
             partition_dataset(dataset, 5, "writer", seed=42)
 
     def test_unknown_type_raises(self) -> None:
@@ -465,3 +473,173 @@ def test_create_dataset_returns_full_train_set(monkeypatch: pytest.MonkeyPatch) 
     cfg = _make_config_for_loader()
     dataset = create_dataset(cfg)
     assert len(dataset) == 40  # type: ignore[arg-type]
+
+
+def _make_writer_dataset(
+    writer_sizes: Sequence[int],
+    writer_labels: Sequence[Sequence[int]],
+) -> TensorDataset:
+    x_parts: list[torch.Tensor] = []
+    y_parts: list[torch.Tensor] = []
+    u_parts: list[torch.Tensor] = []
+    for w, (n, labels) in enumerate(zip(writer_sizes, writer_labels, strict=True)):
+        assert len(labels) == n
+        x_parts.append(torch.randn(n, 1, 8, 8))
+        y_parts.append(torch.tensor(labels))
+        u_parts.append(torch.full((n,), w, dtype=torch.long))
+    dataset = TensorDataset(torch.cat(x_parts), torch.cat(y_parts))
+    cast(Any, dataset).users = torch.cat(u_parts)
+    return dataset
+
+
+def _users_of(dataset: TensorDataset) -> torch.Tensor:
+    return cast(torch.Tensor, cast(Any, dataset).users)
+
+
+def _write_fake_femnist(
+    root: Path, n_train: int = 100, n_test: int = 20, n_writers: int = 5,
+    scale: float = 1.0,
+) -> None:
+    processed = root / "FEMNIST" / "processed"
+    processed.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        [
+            torch.full((n_train, 28, 28), 200.0 * scale),
+            torch.randint(0, 62, (n_train,)),
+            torch.randint(0, n_writers, (n_train,)),
+        ],
+        processed / "femnist_train.pt",
+    )
+    torch.save(
+        [
+            torch.full((n_test, 28, 28), 100.0 * scale),
+            torch.randint(0, 62, (n_test,)),
+            torch.randint(0, n_writers, (n_test,)),
+        ],
+        processed / "femnist_test.pt",
+    )
+    torch.save([f"writer_{i}" for i in range(n_writers)], processed / "femnist_user_keys.pt")
+
+
+class TestWriterPartition:
+    def test_clients_are_largest_writers(self) -> None:
+        sizes = [60, 50, 40, 30, 20, 15, 12, 11, 10]
+        dataset = _make_writer_dataset(sizes, [[0] * n for n in sizes])
+        parts = partition_dataset(dataset, 4, "writer", seed=42)
+        assert [len(p) for p in parts] == [60, 50, 40, 30]
+        for cid, part in enumerate(parts):
+            users = set(int(_users_of(dataset)[i]) for i in part.indices)
+            assert users == {cid}
+
+    def test_small_writers_merged_into_nearest_label_distribution(self) -> None:
+        sizes = [40, 30, 5, 6]
+        labels = [[0] * 40, [1] * 30, [0] * 5, [1] * 6]
+        dataset = _make_writer_dataset(sizes, labels)
+        parts = partition_dataset(dataset, 2, "writer", seed=42)
+        assert [len(p) for p in parts] == [45, 36]
+        assert {int(_users_of(dataset)[i]) for i in parts[0].indices} == {0, 2}
+        assert {int(_users_of(dataset)[i]) for i in parts[1].indices} == {1, 3}
+
+    def test_large_non_client_writers_dropped(self) -> None:
+        sizes = [50, 40, 30, 12]
+        labels = [[0] * n for n in sizes]
+        dataset = _make_writer_dataset(sizes, labels)
+        parts = partition_dataset(dataset, 2, "writer", seed=42)
+        assert sum(len(p) for p in parts) == 90  # 50 + 40; writers 2, 3 dropped
+
+    def test_merge_threshold_boundary(self) -> None:
+        sizes = [50, 10, 9]
+        labels = [[0] * n for n in sizes]
+        dataset = _make_writer_dataset(sizes, labels)
+        parts = partition_dataset(dataset, 1, "writer", seed=42)
+        assert len(parts[0]) == 59  # writer with exactly 10 kept out, 9 merged
+
+    def test_deterministic_and_seed_independent(self) -> None:
+        sizes = [60, 50, 40, 30, 20, 15, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3]
+        labels = [[i % 4 for i in range(n)] for n in sizes]
+        dataset = _make_writer_dataset(sizes, labels)
+        a = partition_dataset(dataset, 6, "writer", seed=1)
+        b = partition_dataset(dataset, 6, "writer", seed=999)
+        assert [p.indices for p in a] == [p.indices for p in b]
+
+    def test_single_full_parity(self) -> None:
+        sizes = [60, 50, 40, 30, 20, 15, 12, 11, 10, 9, 8, 7]
+        labels = [[i % 4 for i in range(n)] for n in sizes]
+        dataset = _make_writer_dataset(sizes, labels)
+        full = partition_dataset(dataset, 5, "writer", seed=42)
+        for i in range(5):
+            single = partition_single(dataset, 5, i, "writer", seed=42)
+            assert single.indices == full[i].indices, i
+
+    def test_min30_not_applied_to_writer(self) -> None:
+        sizes = [50, 20, 15, 10]
+        labels = [[0] * n for n in sizes]
+        dataset = _make_writer_dataset(sizes, labels)
+        parts = partition_dataset(dataset, 2, "writer", seed=42, min_samples=30)
+        assert [len(p) for p in parts] == [50, 20]
+
+    def test_num_clients_exceeding_writers_raises(self) -> None:
+        dataset = _make_writer_dataset([50, 40], [[0] * 50, [0] * 40])
+        with pytest.raises(ValueError, match="num_clients"):
+            partition_dataset(dataset, 5, "writer", seed=42)
+
+    def test_partition_kwargs(self) -> None:
+        assert build_partition_kwargs("writer") == {
+            "type": "writer", "merge_threshold": 10,
+        }
+
+
+class TestFEMNISTDataset:
+    def test_loads_train_split(self, tmp_path: Path) -> None:
+        _write_fake_femnist(tmp_path, n_train=100, n_test=20, n_writers=5)
+        ds = FEMNISTDataset(str(tmp_path), train=True)
+        assert len(ds) == 100
+        assert ds.data.shape == (100, 28, 28)
+        assert ds.targets.shape == (100,)
+        assert int(ds.targets.min()) >= 0 and int(ds.targets.max()) < 62
+        assert int(ds.users.min()) >= 0 and int(ds.users.max()) < 5
+        assert ds.user_keys == [f"writer_{i}" for i in range(5)]
+
+    def test_loads_test_split(self, tmp_path: Path) -> None:
+        _write_fake_femnist(tmp_path, n_train=100, n_test=20, n_writers=5)
+        ds = FEMNISTDataset(str(tmp_path), train=False)
+        assert len(ds) == 20
+
+    def test_missing_files_raise_clear_error(self, tmp_path: Path) -> None:
+        with pytest.raises(FileNotFoundError, match="femnist.tar.gz"):
+            FEMNISTDataset(str(tmp_path))
+
+    def test_partial_files_raise(self, tmp_path: Path) -> None:
+        _write_fake_femnist(tmp_path)
+        (tmp_path / "FEMNIST" / "processed" / "femnist_user_keys.pt").unlink()
+        with pytest.raises(FileNotFoundError, match="femnist"):
+            FEMNISTDataset(str(tmp_path))
+
+    def test_normalizes_255_scale(self, tmp_path: Path) -> None:
+        _write_fake_femnist(tmp_path, scale=1.0)
+        ds = FEMNISTDataset(str(tmp_path))
+        assert float(ds.data.max()) == pytest.approx(200.0 / 255.0)
+
+    def test_keeps_01_scale(self, tmp_path: Path) -> None:
+        _write_fake_femnist(tmp_path, scale=0.001)
+        ds = FEMNISTDataset(str(tmp_path))
+        assert float(ds.data.max()) == pytest.approx(0.2)
+
+    def test_transform_applied(self, tmp_path: Path) -> None:
+        _write_fake_femnist(tmp_path)
+        ds = FEMNISTDataset(str(tmp_path), transform=lambda t: t * 2.0)
+        img, target = ds[0]
+        assert img.shape == (1, 28, 28)
+        assert isinstance(target, int)
+        assert torch.allclose(img, ds.data[0].unsqueeze(0) * 2.0)
+
+    def test_counts(self, tmp_path: Path) -> None:
+        _write_fake_femnist(tmp_path, n_train=654, n_test=163, n_writers=35)
+        assert femnist_counts(str(tmp_path)) == (654, 163, 35)
+
+
+def test_femnist_registry_and_meta() -> None:
+    assert DATASET_REGISTRY["femnist"] is FEMNISTDataset
+    assert NUM_CLASSES_MAP["femnist"] == 62
+    assert TRANSFORMS_MAP["femnist"] is not None
+    assert get_num_classes("femnist") == 62

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 import torch
 
 from src.config.loader import ModelConfig
@@ -18,6 +19,35 @@ def test_create_mlp() -> None:
     config = ModelConfig(name="mlp", num_classes=10)
     model = create_model(config)
     assert isinstance(model, MLPModel)
+
+
+def test_cnn_femnist_fc_input_3136() -> None:
+    model = CNNModel(num_classes=62, dataset_name="femnist")
+    assert model._model.fc1.in_features == 3136
+
+
+def test_cnn_femnist_forward_pass() -> None:
+    model = CNNModel(num_classes=62, dataset_name="femnist")
+    x = torch.randn(2, 1, 28, 28)
+    output = model.get_model()(x)
+    assert output.shape == (2, 62)
+
+
+def test_create_model_cnn_accepts_femnist() -> None:
+    config = ModelConfig(name="cnn", num_classes=62)
+    model = create_model(config, dataset_name="femnist")
+    assert isinstance(model, CNNModel)
+
+
+def test_create_model_mlp_rejects_femnist() -> None:
+    config = ModelConfig(name="mlp", num_classes=62)
+    with pytest.raises(ValueError, match="not compatible"):
+        create_model(config, dataset_name="femnist")
+
+
+def test_mlp_femnist_input_size() -> None:
+    model = MLPModel(num_classes=62, dataset_name="femnist")
+    assert model._model.fc1.in_features == 28 * 28
 
 
 def test_weight_roundtrip() -> None:

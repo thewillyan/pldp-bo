@@ -9,6 +9,7 @@ _INPUT_SIZE_MAP: dict[str, int] = {
     "mnist": 28 * 28,
     "cifar10": 3 * 32 * 32,
     "cifar100": 3 * 32 * 32,
+    "femnist": 28 * 28,
 }
 
 

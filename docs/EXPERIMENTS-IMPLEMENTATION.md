@@ -746,3 +746,24 @@ Everything below is the repo-side subset of `EXPERIMENTS-TODO.md` §8:
   pass, clean optimizer steps exactly double DP steps. 21 new tests (14 data, 7 client); 472 tests
   green; ruff/mypy zero new errors vs git HEAD (mypy 196 total; only removals: 3 old server_app
   errors). `src/data/` still untracked/gitignored.
+- 2026-08-14: **IMPL-07 closed.** FEMNIST pipeline (spec §9.9; data unavailable — `femnist.tar.gz`
+  is an LFS pointer — pipeline implemented now, counts verified at extraction via
+  `femnist_counts`, wired to §5.1 at IMPL-13). New `src/data/femnist.py`: `FEMNISTDataset` reads
+  `FEMNIST/processed/femnist_{train,test}.pt` (`[data, targets, users]`) + `femnist_user_keys.pt`;
+  missing files raise a clear `FileNotFoundError` (never downloads; `download=` accepted only for
+  torchvision-compatible signature); stored 0–255 floats are rescaled to [0, 1] (the reference
+  repo feeds F-mode floats through MNIST normalize unscaled — loader normalizes robustly,
+  both scales tested); samples returned as (1, 28, 28) tensors + int label; `.users`/`.user_keys`
+  exposed for writer partition and per-client test grouping (IMPL-08). Registry: `femnist` in
+  `DATASET_REGISTRY`/`TRANSFORMS_MAP` (Normalize 0.1307/0.3081 only)/`NUM_CLASSES_MAP=62`.
+  Models: CNN gains `_INPUT_DIMS_MAP` (femnist 28×28 — without it the FC input would be 4096,
+  not 3136; verified by test); `_MODEL_DATA_COMPAT["cnn"] += femnist`; mlp `_INPUT_SIZE_MAP`
+  28×28 for safety (mlp still rejected for femnist). Partitioner: `partition_type="writer"`
+  (user-approved rule): clients = the K largest writers by train-sample count; writers with <10
+  samples merged into the nearest client by minimum JS divergence on label histograms (initial
+  client histograms; ties lowest client id; merges smallest-first); other writers dropped;
+  seed-independent pure function of (users, targets, K) so `partition_single` ≡ full parity;
+  min-30 skipped for writer (FEMNIST exempt); `build_partition_kwargs` logs
+  `{type: writer, merge_threshold: 10}`. 23 new tests (loader 8, writer 9, registry 1, models 5);
+  495 tests green; ruff/mypy zero new errors (femnist.py clean; partitioner back to its 3
+  pre-existing len errors). `src/data/` still untracked/gitignored.
