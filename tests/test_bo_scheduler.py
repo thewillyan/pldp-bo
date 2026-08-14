@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import copy
+import itertools
 
 import numpy as np
 import pytest
 
 from src.config.loader import BOConfig
 from src.privacy.bo_scheduler import (
+    WARMUP_GRID,
+    WARMUP_SUM_NOMINAL,
     PLDPBOScheduler,
     expected_improvement,
     normalize_ei,
@@ -92,15 +95,15 @@ class TestPLDPBOScheduler:
         for _ in range(self.WARMUP):
             values.append(scheduler.get_epsilon())
             scheduler.step(values[-1], 0.0)
-        expected = np.linspace(self.EPS_MIN, self.EPS_MAX, self.WARMUP)
-        np.testing.assert_array_almost_equal(values, expected)
+        # Fixed log-spaced warm-up grid (spec §9.3), independent of the bounds
+        np.testing.assert_array_almost_equal(values, WARMUP_GRID)
 
     def test_warmup_values_in_range(self) -> None:
         scheduler = self.make_scheduler()
         for _ in range(self.WARMUP):
             eps = scheduler.get_epsilon()
             scheduler.step(eps, 1.0)
-            assert self.EPS_MIN <= eps <= self.EPS_MAX
+            assert WARMUP_GRID[0] <= eps <= WARMUP_GRID[-1]
 
     def test_warmup_covers_full_range(self) -> None:
         scheduler = self.make_scheduler()
@@ -108,8 +111,8 @@ class TestPLDPBOScheduler:
         for _ in range(self.WARMUP):
             values.append(scheduler.get_epsilon())
             scheduler.step(values[-1], 0.0)
-        assert values[0] == pytest.approx(self.EPS_MIN)
-        assert values[-1] == pytest.approx(self.EPS_MAX)
+        assert values[0] == pytest.approx(WARMUP_GRID[0])
+        assert values[-1] == pytest.approx(WARMUP_GRID[-1])
 
     def test_phase_transition_after_warmup(self) -> None:
         scheduler = self.make_scheduler()
@@ -140,12 +143,21 @@ class TestPLDPBOScheduler:
             assert self.EPS_MIN <= eps <= self.EPS_MAX
 
     def test_bo_prefers_lower_epsilon_with_constant_metric(self) -> None:
-        scheduler = self.make_scheduler(acquisition_penalty=0.5)
+        # The search space must be covered by the fixed warm-up grid, or the
+        # GP extrapolates real EI variation into the uncovered region and the
+        # acquisition penalty cannot dominate.
+        scheduler = PLDPBOScheduler(
+            epsilon_min=WARMUP_GRID[0],
+            epsilon_max=WARMUP_GRID[-1],
+            warmup_rounds=self.WARMUP,
+            acquisition_penalty=0.5,
+            seed=42,
+        )
         for _ in range(self.WARMUP):
             eps = scheduler.get_epsilon()
             scheduler.step(eps, 1.0)
         eps = scheduler.get_epsilon()
-        assert eps == pytest.approx(self.EPS_MIN)
+        assert eps == pytest.approx(WARMUP_GRID[0])
 
     # --- Serialization ---
 
@@ -352,6 +364,34 @@ class TestPLDPBOScheduler:
             seed=42,
         )
         assert scheduler._phase == "warmup"
-        assert len(scheduler._warmup_epsilons) == 15
-        assert scheduler._warmup_epsilons[0] == 0.5
-        assert scheduler._warmup_epsilons[-1] == 8.0
+        # Warm-up count is capped at the 10-point fixed grid
+        assert len(scheduler._warmup_epsilons) == len(WARMUP_GRID)
+        assert scheduler._warmup_rounds == len(WARMUP_GRID)
+        assert scheduler._warmup_epsilons[0] == WARMUP_GRID[0]
+        assert scheduler._warmup_epsilons[-1] == WARMUP_GRID[-1]
+
+
+class TestWarmupGrid:
+    """The fixed log-spaced warm-up grid must match the paper (spec §9.3)."""
+
+    def test_ten_points(self) -> None:
+        assert len(WARMUP_GRID) == 10
+
+    def test_exact_values(self) -> None:
+        assert pytest.approx(
+            (0.01, 0.0154, 0.0239, 0.0368, 0.0569, 0.0879, 0.1357, 0.2095, 0.3236, 0.4998),
+            rel=0.0, abs=1e-12,
+        ) == WARMUP_GRID
+
+    def test_sum_nominal(self) -> None:
+        assert pytest.approx(1.3995, rel=1e-12) == WARMUP_SUM_NOMINAL
+        assert sum(WARMUP_GRID) == pytest.approx(1.3995, rel=1e-12)
+
+    def test_log_spaced_ratio(self) -> None:
+        ratio = 50 ** (1 / 9)  # ~1.5444
+        for lo, hi in itertools.pairwise(WARMUP_GRID):
+            assert hi / lo == pytest.approx(ratio, abs=1e-2)
+
+    def test_first_and_last_bounds(self) -> None:
+        assert WARMUP_GRID[0] == 0.01
+        assert WARMUP_GRID[-1] == pytest.approx(0.4998, rel=1e-12)

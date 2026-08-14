@@ -686,3 +686,14 @@ Everything below is the repo-side subset of `EXPERIMENTS-TODO.md` §8:
   (`num_steps=1`), reports `rdp_cost = R_t`, and adds `r_t_final`/`acct_cost` metrics (identical
   by construction, rel ≤ 1e-6, verified at fit level). 14 new tests; 424 tests green; ruff/mypy
   baseline unchanged. `acct_cost`/`r_t_final` server-side logging deferred to IMPL-11.
+- 2026-08-14: **IMPL-03 closed.** Fixed 10-point log-spaced warm-up grid
+  `WARMUP_GRID` (spec §9.3, sum 1.3995) + `WARMUP_SUM_NOMINAL` exported from
+  `src/privacy/bo_scheduler.py` (consumed by IMPL-11's `warmup_points`/`warmup_sum_nominal`
+  params); both scheduler paths (RDP + epsilon mirror) use the grid, capped at 10
+  (`min(warmup_rounds, len(grid))`); grid is absolute RDP over [0.01, 0.5], independent of the
+  BO search bounds. Fixes beyond the plan: (a) `normalize_ei` flatness floor (1e-4 relative)
+  — GP float noise (~1e-6) was amplified to full scale, defeating the documented degenerate
+  case so flat-utility BO proposed R_max instead of R_min; (b) test alignment to the grid
+  domain (`test_integration.py` lifecycle bounds, `test_bo_scheduler.py` warm-up expectations,
+  `test_rdp_native.py`). 5 new grid-integrity tests; 429 tests green; ruff/mypy baseline
+  unchanged.

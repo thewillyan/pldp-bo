@@ -14,6 +14,15 @@ from src.utils import deserialize_rng, serialize_rng  # noqa: I001
 logger = logging.getLogger(__name__)
 
 
+# Warm-up grid (spec §9.3): 10 log-spaced RDP points over [0.01, 0.5],
+# ratio 50^(1/9) ~= 1.5444, sum ~= 1.3995 (~14% of B_RDP=10.0). The paper
+# fixes warm-up in absolute RDP units, independent of the BO search bounds.
+WARMUP_GRID: tuple[float, ...] = (
+    0.01, 0.0154, 0.0239, 0.0368, 0.0569, 0.0879, 0.1357, 0.2095, 0.3236, 0.4998,
+)
+WARMUP_SUM_NOMINAL: float = sum(WARMUP_GRID)
+
+
 def expected_improvement(
     mean: np.ndarray,
     std: np.ndarray,
@@ -33,8 +42,13 @@ def expected_improvement(
 
 def normalize_ei(ei: np.ndarray) -> np.ndarray:
     ei_min, ei_max = ei.min(), ei.max()
-    if ei_max > ei_min:
-        return (ei - ei_min) / (ei_max - ei_min)
+    span = ei_max - ei_min
+    scale = max(abs(ei_max), abs(ei_min), 1e-12)
+    # Treat EI as flat when the spread is below the GP prediction's
+    # float-noise level; otherwise normalization would amplify noise to full
+    # scale and the acquisition penalty would never guide the selection.
+    if span > 1e-4 * scale:
+        return (ei - ei_min) / span
     return np.zeros_like(ei)
 
 
@@ -110,7 +124,10 @@ class PLDPBOScheduler(EpsilonScheduler):
 
         self._epsilon_min = epsilon_min
         self._epsilon_max = epsilon_max
-        self._warmup_rounds = warmup_rounds
+        # The paper's fixed log-spaced warm-up grid (spec §9.3), mirrored in
+        # both scheduler paths; capped at the grid length.
+        self._warmup_rounds = min(warmup_rounds, len(WARMUP_GRID))
+        self._warmup_epsilons = np.asarray(WARMUP_GRID[: self._warmup_rounds])
         self._acquisition_penalty = acquisition_penalty
         self._grid_points = grid_points
         self._gp_kernel_name = gp_kernel
@@ -120,9 +137,6 @@ class PLDPBOScheduler(EpsilonScheduler):
         self._rng = np.random.RandomState(seed)
         self._ema_alpha = ema_alpha
 
-        self._warmup_epsilons = np.linspace(
-            epsilon_min, epsilon_max, warmup_rounds,
-        )
         self._phase: str = "warmup"
         self._round: int = 0
         self._observations: list[tuple[float, float]] = []
@@ -330,7 +344,11 @@ class PLDPBORDPScheduler(RDPNativeScheduler):
 
         self._rdp_min = rdp_min
         self._rdp_max = rdp_max
-        self._warmup_rounds = warmup_rounds
+        # The paper's fixed log-spaced warm-up grid (spec §9.3), in absolute
+        # RDP units over [0.01, 0.5] regardless of the BO search bounds;
+        # capped at the grid length.
+        self._warmup_rounds = min(warmup_rounds, len(WARMUP_GRID))
+        self._warmup_rdp = np.asarray(WARMUP_GRID[: self._warmup_rounds])
         self._num_rounds = num_rounds
         self._acquisition_penalty = acquisition_penalty
         self._grid_points = grid_points
@@ -341,7 +359,6 @@ class PLDPBORDPScheduler(RDPNativeScheduler):
         self._rng = np.random.RandomState(seed)
         self._ema_alpha = ema_alpha
 
-        self._warmup_rdp = np.linspace(rdp_min, rdp_max, warmup_rounds)
         self._phase: str = "warmup"
         self._round: int = 0
         self._observations: list[tuple[float, float]] = []

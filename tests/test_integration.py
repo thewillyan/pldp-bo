@@ -6,7 +6,7 @@ import pytest
 
 from src.config.loader import load_config
 from src.privacy.accountant import RDPAccountant
-from src.privacy.bo_scheduler import PLDPBOScheduler
+from src.privacy.bo_scheduler import WARMUP_GRID, PLDPBOScheduler
 from src.privacy.epsilon_scheduler import (
     FixedEpsilonScheduler,
     UniformRandomEpsilonScheduler,
@@ -74,8 +74,10 @@ class TestConfigLoading:
 class TestFullRoundLifecycle:
     """End-to-end test of the per-round client lifecycle with PLDP-BO."""
 
-    EPS_MIN = 0.1
-    EPS_MAX = 5.0
+    # Aligned to the fixed log-spaced warm-up grid (spec §9.3): the scheduler's
+    # warm-up candidates live in [WARMUP_GRID[0], WARMUP_GRID[-1]].
+    EPS_MIN = WARMUP_GRID[0]
+    EPS_MAX = WARMUP_GRID[-1]
     WARMUP = 3
     TOTAL_ROUNDS = 5
     C = 1.0
@@ -283,16 +285,24 @@ class TestFullRoundLifecycle:
             for seed in [42, 99, 123]
         ]
 
+        # Real clients see different data, hence different metric functions;
+        # identical environments correctly yield identical schedules.
+        def metric(client_idx: int, epsilon: float) -> float:
+            if client_idx == 0:
+                return 1.0 / (1.0 + epsilon)
+            if client_idx == 1:
+                return 0.5 + 0.01 * epsilon
+            return 0.5
+
         for _ in range(self.WARMUP + 2):
-            for acct, sched in zip(accountants, schedulers, strict=True):
+            for idx, (acct, sched) in enumerate(zip(accountants, schedulers, strict=True)):
                 candidate = sched.get_epsilon()
                 epsilon, computed_sigma = self._resolve_epsilon(candidate, acct)
                 if epsilon < 0:
                     continue
                 sigma = computed_sigma if computed_sigma > 0 else calibrate_sigma(epsilon, self.C, self.DELTA)
                 acct.step(sigma=sigma, clipping_norm=self.C, num_steps=1)
-                metric = self._simulate_training_metric(epsilon)
-                sched.step(epsilon, metric)
+                sched.step(epsilon, metric(idx, epsilon))
 
         epsilons = [acct.get_epsilon() for acct in accountants]
         assert all(eps > 0 for eps in epsilons)

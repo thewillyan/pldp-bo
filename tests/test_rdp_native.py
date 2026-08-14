@@ -272,7 +272,7 @@ class TestUniformRandomRDPScheduler:
 
 class TestPLDPBORDPScheduler:
     def test_warmup(self) -> None:
-        from src.privacy.bo_scheduler import PLDPBORDPScheduler
+        from src.privacy.bo_scheduler import WARMUP_GRID, PLDPBORDPScheduler
         s = PLDPBORDPScheduler(
             rdp_min=0.1, rdp_max=1.0, warmup_rounds=5, seed=42,
         )
@@ -281,9 +281,11 @@ class TestPLDPBORDPScheduler:
             rdp = s.get_rdp()
             values.append(rdp)
             s.step(rdp, 1.0)
-        # Warmup should be linearly spaced
-        assert values[0] == pytest.approx(0.1)
-        assert values[-1] == pytest.approx(1.0)
+        # Fixed log-spaced grid (spec §9.3): the first 5 points, regardless
+        # of the BO search bounds
+        assert values == pytest.approx(list(WARMUP_GRID[:5]), rel=0.0, abs=1e-12)
+        assert values[0] == pytest.approx(WARMUP_GRID[0])
+        assert values[-1] == pytest.approx(WARMUP_GRID[4])
 
     def test_bo_phase(self) -> None:
         from src.privacy.bo_scheduler import PLDPBORDPScheduler
