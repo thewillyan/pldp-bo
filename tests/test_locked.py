@@ -12,6 +12,12 @@ from src.config.locked import (
 )
 
 
+def _apply(_cfg: ExperimentConfig, *pairs: tuple[object, str, object]) -> None:
+    """Apply attribute writes for multi-setattr contract-violation cases."""
+    for obj, name, value in pairs:
+        setattr(obj, name, value)
+
+
 def _locked_config() -> ExperimentConfig:
     """A config compliant with every §2 locked constant and the method contract."""
     cfg = ExperimentConfig()
@@ -103,110 +109,58 @@ def test_constant_violations_raise(label: str, mutate: object) -> None:
         ("method", lambda c: setattr(c, "method", "")),
         # nonprivate contract
         ("method", lambda c: setattr(c, "method", "nonprivate")),
+        ("method", lambda c: _apply(c, (c, "method", "nonprivate"), (c.privacy, "enabled", True))),
+        ("method", lambda c: _apply(c, (c, "method", "nonprivate"), (c.bo, "enabled", True))),
         (
             "method",
-            lambda c: (
-                (
-                    setattr(c, "method", "nonprivate"),
-                    setattr(c.privacy, "enabled", True),
-                )[-1]
-                and None
-            ),
-        ),
-        (
-            "method",
-            lambda c: (
-                (
-                    setattr(c, "method", "nonprivate"),
-                    setattr(c.bo, "enabled", True),
-                )[-1]
-                and None
-            ),
-        ),
-        (
-            "method",
-            lambda c: (
-                (
-                    setattr(c, "method", "nonprivate"),
-                    setattr(c.federated, "aggregation", "attenuation"),
-                )[-1]
-                and None
+            lambda c: _apply(
+                c,
+                (c, "method", "nonprivate"),
+                (c.federated, "aggregation", "attenuation"),
             ),
         ),
         # fixed baselines
         (
             "method",
-            lambda c: (
-                (
-                    setattr(c, "method", "dpfedavg_fixed"),
-                    setattr(c.privacy, "enabled", False),
-                    setattr(c.bo, "enabled", False),
-                )[-1]
-                and None
+            lambda c: _apply(
+                c,
+                (c, "method", "dpfedavg_fixed"),
+                (c.privacy, "enabled", False),
+                (c.bo, "enabled", False),
             ),
         ),
-        (
-            "method",
-            lambda c: (
-                (
-                    setattr(c, "method", "dpfedavg_fixed"),
-                    setattr(c.bo, "enabled", True),
-                )[-1]
-                and None
-            ),
-        ),
+        ("method", lambda c: _apply(c, (c, "method", "dpfedavg_fixed"), (c.bo, "enabled", True))),
         (
             "fixed_rdp_target",
-            lambda c: (
-                (
-                    setattr(c, "method", "dpfedavg_fixed"),
-                    setattr(c.bo, "enabled", False),
-                    setattr(c.privacy, "fixed_rdp_target", 1.0),
-                )[-1]
-                and None
+            lambda c: _apply(
+                c,
+                (c, "method", "dpfedavg_fixed"),
+                (c.bo, "enabled", False),
+                (c.privacy, "fixed_rdp_target", 1.0),
             ),
         ),
         # BO variants
+        ("method", lambda c: _apply(c, (c, "method", "pldpbo_snr"), (c.bo, "enabled", False))),
         (
             "method",
-            lambda c: (
-                (
-                    setattr(c, "method", "pldpbo_snr"),
-                    setattr(c.bo, "enabled", False),
-                )[-1]
-                and None
-            ),
+            lambda c: _apply(c, (c, "method", "pldpbo_utility"), (c.privacy, "enabled", False)),
         ),
         (
             "method",
-            lambda c: (
-                (
-                    setattr(c, "method", "pldpbo_utility"),
-                    setattr(c.privacy, "enabled", False),
-                )[-1]
-                and None
-            ),
-        ),
-        (
-            "method",
-            lambda c: (
-                (
-                    setattr(c, "method", "pldpbo_agreement"),
-                    setattr(c.federated, "aggregation", "plain"),
-                )[-1]
-                and None
+            lambda c: _apply(
+                c,
+                (c, "method", "pldpbo_agreement"),
+                (c.federated, "aggregation", "plain"),
             ),
         ),
         # fedprox mu
         (
             "mu_fedprox",
-            lambda c: (
-                (
-                    setattr(c, "method", "fedprox_fixed"),
-                    setattr(c.bo, "enabled", False),
-                    setattr(c.federated, "proximal_mu", 0.0),
-                )[-1]
-                and None
+            lambda c: _apply(
+                c,
+                (c, "method", "fedprox_fixed"),
+                (c.bo, "enabled", False),
+                (c.federated, "proximal_mu", 0.0),
             ),
         ),
         ("mu_fedprox", lambda c: setattr(c.federated, "proximal_mu", 0.01)),

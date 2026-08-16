@@ -7,7 +7,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 import torch
-from flwr.app import ArrayRecord, ConfigRecord, Message, RecordDict
+from flwr.app import ArrayRecord, ConfigRecord, Message, MetricRecord, RecordDict
 from torch import nn
 from torch.utils.data import DataLoader, Subset, TensorDataset
 
@@ -31,7 +31,7 @@ class _SimpleModel(BaseModel):
         return self._net
 
 
-def _make_loader() -> DataLoader:
+def _make_loader() -> DataLoader[Any]:
     data = TensorDataset(torch.randn(4, 10), torch.randint(0, 2, (4,)))
     return DataLoader(data, batch_size=2)
 
@@ -1082,7 +1082,9 @@ class TestTrainReplySpecFields:
             lambda **kwargs: _FakeFitClient(metrics),  # noqa: ARG005
         )
 
-    def _reply_metrics(self, monkeypatch: pytest.MonkeyPatch, fit_metrics: dict[str, Any]) -> dict:
+    def _reply_metrics(
+        self, monkeypatch: pytest.MonkeyPatch, fit_metrics: dict[str, Any]
+    ) -> MetricRecord | ConfigRecord:
         from src.client_app import train
 
         config = self._make_config()
@@ -1113,8 +1115,10 @@ class TestTrainReplySpecFields:
         assert metrics["r_t_candidate"] == pytest.approx(0.01)
         assert metrics["phase"] == pytest.approx(0.0)
         assert metrics["observed_m"] == pytest.approx(0.42)
-        assert isinstance(metrics["bo_time"], float) and metrics["bo_time"] >= 0
-        assert isinstance(metrics["acct_time"], float) and metrics["acct_time"] >= 0
+        bo_time = metrics["bo_time"]
+        acct_time = metrics["acct_time"]
+        assert isinstance(bo_time, float) and bo_time >= 0
+        assert isinstance(acct_time, float) and acct_time >= 0
         assert metrics["num-examples"] == 2
         assert metrics["client-id"] == 0
 

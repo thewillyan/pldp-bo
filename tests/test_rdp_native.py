@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from src.config.loader import ExperimentConfig
 from src.privacy.accountant import RDPAccountant
 from src.privacy.constants import RDP_ALPHAS
 from src.privacy.per_update_dp import (
@@ -454,9 +455,7 @@ class TestResolveRDPerRound:
     """_resolve_rdp per_example branch: candidate/sigma stay per-round."""
 
     @staticmethod
-    def _make_config():
-        from src.config.loader import ExperimentConfig
-
+    def _make_config() -> ExperimentConfig:
         cfg = ExperimentConfig()
         cfg.privacy.enabled = True
         cfg.privacy.accountant_mode = "rdp_native"
@@ -568,9 +567,7 @@ class TestResolveRDPSpecFields:
     """_resolve_rdp returns (rdp_cost, sigma, r_t_candidate, bo_time, acct_time)."""
 
     @staticmethod
-    def _make_config():
-        from src.config.loader import ExperimentConfig
-
+    def _make_config() -> ExperimentConfig:
         cfg = ExperimentConfig()
         cfg.privacy.enabled = True
         cfg.privacy.accountant_mode = "rdp_native"
@@ -739,8 +736,6 @@ class TestSchedulerRouting:
 
     @staticmethod
     def _make_config() -> Any:
-        from src.config.loader import ExperimentConfig
-
         cfg = ExperimentConfig()
         cfg.privacy.enabled = True
         cfg.privacy.accountant_mode = "rdp_native"

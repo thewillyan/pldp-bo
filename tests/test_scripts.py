@@ -7,7 +7,7 @@ import tempfile
 import types
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import mlflow
@@ -63,7 +63,7 @@ def _make_run(
         if tag is not None:
             client.set_tag(run_id, "config_version", tag)
         client.set_terminated(run_id, status=status)
-        return run_id
+        return cast(str, run_id)
     finally:
         mlflow.set_tracking_uri(prev)
 
@@ -315,7 +315,7 @@ class TestGenMatrixConfigs:
         self.out_dir = tmp_path / "matrix"
 
     def _write(self) -> list[Path]:
-        return _gen.write_configs(self.out_dir)
+        return cast(list[Path], _gen.write_configs(self.out_dir))
 
     def test_emits_all_100_cells(self) -> None:
         files = self._write()
@@ -541,7 +541,7 @@ class TestMatrixInventory:
         self,
         mlflow_uri: str,
         monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         monkeypatch.setattr(_run, "CONFIG_DIR", self.cells_dir)
         args = SimpleNamespace(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import itertools
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -77,7 +78,7 @@ class TestPLDPBOScheduler:
         self,
         warmup_rounds: int | None = None,
         seed: int = 42,
-        **kwargs,
+        **kwargs: Any,
     ) -> PLDPBOScheduler:
         return PLDPBOScheduler(
             epsilon_min=self.EPS_MIN,
@@ -208,9 +209,11 @@ class TestPLDPBOScheduler:
         restored = PLDPBOScheduler.from_state(state)
         # _restored_kernel is used (not consumed) by _fit_gp during from_state;
         # verify preservation by checking that GP predictions match
+        gp_restored = cast(Any, restored._gp)
+        gp_original = cast(Any, scheduler._gp)
         np.testing.assert_array_almost_equal(
-            restored._gp.predict(np.array([[0.5], [2.5]]), return_std=True)[0],
-            scheduler._gp.predict(np.array([[0.5], [2.5]]), return_std=True)[0],
+            gp_restored.predict(np.array([[0.5], [2.5]]), return_std=True)[0],
+            gp_original.predict(np.array([[0.5], [2.5]]), return_std=True)[0],
         )
 
     # --- RNG preservation ---
@@ -236,8 +239,8 @@ class TestPLDPBOScheduler:
             s1.step(eps, float(eps))
 
         restored = PLDPBOScheduler.from_state(copy.deepcopy(s1.get_state()))
-        gp1_pred = s1._gp.predict(np.array([[0.5], [2.5], [4.5]]), return_std=True)
-        gp2_pred = restored._gp.predict(np.array([[0.5], [2.5], [4.5]]), return_std=True)
+        gp1_pred = cast(Any, s1._gp).predict(np.array([[0.5], [2.5], [4.5]]), return_std=True)
+        gp2_pred = cast(Any, restored._gp).predict(np.array([[0.5], [2.5], [4.5]]), return_std=True)
         np.testing.assert_array_almost_equal(gp1_pred[0], gp2_pred[0])
         np.testing.assert_array_almost_equal(gp1_pred[1], gp2_pred[1])
 

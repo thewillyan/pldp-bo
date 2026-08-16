@@ -6,6 +6,9 @@ from typing import Any, cast
 
 import pytest
 import torch
+from torch.utils.data import Subset, TensorDataset
+
+from src.config.loader import DataConfig
 from src.data.dataloaders import (
     DATASET_REGISTRY,
     NUM_CLASSES_MAP,
@@ -20,9 +23,6 @@ from src.data.partitioner import (
     partition_noniid_dirichlet,
     partition_single,
 )
-from torch.utils.data import TensorDataset
-
-from src.config.loader import DataConfig
 
 
 def _make_toy_dataset(num_samples: int = 100) -> TensorDataset:
@@ -50,7 +50,7 @@ def test_partition_iid_equal_split() -> None:
 
 def test_partition_noniid_returns_correct_count() -> None:
     dataset = _make_toy_dataset(200)
-    subsets = partition_noniid_dirichlet(dataset, 5, alpha=0.5)
+    subsets = cast(list[Subset[Any]], partition_noniid_dirichlet(dataset, 5, alpha=0.5))
     assert len(subsets) == 5
     total = sum(len(s) for s in subsets)
     assert total == 200
@@ -60,7 +60,7 @@ def test_partition_noniid_no_empty_clients() -> None:
     x = torch.randn(50, 1, 8, 8)
     y = torch.tensor([0] + [1] * 49)
     dataset = TensorDataset(x, y)
-    subsets = partition_noniid_dirichlet(dataset, 50, alpha=0.1)
+    subsets = cast(list[Subset[Any]], partition_noniid_dirichlet(dataset, 50, alpha=0.1))
     assert len(subsets) == 50
     assert all(len(s) >= 1 for s in subsets)
     assert sum(len(s) for s in subsets) == 50
@@ -68,7 +68,7 @@ def test_partition_noniid_no_empty_clients() -> None:
 
 def test_partition_noniid_fewer_classes_than_clients() -> None:
     dataset = _make_toy_dataset_with_classes(200, 3)
-    subsets = partition_noniid_dirichlet(dataset, 10, alpha=1.0)
+    subsets = cast(list[Subset[Any]], partition_noniid_dirichlet(dataset, 10, alpha=1.0))
     assert len(subsets) == 10
     assert all(len(s) >= 1 for s in subsets)
     assert sum(len(s) for s in subsets) == 200
@@ -76,7 +76,7 @@ def test_partition_noniid_fewer_classes_than_clients() -> None:
 
 def test_partition_noniid_single_class_dataset() -> None:
     dataset = _make_toy_dataset_with_classes(100, 1)
-    subsets = partition_noniid_dirichlet(dataset, 5, alpha=1.0)
+    subsets = cast(list[Subset[Any]], partition_noniid_dirichlet(dataset, 5, alpha=1.0))
     assert len(subsets) == 5
     assert all(len(s) >= 1 for s in subsets)
     assert sum(len(s) for s in subsets) == 100
@@ -84,7 +84,7 @@ def test_partition_noniid_single_class_dataset() -> None:
 
 def test_partition_noniid_extreme_alpha() -> None:
     dataset = _make_toy_dataset_with_classes(200, 5)
-    subsets = partition_noniid_dirichlet(dataset, 50, alpha=0.001)
+    subsets = cast(list[Subset[Any]], partition_noniid_dirichlet(dataset, 50, alpha=0.001))
     assert len(subsets) == 50
     assert all(len(s) >= 1 for s in subsets)
     assert sum(len(s) for s in subsets) == 200
@@ -92,7 +92,7 @@ def test_partition_noniid_extreme_alpha() -> None:
 
 def test_partition_noniid_large_alpha() -> None:
     dataset = _make_toy_dataset_with_classes(1000, 5)
-    subsets = partition_noniid_dirichlet(dataset, 5, alpha=100.0)
+    subsets = cast(list[Subset[Any]], partition_noniid_dirichlet(dataset, 5, alpha=100.0))
     assert len(subsets) == 5
     assert all(len(s) >= 1 for s in subsets)
     assert sum(len(s) for s in subsets) == 1000
@@ -102,16 +102,16 @@ def test_partition_noniid_large_alpha() -> None:
 
 def test_partition_noniid_dirichlet_seed_reproducibility() -> None:
     dataset = _make_toy_dataset(200)
-    a = partition_noniid_dirichlet(dataset, 5, alpha=0.5, seed=42)
-    b = partition_noniid_dirichlet(dataset, 5, alpha=0.5, seed=42)
+    a = cast(list[Subset[Any]], partition_noniid_dirichlet(dataset, 5, alpha=0.5, seed=42))
+    b = cast(list[Subset[Any]], partition_noniid_dirichlet(dataset, 5, alpha=0.5, seed=42))
     for sa, sb in zip(a, b, strict=True):
         assert sa.indices == sb.indices
 
 
 def test_partition_noniid_dirichlet_different_seed_different() -> None:
     dataset = _make_toy_dataset(200)
-    a = partition_noniid_dirichlet(dataset, 5, alpha=0.5, seed=42)
-    b = partition_noniid_dirichlet(dataset, 5, alpha=0.5, seed=99)
+    a = cast(list[Subset[Any]], partition_noniid_dirichlet(dataset, 5, alpha=0.5, seed=42))
+    b = cast(list[Subset[Any]], partition_noniid_dirichlet(dataset, 5, alpha=0.5, seed=99))
     assert any(sa.indices != sb.indices for sa, sb in zip(a, b, strict=True))
 
 
@@ -349,8 +349,9 @@ def test_partition_min_samples_default() -> None:
 
 class TestSplitHoldout:
     def test_splits_by_frac(self) -> None:
-        from src.data.partitioner import split_holdout
         from torch.utils.data import Subset
+
+        from src.data.partitioner import split_holdout
 
         dataset = _make_toy_dataset(100)
         subset = Subset(dataset, list(range(100)))
@@ -359,8 +360,9 @@ class TestSplitHoldout:
         assert len(train) == 90
 
     def test_disjoint_and_exhaustive(self) -> None:
-        from src.data.partitioner import split_holdout
         from torch.utils.data import Subset
+
+        from src.data.partitioner import split_holdout
 
         dataset = _make_toy_dataset(100)
         subset = Subset(dataset, list(range(100)))
@@ -369,8 +371,9 @@ class TestSplitHoldout:
         assert sorted(set(train.indices) | set(val.indices)) == list(range(100))
 
     def test_deterministic_given_seed(self) -> None:
-        from src.data.partitioner import split_holdout
         from torch.utils.data import Subset
+
+        from src.data.partitioner import split_holdout
 
         dataset = _make_toy_dataset(100)
         subset = Subset(dataset, list(range(100)))
@@ -380,8 +383,9 @@ class TestSplitHoldout:
         assert val_a.indices == val_b.indices
 
     def test_different_seed_different_holdout(self) -> None:
-        from src.data.partitioner import split_holdout
         from torch.utils.data import Subset
+
+        from src.data.partitioner import split_holdout
 
         dataset = _make_toy_dataset(100)
         subset = Subset(dataset, list(range(100)))
@@ -390,8 +394,9 @@ class TestSplitHoldout:
         assert val_a.indices != val_b.indices
 
     def test_rejects_bad_frac(self) -> None:
-        from src.data.partitioner import split_holdout
         from torch.utils.data import Subset
+
+        from src.data.partitioner import split_holdout
 
         dataset = _make_toy_dataset(100)
         subset = Subset(dataset, list(range(100)))
@@ -401,8 +406,9 @@ class TestSplitHoldout:
             split_holdout(subset, -0.1, seed=7)
 
     def test_zero_frac_no_holdout(self) -> None:
-        from src.data.partitioner import split_holdout
         from torch.utils.data import Subset
+
+        from src.data.partitioner import split_holdout
 
         dataset = _make_toy_dataset(100)
         subset = Subset(dataset, list(range(100)))

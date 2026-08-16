@@ -457,7 +457,7 @@ class TestRemainingRdpMap:
         assert strategy._remaining_rdp_map() is None
 
 
-def _metrics_content(fields: dict[str, object]) -> RecordDict:
+def _metrics_content(fields: dict[str, int | float | list[int] | list[float]]) -> RecordDict:
     return RecordDict({"metrics": MetricRecord(fields)})
 
 
@@ -484,7 +484,7 @@ class TestSpecRoundMetrics:
         from src.server.strategy import MedianRobustAggregation
 
         return MedianRobustAggregation(
-            tracker=_RecordingTracker(),
+            tracker=cast("ExperimentTracker | None", _RecordingTracker()),
             per_client_budgets={0: 10.0, 1: 10.0},
         )
 
@@ -550,7 +550,7 @@ class TestClientStateAccumulation:
         from src.server.strategy import MedianRobustAggregation
 
         return MedianRobustAggregation(
-            tracker=_RecordingTracker(),
+            tracker=cast("ExperimentTracker | None", _RecordingTracker()),
             per_client_budgets={0: 10.0, 1: 10.0},
         )
 
@@ -745,7 +745,7 @@ class TestClientStateArtifact:
     def _accumulated_strategy(self) -> Any:
         from src.server.strategy import MedianRobustAggregation
 
-        tracker = _RecordingTracker()
+        tracker = cast("ExperimentTracker", _RecordingTracker())
         strategy = MedianRobustAggregation(tracker=tracker, per_client_budgets={0: 10.0})
         strategy._remaining_rdp_sent = {0: 9.0}
         strategy._log_client_metrics(
@@ -772,7 +772,9 @@ class TestClientStateArtifact:
         tracker = _RecordingTracker()
         strategy = self._accumulated_strategy()
         strategy._tracker = tracker
-        _write_client_state_artifact(strategy, self._config(), tracker, 10.0, 3)
+        _write_client_state_artifact(
+            strategy, self._config(), cast("ExperimentTracker", tracker), 10.0, 3
+        )
         payload = json.loads(tracker.artifacts[0])
         assert "client_state" in payload
         entry = payload["client_state"]["0"]
@@ -794,7 +796,9 @@ class TestClientStateArtifact:
         strategy = self._accumulated_strategy()
         strategy._tracker = tracker
         strategy._bo_time_total = 0.5
-        _write_client_state_artifact(strategy, self._config(), tracker, 10.0, 3)
+        _write_client_state_artifact(
+            strategy, self._config(), cast("ExperimentTracker", tracker), 10.0, 3
+        )
         metrics = _logged_map(tracker)
         assert metrics["bo_overhead_pct"] == (pytest.approx(5.0), 3)
 
@@ -807,7 +811,7 @@ class TestClientStateArtifact:
         _write_client_state_artifact(
             strategy,
             self._config(privacy_enabled=False),
-            tracker,
+            cast("ExperimentTracker", tracker),
             10.0,
             3,
         )
@@ -818,8 +822,12 @@ class TestClientStateArtifact:
         from src.server_app import _write_client_state_artifact
 
         tracker = _RecordingTracker()
-        strategy = MedianRobustAggregation(tracker=tracker, per_client_budgets={0: 10.0})
-        _write_client_state_artifact(strategy, self._config(), tracker, 10.0, 3)
+        strategy = MedianRobustAggregation(
+            tracker=cast("ExperimentTracker | None", tracker), per_client_budgets={0: 10.0}
+        )
+        _write_client_state_artifact(
+            strategy, self._config(), cast("ExperimentTracker", tracker), 10.0, 3
+        )
         assert tracker.artifacts == []
         assert tracker.metrics == []
 

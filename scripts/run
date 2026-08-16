@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
+from typing import Any
 
 import mlflow
 import yaml
@@ -361,7 +362,7 @@ def matrix_inventory(
     mlflow.set_tracking_uri(tracking_uri)
     try:
         client = mlflow.tracking.MlflowClient()
-        runs_by_exp: dict[str, dict[str, object]] = {}
+        runs_by_exp: dict[str, dict[str, Any]] = {}
         for exp in client.search_experiments():
             runs = client.search_runs(
                 experiment_ids=[exp.experiment_id], max_results=50_000,
@@ -569,7 +570,7 @@ def cmd_replot_single(
                 f"Warning: expected {num_runs} seeded runs, found {len(seeded)}",
                 file=sys.stderr,
             )
-        entries = [(rid, s) for s, rid in seeded]
+        entries: list[tuple[str, int | None]] = [(rid, s) for s, rid in seeded]
     else:
         if exact:
             entries = [(exact[0], None)]

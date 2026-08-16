@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 import numpy as np
 import pytest
 import torch
@@ -27,7 +29,7 @@ def test_weight_custom_strategy() -> None:
     config = PersonalizationConfig(
         enabled=True,
         strategy="custom",
-        client_epsilon_map={0: 1.0, 1: 2.5, 2: 5.0},
+        client_epsilon_map=cast(dict[str, float], {0: 1.0, 1: 2.5, 2: 5.0}),
     )
     dataset = _make_dataset([0, 1, 2, 0, 1, 2, 0, 1, 2, 0])
 
@@ -40,7 +42,7 @@ def test_weight_custom_missing_key() -> None:
     config = PersonalizationConfig(
         enabled=True,
         strategy="custom",
-        client_epsilon_map={0: 1.0},
+        client_epsilon_map=cast(dict[str, float], {0: 1.0}),
     )
     dataset = _make_dataset([0, 1, 2])
 
@@ -215,8 +217,8 @@ def test_rdp_accountant_serialization_empty() -> None:
     assert restored.total_steps() == 0
 
 
-def _make_bo_config(**kwargs) -> BOConfig:
-    defaults = dict(
+def _make_bo_config(**kwargs: Any) -> BOConfig:
+    defaults: dict[str, Any] = dict(
         enabled=True,
         min_warmup=20,
         epsilon_min=0.1,
@@ -230,8 +232,8 @@ def _make_bo_config(**kwargs) -> BOConfig:
     return BOConfig(**defaults)
 
 
-def _make_personalization_config(**kwargs) -> PersonalizationConfig:
-    defaults = dict(
+def _make_personalization_config(**kwargs: Any) -> PersonalizationConfig:
+    defaults: dict[str, Any] = dict(
         enabled=True,
         strategy="custom",
         client_epsilon_map={0: 5.0, 1: 2.0},

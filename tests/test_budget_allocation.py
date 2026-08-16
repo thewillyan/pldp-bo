@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -8,7 +9,7 @@ from flwr.app import Array, ArrayRecord, ConfigRecord, RecordDict
 from flwr.common import Message
 from flwr.serverapp.strategy import FedAvg
 
-from src.config.loader import load_config
+from src.config.loader import ExperimentConfig, load_config
 from src.server.strategy import (
     MedianRobustAggregation,
     SafeFedAvg,
@@ -22,7 +23,7 @@ class TestComputePerClientBudgets:
     """Tests for the budget computation math and config-derived logic."""
 
     @staticmethod
-    def _make_config(overrides: dict | None = None) -> object:
+    def _make_config(overrides: dict[str, object] | None = None) -> ExperimentConfig:
         return load_config("config/default.yaml", overrides=overrides)
 
     def test_none_when_total_budget_none(self) -> None:
@@ -96,7 +97,7 @@ class TestAddBudgetsToMessages:
         messages = [self._make_train_message(i) for i in range(3)]
         result = list(_add_budgets_to_messages(messages, budgets, "config"))
         configs = [m.content.config_records["config"] for m in result]
-        total = sum(float(c["per_client_budget"]) for c in configs)
+        total = sum(float(cast(Any, c["per_client_budget"])) for c in configs)
         assert total == pytest.approx(6.0)
 
     def test_remaining_rdp_injected_with_budget(self) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -179,7 +180,7 @@ class TestTrackerTags:
 class TestDataHash:
     def test_digest_over_sorted_files_with_relpaths(
         self,
-        tmp_path: pytest.TempPathFactory,
+        tmp_path: Path,
     ) -> None:
         root = tmp_path / "MNIST"
         root.mkdir()
@@ -193,7 +194,7 @@ class TestDataHash:
         ).hexdigest()
         assert data_hash(config) == expected
 
-    def test_content_change_changes_digest(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_content_change_changes_digest(self, tmp_path: Path) -> None:
         root = tmp_path / "MNIST"
         root.mkdir()
         (root / "a.bin").write_bytes(b"abc")
@@ -204,7 +205,7 @@ class TestDataHash:
         (root / "a.bin").write_bytes(b"zzz")
         assert data_hash(config) != before
 
-    def test_missing_dir_returns_none(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_missing_dir_returns_none(self, tmp_path: Path) -> None:
         config = ExperimentConfig()
         config.data.name = "mnist"
         config.data.data_dir = str(tmp_path)
@@ -224,7 +225,7 @@ class TestDatasetSizes:
 
     def test_femnist_reads_processed_files(
         self,
-        tmp_path: pytest.TempPathFactory,
+        tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         processed = tmp_path / "FEMNIST" / "processed"
@@ -242,7 +243,7 @@ class TestDatasetSizes:
 
     def test_femnist_missing_files_none(
         self,
-        tmp_path: pytest.TempPathFactory,
+        tmp_path: Path,
     ) -> None:
         config = ExperimentConfig()
         config.data.name = "femnist"
@@ -302,7 +303,7 @@ class TestSpecParams:
         config.bo.enabled = True
         return config
 
-    def _params_for(self, config: ExperimentConfig, tmp_path: pytest.TempPathFactory) -> dict:
+    def _params_for(self, config: ExperimentConfig, tmp_path: Path) -> dict[str, str]:
         root = tmp_path / "MNIST"
         root.mkdir()
         (root / "a.bin").write_bytes(b"abc")
@@ -321,13 +322,13 @@ class TestSpecParams:
 
     def test_all_section42_params_logged_for_bo_method(
         self,
-        tmp_path: pytest.TempPathFactory,
+        tmp_path: Path,
     ) -> None:
         config = self._make_bo_config()
         params = self._params_for(config, tmp_path)
         assert set(params) >= self.SECTION42_KEYS
 
-    def test_section42_values(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_section42_values(self, tmp_path: Path) -> None:
         config = self._make_bo_config()
         config.data.num_clients = 100
         config.federated.num_rounds = 200
@@ -380,7 +381,7 @@ class TestSpecParams:
 
     def test_privacy_params_absent_for_nonprivate(
         self,
-        tmp_path: pytest.TempPathFactory,
+        tmp_path: Path,
     ) -> None:
         config = self._make_bo_config()
         config.method = "nonprivate"
@@ -400,7 +401,7 @@ class TestSpecParams:
         assert "data_hash" in params
         assert "dataset_sizes" in params
 
-    def test_legacy_params_still_logged(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_legacy_params_still_logged(self, tmp_path: Path) -> None:
         config = self._make_bo_config()
         params = self._params_for(config, tmp_path)
         assert "data.name" in params

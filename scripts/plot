@@ -12,7 +12,7 @@ import seaborn as sns
 try:
     import matplotlib.pyplot as plt
 except ImportError:
-    plt = None
+    plt = None  # type: ignore[assignment]
 
 from src.plotting import get_run_name, get_run_params, list_runs
 from src.plotting.comparison import (

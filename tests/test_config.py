@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import yaml
 
@@ -51,7 +52,7 @@ def test_load_personalization_config() -> None:
     config = load_config("config/personalized_custom.yaml")
     assert config.personalization.enabled is True
     assert config.personalization.strategy == "custom"
-    assert config.personalization.client_epsilon_map[0] == 1.0
+    assert cast(dict[int, float], config.personalization.client_epsilon_map)[0] == 1.0
     assert config.personalization.track_cumulative is True
 
 
