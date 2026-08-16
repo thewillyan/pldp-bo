@@ -519,9 +519,11 @@ class TestRunMatrix:
 
         def fake_cmd_single(
             config_path: str, num_clients: int, overrides: list[str],
-            _experiment: str | None = None,
+            experiment: str | None = None,
         ) -> tuple[str, str] | None:
             calls.append((config_path, num_clients, overrides))
+            assert experiment == "mnist_iid"
+
             assert config_path == str(cell_config)
             assert num_clients == 100
             assert overrides == ["seed=0"]
@@ -562,9 +564,11 @@ class TestRunMatrix:
 
         def fake_cmd_single(
             config_path: str, num_clients: int, overrides: list[str],
-            _experiment: str | None = None,
+            experiment: str | None = None,
         ) -> tuple[str, str] | None:
             calls.append((config_path, num_clients, overrides))
+            assert experiment == "mnist_iid"
+
             return None
 
         monkeypatch.setattr(_run, "cmd_single", fake_cmd_single)
@@ -582,9 +586,11 @@ class TestRunMatrix:
 
         def fake_cmd_single(
             config_path: str, num_clients: int, overrides: list[str],
-            _experiment: str | None = None,
+            experiment: str | None = None,
         ) -> tuple[str, str] | None:
             calls.append((config_path, num_clients, overrides))
+            assert experiment == "mnist_iid"
+
             return None
 
         monkeypatch.setattr(_run, "cmd_single", fake_cmd_single)
@@ -602,9 +608,11 @@ class TestRunMatrix:
 
         def fake_cmd_single(
             config_path: str, num_clients: int, overrides: list[str],
-            _experiment: str | None = None,
+            experiment: str | None = None,
         ) -> tuple[str, str] | None:
             calls.append((config_path, num_clients, overrides))
+            assert experiment == "mnist_iid"
+
             return None
 
         monkeypatch.setattr(_run, "cmd_single", fake_cmd_single)

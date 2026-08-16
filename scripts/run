@@ -499,218 +499,14 @@ def cmd_matrix(args: argparse.Namespace) -> None:
     run_matrix(tracking_uri, plan, num_clients=args.num_clients)
 
 
-def cmd_group(group_name: str, num_clients: int, overrides: list[str], num_runs: int = 1) -> None:
-    if group_name == "all":
-        groups: set[str] = set()
-        for f in sorted(CONFIG_DIR.glob("*.yaml")):
-            cfg = yaml.safe_load(f.read_text())
-            g = cfg.get("logging", {}).get("group")
-            if g and g != "all":
-                groups.add(g)
-        if not groups:
-            print("No groups found.", file=sys.stderr)
-            sys.exit(1)
-        for g in sorted(groups):
-            print(f"\n{'='*60}")
-            print(f"Running group: {g}")
-            print(f"{'='*60}")
-            cmd_group(g, num_clients, overrides, num_runs)
-        return
-
-    if num_clients < 2:
-        print("Error: num_clients must be an integer >= 2", file=sys.stderr)
-        sys.exit(1)
-
-    configs: list[pathlib.Path] = []
-    for f in sorted(CONFIG_DIR.glob("*.yaml")):
-        cfg = yaml.safe_load(f.read_text())
-        if cfg.get("logging", {}).get("group") == group_name:
-            configs.append(f)
-
+def cmd_list() -> None:
+    """List the available experiment configs."""
+    configs = sorted(CONFIG_DIR.glob("*.yaml"))
     if not configs:
-        print(
-            f"No experiments found with logging.group='{group_name}'",
-            file=sys.stderr,
-        )
+        print("No configs found.")
         return
-
-    group_dir = pathlib.Path(f"mlruns/group/{group_name}")
-    plots_dir = group_dir / "plots"
-    tracking_uri = f"sqlite:///{group_dir}/mlflow.db"
-    os.environ["MLFLOW_TRACKING_URI"] = tracking_uri
-    plots_dir.mkdir(parents=True, exist_ok=True)
-
-    run_ids: list[str] = []
-    run_labels: list[str] = []
-    failed: list[str] = []
-
-    for config_path in configs:
-        config_name = config_path.stem
-        exp_plots = plots_dir / config_name
-        exp_plots.mkdir(parents=True, exist_ok=True)
-
-        print(f"\n--- {config_name} ---")
-
-        cfg = yaml.safe_load(config_path.read_text())
-        base_seed = cfg.get("seed", 42)
-        base_run_name = cfg.get("logging", {}).get("run_name", config_name)
-
-        config_run_ids: list[str] = []
-
-        if num_runs > 1:
-            effective_base_seed = base_seed
-            effective_base_run_name = base_run_name
-            filtered_ov: list[str] = []
-            for ov in overrides:
-                if ov.startswith("seed="):
-                    effective_base_seed = int(ov.split("=", 1)[1])
-                elif ov.startswith("logging.run_name="):
-                    effective_base_run_name = ov.split("=", 1)[1]
-                else:
-                    filtered_ov.append(ov)
-
-            for run_idx in range(num_runs):
-                seed = effective_base_seed + run_idx
-                run_name = f"{effective_base_run_name}_seed{seed}"
-                run_ov = filtered_ov + [
-                    f"seed={seed}", f"logging.run_name={run_name}",
-                ]
-
-                result = cmd_single(str(config_path), num_clients, run_ov)
-                if result is None:
-                    print(f"  ERROR: Run {run_idx} (seed={seed}) failed.", file=sys.stderr)
-                    continue
-
-                run_id, _ = result
-                config_run_ids.append(run_id)
-
-                seed_plots = exp_plots / f"seed{seed}"
-                seed_plots.mkdir(parents=True, exist_ok=True)
-                plot_proc = subprocess.run(
-                    [sys.executable, _PLOT_SCRIPT, "--tracking-uri", tracking_uri,
-                     "plot", run_id, "--type", "all", "--save-dir", str(seed_plots)],
-                    capture_output=True, text=True,
-                )
-                for line in plot_proc.stdout.splitlines():
-                    if line.strip():
-                        print(f"  {line}")
-                for line in plot_proc.stderr.splitlines():
-                    if line.strip():
-                        print(f"  {line}", file=sys.stderr)
-                if plot_proc.returncode != 0:
-                    print(f"  WARNING: Plot generation failed for seed {seed}", file=sys.stderr)
-        else:
-            for run_idx in range(num_runs):
-                seed = base_seed + run_idx
-                run_ov = overrides + [f"seed={seed}"]
-
-                result = cmd_single(str(config_path), num_clients, run_ov)
-                if result is None:
-                    print(f"  ERROR: Run {run_idx} (seed={seed}) failed.", file=sys.stderr)
-                    continue
-
-                run_id, _ = result
-                config_run_ids.append(run_id)
-
-                plot_proc = subprocess.run(
-                    [sys.executable, _PLOT_SCRIPT, "--tracking-uri", tracking_uri,
-                     "plot", run_id, "--type", "all", "--save-dir", str(exp_plots)],
-                    capture_output=True, text=True,
-                )
-                for line in plot_proc.stdout.splitlines():
-                    if line.strip():
-                        print(f"  {line}")
-                for line in plot_proc.stderr.splitlines():
-                    if line.strip():
-                        print(f"  {line}", file=sys.stderr)
-                if plot_proc.returncode != 0:
-                    print("  WARNING: Plot generation failed", file=sys.stderr)
-
-        if not config_run_ids:
-            print("  ERROR: All runs failed for this config.", file=sys.stderr)
-            failed.append(config_name)
-            continue
-
-        if num_runs > 1:
-            mean_plots = exp_plots / "mean"
-            mean_plots.mkdir(parents=True, exist_ok=True)
-            plot_proc = subprocess.run(
-                [sys.executable, _PLOT_SCRIPT, "--tracking-uri", tracking_uri,
-                 "compare", "--runs", *config_run_ids, "--mean",
-                 "--type", "convergence", "--save-dir", str(mean_plots)],
-                capture_output=True, text=True,
-            )
-            for line in plot_proc.stdout.splitlines():
-                if line.strip():
-                    print(f"  {line}")
-            for line in plot_proc.stderr.splitlines():
-                if line.strip():
-                    print(f"  {line}", file=sys.stderr)
-            if plot_proc.returncode != 0:
-                print("  WARNING: Mean plot generation failed", file=sys.stderr)
-
-        run_ids.append(config_run_ids[0])
-        run_labels.append(config_name)
-
-    if len(run_ids) > 1:
-        comp_dir = plots_dir / "comparison"
-        comp_dir.mkdir(parents=True, exist_ok=True)
-
-        plot_proc = subprocess.run(
-            [
-                sys.executable, _PLOT_SCRIPT,
-                "--tracking-uri", tracking_uri,
-                "compare",
-                "--runs", *run_ids,
-                "--names", *run_labels,
-                "--type", "all",
-                "--save-dir", str(comp_dir),
-            ],
-            capture_output=True,
-            text=True,
-        )
-        for line in plot_proc.stdout.splitlines():
-            if line.strip():
-                print(f"  {line}")
-        for line in plot_proc.stderr.splitlines():
-            if line.strip():
-                print(f"  {line}", file=sys.stderr)
-        if plot_proc.returncode != 0:
-            print("WARNING: Comparison plot generation failed", file=sys.stderr)
-
-    print("\n========================================")
-    print("Summary:")
-    if failed:
-        print(f"  Failed ({len(failed)}): {', '.join(failed)}")
-    if run_ids:
-        print(f"  Successful ({len(run_ids)}): {', '.join(run_labels)}")
-    print("========================================")
-
-
-def cmd_list(groups_only: bool = False, configs_only: bool = False) -> None:
-    groups: dict[str, list[str]] = {}
-    for f in sorted(CONFIG_DIR.glob("*.yaml")):
-        cfg = yaml.safe_load(f.read_text())
-        group = cfg.get("logging", {}).get("group")
-        if group:
-            groups.setdefault(group, []).append(f.name)
-
-    if not groups:
-        print("No groups found.")
-        return
-
-    if groups_only:
-        for g in sorted(groups):
-            print(g)
-    elif configs_only:
-        for confs in (groups[g] for g in sorted(groups)):
-            for c in confs:
-                print(c)
-    else:
-        for group in sorted(groups):
-            print(f"{group}:")
-            for conf in groups[group]:
-                print(f"  - {conf}")
+    for f in configs:
+        print(f.name)
 
 
 def cmd_replot_single(
@@ -790,107 +586,6 @@ def cmd_replot_single(
     print(f"Regenerated plots for {len(entries)} run(s) in {plots_base}")
 
 
-def cmd_replot_group(group_name: str, num_runs: int | None = None) -> None:
-    group_dir = pathlib.Path(f"mlruns/group/{group_name}")
-    if not group_dir.exists():
-        print(f"Error: group directory '{group_dir}' not found", file=sys.stderr)
-        sys.exit(1)
-
-    tracking_uri = f"sqlite:///{group_dir}/mlflow.db"
-    plots_dir = group_dir / "plots"
-
-    configs: list[pathlib.Path] = []
-    for f in sorted(CONFIG_DIR.glob("*.yaml")):
-        cfg = yaml.safe_load(f.read_text())
-        if cfg.get("logging", {}).get("group") == group_name:
-            configs.append(f)
-
-    if not configs:
-        print(f"No experiments found with logging.group='{group_name}'", file=sys.stderr)
-        sys.exit(1)
-
-    all_run_ids: list[str] = []
-    all_run_labels: list[str] = []
-
-    for config_path in configs:
-        config_name = config_path.stem
-        cfg = yaml.safe_load(config_path.read_text())
-        base_run_name = cfg.get("logging", {}).get("run_name", config_name)
-
-        runs_by_name = _resolve_run_ids_by_prefix(tracking_uri, base_run_name)
-        if not runs_by_name:
-            print(f"  No runs found for '{config_name}', skipping", file=sys.stderr)
-            continue
-
-        seeded: list[tuple[int, str]] = []
-        exact: list[str] = []
-        for run_name, run_id in runs_by_name.items():
-            seed = _parse_seed(run_name, base_run_name)
-            if seed is not None:
-                seeded.append((seed, run_id))
-            else:
-                exact.append(run_id)
-
-        if num_runs is not None:
-            is_multi = num_runs > 1
-        else:
-            is_multi = len(seeded) > 0
-
-        print(f"\n--- {config_name} ---")
-
-        exp_plots = plots_dir / config_name
-
-        if is_multi:
-            if not seeded:
-                print(f"  Error: expected seeded runs for '{config_name}', none found", file=sys.stderr)
-                continue
-            seeded.sort(key=lambda x: x[0])
-            if num_runs is not None and len(seeded) != num_runs:
-                print(f"  Warning: expected {num_runs} seeded runs, found {len(seeded)}", file=sys.stderr)
-            entries = [(rid, s) for s, rid in seeded]
-            _replot_runs(tracking_uri, entries, exp_plots)
-            all_run_ids.append(entries[0][0])
-        else:
-            if exact:
-                entries = [(exact[0], None)]
-            elif len(seeded) == 1:
-                entries = [(seeded[0][1], None)]
-            else:
-                print(f"  Error: could not determine run for '{config_name}'", file=sys.stderr)
-                continue
-            _replot_runs(tracking_uri, entries, exp_plots)
-            all_run_ids.append(entries[0][0])
-
-        all_run_labels.append(config_name)
-
-    if len(all_run_ids) > 1:
-        print("\n--- Comparison ---")
-        comp_dir = plots_dir / "comparison"
-        comp_dir.mkdir(parents=True, exist_ok=True)
-        plot_proc = subprocess.run(
-            [
-                sys.executable, _PLOT_SCRIPT,
-                "--tracking-uri", tracking_uri,
-                "compare",
-                "--runs", *all_run_ids,
-                "--names", *all_run_labels,
-                "--type", "all",
-                "--save-dir", str(comp_dir),
-            ],
-            capture_output=True, text=True,
-        )
-        for line in plot_proc.stdout.splitlines():
-            if line.strip():
-                print(f"  {line}")
-        for line in plot_proc.stderr.splitlines():
-            if line.strip():
-                print(f"  {line}", file=sys.stderr)
-        if plot_proc.returncode != 0:
-            print("  WARNING: Comparison plot generation failed", file=sys.stderr)
-
-    print(f"\nRegenerated plots for {len(all_run_ids)} config(s) in {plots_dir}")
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="PLDP-BO experiment runner")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -904,18 +599,7 @@ def main() -> None:
         help="Number of runs with different seeds (default: 1)",
     )
 
-    p_group = sub.add_parser("group", help="Run all experiments in a group")
-    p_group.add_argument("group_name", type=str)
-    p_group.add_argument("num_clients", type=int)
-    p_group.add_argument("overrides", nargs="*", help="KEY=VALUE overrides")
-    p_group.add_argument(
-        "--num-runs", "-n", type=int, default=1,
-        help="Number of runs per config with different seeds (default: 1)",
-    )
-
-    p_list = sub.add_parser("list", help="List available groups and configs")
-    p_list.add_argument("--groups", action="store_true", help="Show only group names")
-    p_list.add_argument("--configs", action="store_true", help="Show only config file paths")
+    sub.add_parser("list", help="List available experiment configs")
 
     p_matrix = sub.add_parser(
         "matrix", help="Run or inventory the §3 experiment matrix",
@@ -962,13 +646,6 @@ def main() -> None:
     p_replot_single.add_argument(
         "--tracking-uri", type=str, default=None,
         help="MLflow tracking URI (auto-detected if omitted)",
-    )
-
-    p_replot_group = replot_sub.add_parser("group", help="Regenerate plots for a group experiment")
-    p_replot_group.add_argument("group_name", type=str)
-    p_replot_group.add_argument(
-        "-n", "--num-runs", type=int, default=None,
-        help="Number of seeded runs per config (auto-detected if omitted)",
     )
 
     args = parser.parse_args()
@@ -1081,17 +758,13 @@ def main() -> None:
                         print(line, file=sys.stderr)
                 if plot_proc.returncode != 0:
                     print("WARNING: Plot generation failed", file=sys.stderr)
-    elif args.command == "group":
-        cmd_group(args.group_name, args.num_clients, args.overrides, num_runs=args.num_runs)
     elif args.command == "list":
-        cmd_list(groups_only=args.groups, configs_only=args.configs)
+        cmd_list()
     elif args.command == "matrix":
         cmd_matrix(args)
-    elif args.command == "replot":
-        if args.replot_command == "single":
-            cmd_replot_single(args.config_path, num_runs=args.num_runs, tracking_uri=args.tracking_uri)
-        elif args.replot_command == "group":
-            cmd_replot_group(args.group_name, num_runs=args.num_runs)
+    elif args.command == "replot" and args.replot_command == "single":
+        cmd_replot_single(args.config_path, num_runs=args.num_runs, tracking_uri=args.tracking_uri)
+
 
 
 if __name__ == "__main__":
