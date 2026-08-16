@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import statistics
 import tempfile
 import types
 from pathlib import Path
@@ -837,5 +838,78 @@ class TestVerifyWarmup:
 
     def test_no_data_gives_none(self) -> None:
         result = _verify._check_warmup(_vr(state=None))
+        assert result["pass"] is None
+        assert result["n"] == 0
+
+
+class TestVerifyBudget:
+    def test_passes_at_target(self) -> None:
+        state = {
+            "0": {"cum_rdp": [1.0, 5.0, 10.0]},
+            "1": {"cum_rdp": [1.0, 5.0, 10.0]},
+        }
+        result = _verify._check_budget(_vr(state=state))
+        assert result["pass"] is True
+        assert result["n"] == 2
+        assert result["final_rdp_mean"] == pytest.approx(10.0)
+        assert result["utilization_mean"] == pytest.approx(1.0)
+
+    def test_fails_out_of_tolerance(self) -> None:
+        state = {"0": {"cum_rdp": [9.0]}}
+        result = _verify._check_budget(_vr(state=state))
+        assert result["pass"] is False
+        assert result["utilization_mean"] == pytest.approx(0.9)
+
+    def test_uses_last_cumulative_value(self) -> None:
+        state = {"0": {"cum_rdp": [1.0, 5.0, 10.0, 10.4]}}
+        result = _verify._check_budget(_vr(state=state))
+        assert result["final_rdp_mean"] == pytest.approx(10.4)
+
+    def test_no_data_gives_none(self) -> None:
+        result = _verify._check_budget(_vr(state=None))
+        assert result["pass"] is None
+        assert result["n"] == 0
+
+
+class TestVerifyDropout:
+    def test_never_drops_reports_t_plus_one(self) -> None:
+        state = {
+            "0": {"dropout_round": None, "cum_rdp": [10.0]},
+            "1": {"dropout_round": None, "cum_rdp": [10.0]},
+        }
+        result = _verify._check_dropout(
+            _vr(state=state, params={"T": "200"}),
+        )
+        assert result["fraction_never"] == pytest.approx(1.0)
+        assert result["dropout_round_mean"] == pytest.approx(201.0)
+        assert result["dropout_round_sd"] == 0.0
+        assert result["final_rdp_mean"] == pytest.approx(10.0)
+        assert result["pass"] is True
+
+    def test_mixed_drops(self) -> None:
+        state = {
+            "0": {"dropout_round": 50, "cum_rdp": [10.0]},
+            "1": {"dropout_round": 100, "cum_rdp": [10.0]},
+            "2": {"dropout_round": None, "cum_rdp": [10.0]},
+        }
+        result = _verify._check_dropout(
+            _vr(state=state, params={"T": "200"}),
+        )
+        assert result["n"] == 3
+        assert result["fraction_never"] == pytest.approx(1 / 3)
+        assert result["dropout_round_mean"] == pytest.approx(117.0)  # (50+100+201)/3
+        assert result["dropout_round_sd"] == pytest.approx(
+            statistics.stdev([50, 100, 201]),
+        )
+
+    def test_t_from_params(self) -> None:
+        state = {"0": {"dropout_round": None, "cum_rdp": [10.0]}}
+        result = _verify._check_dropout(
+            _vr(state=state, params={"T": "5"}),
+        )
+        assert result["dropout_round_mean"] == pytest.approx(6.0)
+
+    def test_no_data_gives_none(self) -> None:
+        result = _verify._check_dropout(_vr(state=None))
         assert result["pass"] is None
         assert result["n"] == 0

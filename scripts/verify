@@ -33,6 +33,8 @@ from src.privacy.bo_scheduler import WARMUP_SUM_NOMINAL
 
 CLIENT_STATE_ARTIFACT = "client_state.json"
 WARMUP_PASS_TOLERANCE = 0.05  # ±5% of the nominal sum
+UTILIZATION_TOLERANCE = 0.02  # ±0.02 around 1.00
+BUDGET_TARGET = 10.0  # B_RDP, locked §2 constant
 
 
 @dataclass
@@ -162,6 +164,51 @@ def _check_warmup(run: VerifyRun) -> dict:
         "pass": lo <= mean <= hi,
         "parity_median": statistics.median(parities) if parities else 0.0,
         "parity_max": max(parities) if parities else 0.0,
+    }
+
+
+def _check_budget(run: VerifyRun) -> dict:
+    """§5.1 check 2: mean final cumulative RDP per method ≈ B_RDP."""
+    finals: list[float] = []
+    for state in _client_state_entries(run):
+        cum = [float(v) for v in state.get("cum_rdp", []) if v is not None]
+        if cum:
+            finals.append(cum[-1])
+    n = len(finals)
+    if n == 0:
+        return {"n": 0, "final_rdp_mean": 0.0, "utilization_mean": 0.0, "pass": None}
+    mean = statistics.fmean(finals)
+    return {
+        "n": n,
+        "final_rdp_mean": mean,
+        "utilization_mean": mean / BUDGET_TARGET,
+        "pass": abs(mean / BUDGET_TARGET - 1.0) <= UTILIZATION_TOLERANCE,
+    }
+
+
+def _check_dropout(run: VerifyRun) -> dict:
+    """§5.1 check 3: drop-out distribution (never = T+1; descriptive)."""
+    t = int(run.param_float("T", 0))
+    never = t + 1
+    rounds: list[int] = []
+    finals: list[float] = []
+    for state in _client_state_entries(run):
+        cum = [float(v) for v in state.get("cum_rdp", []) if v is not None]
+        if cum:
+            finals.append(cum[-1])
+        drop = state.get("dropout_round")
+        rounds.append(int(drop) if drop is not None else never)
+    n = len(rounds)
+    if n == 0:
+        return {"n": 0, "fraction_never": 0.0, "dropout_round_mean": 0.0,
+                "dropout_round_sd": 0.0, "final_rdp_mean": 0.0, "pass": None}
+    return {
+        "n": n,
+        "fraction_never": sum(1 for r in rounds if r == never) / n,
+        "dropout_round_mean": statistics.fmean(rounds),
+        "dropout_round_sd": statistics.stdev(rounds) if n > 1 else 0.0,
+        "final_rdp_mean": statistics.fmean(finals) if finals else 0.0,
+        "pass": True,
     }
 
 
