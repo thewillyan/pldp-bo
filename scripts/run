@@ -42,6 +42,7 @@ class MatrixRun:
     run_name: str
     status: str  # "done" | "failed" | "missing"
     run_id: str | None = None
+    config_path: str = ""
 
 
 def _parse_seeds(spec: str) -> list[int]:
@@ -52,12 +53,20 @@ def _parse_seeds(spec: str) -> list[int]:
     return [int(spec)]
 
 
-def _resolve_run_id(tracking_uri: str, run_name: str) -> str | None:
+def _resolve_run_id(
+    tracking_uri: str, run_name: str, experiment: str | None = None,
+) -> str | None:
     prev_uri = mlflow.get_tracking_uri()
     mlflow.set_tracking_uri(tracking_uri)
     try:
         client = mlflow.tracking.MlflowClient()
-        experiment_ids = [exp.experiment_id for exp in client.search_experiments()]
+        if experiment is not None:
+            exp = client.get_experiment_by_name(experiment)
+            if exp is None:
+                return None
+            experiment_ids = [exp.experiment_id]
+        else:
+            experiment_ids = [exp.experiment_id for exp in client.search_experiments()]
         escaped = run_name.replace("\\", "\\\\").replace("'", "\\'")
         runs = client.search_runs(
             experiment_ids=experiment_ids,
@@ -193,7 +202,14 @@ def _parse_json_from_stream(
 
 def cmd_single(
     config_path: str, num_clients: int, overrides: list[str],
+    experiment: str | None = None,
 ) -> tuple[str, str] | None:
+    """Run one config via ``flwr run``; returns (mlflow_run_id, tracking_uri).
+
+    ``experiment`` scopes the post-run id resolution to a single MLflow
+    experiment (required for matrix runs, where run names repeat across
+    cells); None keeps the legacy all-experiments lookup.
+    """
     path = pathlib.Path(config_path)
     if not path.exists():
         print(f"Error: config '{config_path}' not found", file=sys.stderr)
@@ -276,9 +292,9 @@ def cmd_single(
 
     run_id = None
     if process.returncode == 0 and run_name:
-        run_id = _resolve_run_id(tracking_uri, run_name)
+        run_id = _resolve_run_id(tracking_uri, run_name, experiment=experiment)
         if run_id is None and cfg_tracking_uri:
-            run_id = _resolve_run_id(cfg_tracking_uri, run_name)
+            run_id = _resolve_run_id(cfg_tracking_uri, run_name, experiment=experiment)
 
     if flwr_json:
         json_dir = _json_save_dir(tracking_uri)
@@ -354,7 +370,7 @@ def matrix_inventory(
             }
         expected_version = locked_config_version()
         inventory: list[MatrixRun] = []
-        for _path, dataset, partition, method in _matrix_cells(
+        for path, dataset, partition, method in _matrix_cells(
             config_dir, datasets, partitions, methods,
         ):
             cell = f"{dataset}_{partition}"
@@ -363,7 +379,12 @@ def matrix_inventory(
                 run_name = f"{method}_seed{seed}"
                 run = exp_runs.get(run_name)
                 if run is None:
-                    inventory.append(MatrixRun(cell, method, seed, run_name, "missing"))
+                    inventory.append(
+                        MatrixRun(
+                            cell, method, seed, run_name, "missing",
+                            config_path=str(path),
+                        ),
+                    )
                     continue
                 tags = (run.data.tags or {})
                 if run.info.status == "FINISHED" and tags.get("config_version") == expected_version:
@@ -371,7 +392,10 @@ def matrix_inventory(
                 else:
                     status = "failed"
                 inventory.append(
-                    MatrixRun(cell, method, seed, run_name, status, run.info.run_id),
+                    MatrixRun(
+                        cell, method, seed, run_name, status, run.info.run_id,
+                        config_path=str(path),
+                    ),
                 )
         return inventory
     finally:
@@ -405,13 +429,46 @@ def _print_inventory(inventory: list[MatrixRun]) -> None:
 def run_matrix(
     tracking_uri: str, plan: list[MatrixRun], num_clients: int | None = None,
 ) -> None:
-    """Execute the pending matrix runs (rerun policy: delete-then-relaunch)."""
-    # Implemented by IMPL-12 Task 3; kept as a no-op until then so the
-    # non-dry-run path is reachable.
-    print(
-        f"Matrix execution not yet implemented ({len(plan)} runs pending)",
-        file=sys.stderr,
-    )
+    """Execute the pending matrix runs (§3 run policy).
+
+    Rerun policy: a stale/crashed run with the same (experiment, run name) is
+    deleted first, then the cell is relaunched with the same seed, so reruns
+    overwrite the same run name with a fresh run id. After the launch the run
+    is resolved experiment-scoped and its final status is reported.
+    """
+    prev_uri = mlflow.get_tracking_uri()
+    mlflow.set_tracking_uri(tracking_uri)
+    try:
+        client = mlflow.tracking.MlflowClient()
+        os.environ["MLFLOW_TRACKING_URI"] = tracking_uri
+        for run in plan:
+            if run.run_id is not None:
+                client.delete_run(run.run_id)
+            n_clients = num_clients
+            if n_clients is None:
+                n_clients = load_config(run.config_path).data.num_clients
+            print(f"--- {run.cell} {run.run_name} ---")
+            result = cmd_single(
+                run.config_path, n_clients, [f"seed={run.seed}"],
+                experiment=run.cell,
+            )
+            if result is None:
+                print(
+                    f"  ERROR: launch failed for {run.run_name}",
+                    file=sys.stderr,
+                )
+                continue
+            new_run_id = _resolve_run_id(tracking_uri, run.run_name, experiment=run.cell)
+            if new_run_id is None:
+                print(
+                    f"  ERROR: no run found after launch: {run.run_name}",
+                    file=sys.stderr,
+                )
+                continue
+            status = client.get_run(new_run_id).info.status
+            print(f"  {run.run_name} -> {status} ({new_run_id})")
+    finally:
+        mlflow.set_tracking_uri(prev_uri)
 
 
 def cmd_matrix(args: argparse.Namespace) -> None:

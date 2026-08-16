@@ -140,6 +140,35 @@ class TestResolveRunId:
         _, kwargs = mock_client.search_runs.call_args
         assert "my-run" in kwargs["filter_string"]
 
+    def test_scoped_to_experiment(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        mock_client = MagicMock()
+        mock_exp = MagicMock()
+        mock_exp.experiment_id = "42"
+        mock_client.get_experiment_by_name.return_value = mock_exp
+        mock_client.search_runs.return_value = []
+        monkeypatch.setattr(
+            _run.mlflow.tracking,
+            "MlflowClient",
+            lambda: mock_client,
+        )
+        _run._resolve_run_id("sqlite:///test.db", "my-run", experiment="mnist_iid")
+        mock_client.get_experiment_by_name.assert_called_once_with("mnist_iid")
+        _, kwargs = mock_client.search_runs.call_args
+        assert kwargs["experiment_ids"] == ["42"]
+
+    def test_scoped_missing_experiment_returns_none(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.get_experiment_by_name.return_value = None
+        monkeypatch.setattr(
+            _run.mlflow.tracking,
+            "MlflowClient",
+            lambda: mock_client,
+        )
+        run_id = _run._resolve_run_id("sqlite:///test.db", "my-run", experiment="nope")
+        assert run_id is None
+
     def test_returns_none_when_not_found(self, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_client = MagicMock()
         mock_client.search_runs.return_value = []
@@ -464,3 +493,124 @@ class TestMatrixInventory:
         out = capsys.readouterr().out
         assert "missing: 1200" in out
         assert "done: 0" in out
+
+
+class TestRunMatrix:
+    @pytest.fixture(autouse=True)
+    def _cells_dir(self, tmp_path: Path) -> None:
+        self.cells_dir = tmp_path / "cells"
+        _gen.write_configs(self.cells_dir)
+
+    @pytest.fixture
+    def mlflow_uri(self, tmp_path: Path) -> str:
+        return f"sqlite:///{tmp_path}/mlflow.db"
+
+    @pytest.fixture
+    def cell_config(self) -> Path:
+        return next(
+            p for p in self.cells_dir.glob("mnist_iid_pldpbo_snr.yaml")
+        )
+
+    def test_deletes_failed_run_and_relaunches(
+        self, mlflow_uri: str, cell_config: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        old_id = _make_run(mlflow_uri, "mnist_iid", "pldpbo_snr_seed0", status="FAILED")
+        calls: list[tuple[str, int, list[str]]] = []
+
+        def fake_cmd_single(
+            config_path: str, num_clients: int, overrides: list[str],
+            experiment: str | None = None,
+        ) -> tuple[str, str] | None:
+            calls.append((config_path, num_clients, overrides))
+            assert config_path == str(cell_config)
+            assert num_clients == 100
+            assert overrides == ["seed=0"]
+            _make_run(
+                mlflow_uri, "mnist_iid", "pldpbo_snr_seed0", tag=locked_config_version(),
+            )
+            return None
+
+        monkeypatch.setattr(_run, "cmd_single", fake_cmd_single)
+        inventory = _run.matrix_inventory(
+            mlflow_uri, self.cells_dir, [0],
+            datasets=["mnist"], partitions=["iid"], methods=["pldpbo_snr"],
+        )
+        _run.run_matrix(mlflow_uri, _run.matrix_plan(inventory))
+
+        assert len(calls) == 1
+        prev = mlflow.get_tracking_uri()
+        mlflow.set_tracking_uri(mlflow_uri)
+        try:
+            client = mlflow.tracking.MlflowClient()
+            old = client.get_run(old_id)
+            assert old.info.lifecycle_stage == "deleted"
+            by_cell = {
+                (r.cell, r.run_name): r
+                for r in _run.matrix_inventory(mlflow_uri, self.cells_dir, [0])
+            }
+            done = by_cell[("mnist_iid", "pldpbo_snr_seed0")]
+            assert done.status == "done"
+            assert done.run_id != old_id
+        finally:
+            mlflow.set_tracking_uri(prev)
+
+    def test_skips_done_runs(self, mlflow_uri: str, monkeypatch: pytest.MonkeyPatch) -> None:
+        _make_run(
+            mlflow_uri, "mnist_iid", "pldpbo_snr_seed0", tag=locked_config_version(),
+        )
+        calls: list[tuple[str, int, list[str]]] = []
+
+        def fake_cmd_single(
+            config_path: str, num_clients: int, overrides: list[str],
+            experiment: str | None = None,
+        ) -> tuple[str, str] | None:
+            calls.append((config_path, num_clients, overrides))
+            return None
+
+        monkeypatch.setattr(_run, "cmd_single", fake_cmd_single)
+        inventory = _run.matrix_inventory(
+            mlflow_uri, self.cells_dir, [0],
+            datasets=["mnist"], partitions=["iid"], methods=["pldpbo_snr"],
+        )
+        _run.run_matrix(mlflow_uri, _run.matrix_plan(inventory))
+        assert calls == []
+
+    def test_num_clients_read_from_config(
+        self, mlflow_uri: str, cell_config: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        calls: list[tuple[str, int, list[str]]] = []
+
+        def fake_cmd_single(
+            config_path: str, num_clients: int, overrides: list[str],
+            experiment: str | None = None,
+        ) -> tuple[str, str] | None:
+            calls.append((config_path, num_clients, overrides))
+            return None
+
+        monkeypatch.setattr(_run, "cmd_single", fake_cmd_single)
+        inventory = _run.matrix_inventory(
+            mlflow_uri, self.cells_dir, [0],
+            datasets=["mnist"], partitions=["iid"], methods=["pldpbo_snr"],
+        )
+        _run.run_matrix(mlflow_uri, _run.matrix_plan(inventory))
+        assert calls and calls[0][1] == 100
+
+    def test_num_clients_override_wins(
+        self, mlflow_uri: str, cell_config: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        calls: list[tuple[str, int, list[str]]] = []
+
+        def fake_cmd_single(
+            config_path: str, num_clients: int, overrides: list[str],
+            experiment: str | None = None,
+        ) -> tuple[str, str] | None:
+            calls.append((config_path, num_clients, overrides))
+            return None
+
+        monkeypatch.setattr(_run, "cmd_single", fake_cmd_single)
+        inventory = _run.matrix_inventory(
+            mlflow_uri, self.cells_dir, [0],
+            datasets=["mnist"], partitions=["iid"], methods=["pldpbo_snr"],
+        )
+        _run.run_matrix(mlflow_uri, _run.matrix_plan(inventory), num_clients=20)
+        assert calls and calls[0][1] == 20
