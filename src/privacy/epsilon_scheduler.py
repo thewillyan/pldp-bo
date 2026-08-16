@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 import numpy as np
 
@@ -19,11 +20,11 @@ class EpsilonScheduler(ABC):
         pass
 
     @abstractmethod
-    def get_state(self) -> dict: ...
+    def get_state(self) -> dict[str, Any]: ...
 
     @classmethod
     @abstractmethod
-    def from_state(cls, state: dict) -> EpsilonScheduler: ...
+    def from_state(cls, state: dict[str, Any]) -> EpsilonScheduler: ...
 
 
 class FixedEpsilonScheduler(EpsilonScheduler):
@@ -38,11 +39,11 @@ class FixedEpsilonScheduler(EpsilonScheduler):
     def get_epsilon(self) -> float:
         return self._epsilon
 
-    def get_state(self) -> dict:
+    def get_state(self) -> dict[str, Any]:
         return {"type": "fixed", "epsilon": self._epsilon}
 
     @classmethod
-    def from_state(cls, state: dict) -> FixedEpsilonScheduler:
+    def from_state(cls, state: dict[str, Any]) -> FixedEpsilonScheduler:
         return cls(epsilon=state["epsilon"])
 
     def __repr__(self) -> str:
@@ -68,7 +69,7 @@ class UniformRandomEpsilonScheduler(EpsilonScheduler):
             self._rng.uniform(self._epsilon_min, self._epsilon_max),
         )
 
-    def get_state(self) -> dict:
+    def get_state(self) -> dict[str, Any]:
         state = {
             "type": "uniform_random",
             "epsilon_min": self._epsilon_min,
@@ -80,7 +81,7 @@ class UniformRandomEpsilonScheduler(EpsilonScheduler):
         return state
 
     @classmethod
-    def from_state(cls, state: dict) -> UniformRandomEpsilonScheduler:
+    def from_state(cls, state: dict[str, Any]) -> UniformRandomEpsilonScheduler:
         scheduler = cls(
             epsilon_min=state["epsilon_min"],
             epsilon_max=state["epsilon_max"],
@@ -108,11 +109,11 @@ class RDPNativeScheduler(ABC):
         pass
 
     @abstractmethod
-    def get_state(self) -> dict: ...
+    def get_state(self) -> dict[str, Any]: ...
 
     @classmethod
     @abstractmethod
-    def from_state(cls, state: dict) -> RDPNativeScheduler: ...
+    def from_state(cls, state: dict[str, Any]) -> RDPNativeScheduler: ...
 
 
 class FixedRDPScheduler(RDPNativeScheduler):
@@ -127,11 +128,11 @@ class FixedRDPScheduler(RDPNativeScheduler):
     def get_rdp(self) -> float:
         return self._rdp_target
 
-    def get_state(self) -> dict:
+    def get_state(self) -> dict[str, Any]:
         return {"type": "fixed_rdp", "rdp_target": self._rdp_target}
 
     @classmethod
-    def from_state(cls, state: dict) -> FixedRDPScheduler:
+    def from_state(cls, state: dict[str, Any]) -> FixedRDPScheduler:
         return cls(rdp_target=state["rdp_target"])
 
     def __repr__(self) -> str:
@@ -155,7 +156,7 @@ class UniformRandomRDPScheduler(RDPNativeScheduler):
     def get_rdp(self) -> float:
         return float(self._rng.uniform(self._rdp_min, self._rdp_max))
 
-    def get_state(self) -> dict:
+    def get_state(self) -> dict[str, Any]:
         state = {
             "type": "uniform_random_rdp",
             "rdp_min": self._rdp_min,
@@ -167,7 +168,7 @@ class UniformRandomRDPScheduler(RDPNativeScheduler):
         return state
 
     @classmethod
-    def from_state(cls, state: dict) -> UniformRandomRDPScheduler:
+    def from_state(cls, state: dict[str, Any]) -> UniformRandomRDPScheduler:
         scheduler = cls(
             rdp_min=state["rdp_min"],
             rdp_max=state["rdp_max"],

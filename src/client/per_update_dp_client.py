@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 import logging
-from typing import Any
+from typing import Any, Sized, cast
 
 import numpy as np
 import torch
@@ -24,14 +24,14 @@ class PerUpdateDPClient(FlowerClient):
     def __init__(
         self,
         model: BaseModel,
-        trainloader: DataLoader,
-        valloader: DataLoader,
+        trainloader: DataLoader[Any],
+        valloader: DataLoader[Any],
         config: ExperimentConfig,
         client_epsilon: float | None = None,
         computed_sigma: float | None = None,
         accountant: RDPAccountant | None = None,
         seed: int | None = None,
-        mechanism_state: dict | None = None,
+        mechanism_state: dict[str, Any] | None = None,
         remaining_budget: float | None = None,
         remaining_rdp: float | None = None,
     ) -> None:
@@ -196,7 +196,7 @@ class PerUpdateDPClient(FlowerClient):
 
         update_norm = float(np.linalg.norm(noisy_flat))
 
-        noisy_weights = []
+        noisy_weights: list[Any] = []
         offset = 0
         for w in delta:
             size = w.size
@@ -271,7 +271,7 @@ class PerUpdateDPClient(FlowerClient):
                 "budget_exhausted": False,
             }
 
-        return noisy_weights, len(self.trainloader.dataset), metrics
+        return noisy_weights, len(cast(Sized, self.trainloader.dataset)), metrics
 
-    def get_mechanism_state(self) -> dict:
+    def get_mechanism_state(self) -> dict[str, Any]:
         return self._mechanism.get_state()

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from typing import Any
+from typing import Any, Sized, cast
 
 import flwr as fl
 import torch
@@ -42,8 +42,8 @@ class FlowerClient(fl.client.NumPyClient):
     def __init__(
         self,
         model: BaseModel,
-        trainloader: DataLoader,
-        valloader: DataLoader,
+        trainloader: DataLoader[Any],
+        valloader: DataLoader[Any],
         config: ExperimentConfig,
     ):
         self.model = model
@@ -107,7 +107,7 @@ class FlowerClient(fl.client.NumPyClient):
                     )
                 optimizer.step()
 
-        return self.model.get_weights(), len(self.trainloader.dataset), {}
+        return self.model.get_weights(), len(cast(Sized, self.trainloader.dataset)), {}
 
     def evaluate(
         self,
@@ -130,8 +130,8 @@ class FlowerClient(fl.client.NumPyClient):
                 loss += criterion(outputs, labels).item()
                 _, predicted = torch.max(outputs, 1)
                 total += labels.size(0)
-                correct += (predicted == labels).sum().item()
+                correct += int((predicted == labels).sum().item())
 
         accuracy = correct / total
         avg_loss = loss / len(self.valloader)
-        return avg_loss, len(self.valloader.dataset), {"accuracy": accuracy}
+        return avg_loss, len(cast(Sized, self.valloader.dataset)), {"accuracy": accuracy}

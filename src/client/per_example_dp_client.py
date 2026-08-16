@@ -165,8 +165,8 @@ class PerExampleDPClient(FlowerClient):
     def __init__(
         self,
         model: BaseModel,
-        trainloader: DataLoader,
-        valloader: DataLoader,
+        trainloader: DataLoader[Any],
+        valloader: DataLoader[Any],
         config: ExperimentConfig,
         client_epsilon: float | None = None,
         computed_sigma: float | None = None,

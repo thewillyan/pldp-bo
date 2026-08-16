@@ -46,7 +46,7 @@ MECHANISM_STATE_KEY = "pldp_mechanism_state"
 AnyScheduler = Union[EpsilonScheduler, RDPNativeScheduler]
 
 
-def _prepare_metric_record(metrics: dict) -> dict:
+def _prepare_metric_record(metrics: dict[str, Any]) -> dict[str, Any]:
     # Flower's MetricRecord does not accept native Python bools,
     # so they are converted to int (0/1).
     return {k: (int(v) if isinstance(v, bool) else v) for k, v in metrics.items()}
@@ -181,8 +181,10 @@ def _restore_or_create_scheduler(
     total_train_size: int | None = None,
 ) -> AnyScheduler | None:
     if SCHEDULER_STATE_KEY in context.state:
-        state = context.state[SCHEDULER_STATE_KEY]
+        state: Any = context.state[SCHEDULER_STATE_KEY]
         stype = state.get("type")
+        if isinstance(stype, bytes):
+            stype = stype.decode()
         # Epsilon-based schedulers
         if stype == "fixed":
             return FixedEpsilonScheduler.from_state(state)
@@ -253,7 +255,7 @@ def train(msg: Message, context: Context) -> Message:
 
     accountant: RDPAccountant | None = None
     scheduler: AnyScheduler | None = None
-    mechanism_state: dict | None = None
+    mechanism_state: Any = None
 
     rdp_native = _is_rdp_native(config)
 
@@ -293,7 +295,7 @@ def train(msg: Message, context: Context) -> Message:
                 )
 
         if ACCOUNTANT_STATE_KEY in context.state:
-            state = context.state[ACCOUNTANT_STATE_KEY]
+            state: Any = context.state[ACCOUNTANT_STATE_KEY]
             accountant = RDPAccountant.from_state(state)
         else:
             accountant = RDPAccountant(delta=config.privacy.delta)
@@ -330,7 +332,10 @@ def train(msg: Message, context: Context) -> Message:
         "per_client_budget"
     )
     if server_budget is not None:
-        total_budget = float(server_budget)
+        if isinstance(server_budget, bytes):
+            server_budget = server_budget.decode()
+        if isinstance(server_budget, (str, int, float)):
+            total_budget = float(server_budget)
 
     # Server-sent remaining RDP budget (B_RDP - cum_rdp) for m_rem (IMPL-10);
     # required by the DP clients — a missing value raises client-side.
@@ -350,7 +355,7 @@ def train(msg: Message, context: Context) -> Message:
     r_t_candidate: float = 0.0
     if rdp_native:
         rdp_cost, computed_sigma, r_t_candidate, bo_time, acct_time = _resolve_rdp(
-            scheduler,
+            cast(RDPNativeScheduler | None, scheduler),
             accountant,
             config,
             total_budget,
@@ -385,7 +390,7 @@ def train(msg: Message, context: Context) -> Message:
         )
     else:
         epsilon, computed_sigma, eps_candidate, bo_time, acct_time = _resolve_epsilon(
-            scheduler,
+            cast(EpsilonScheduler | None, scheduler),
             accountant,
             config,
             total_budget,
@@ -449,7 +454,7 @@ def train(msg: Message, context: Context) -> Message:
         context.state[SCHEDULER_STATE_KEY] = ConfigRecord(scheduler.get_state())
 
     if config.privacy.enabled and config.privacy.clipping_mode != "per_example":
-        context.state[MECHANISM_STATE_KEY] = ConfigRecord(client.get_mechanism_state())  # type: ignore[union-attr]
+        context.state[MECHANISM_STATE_KEY] = ConfigRecord(cast(Any, client).get_mechanism_state())
 
     model_record = ArrayRecord(client_model.get_model().state_dict())
     metrics = {
@@ -668,6 +673,8 @@ def query(msg: Message, context: Context) -> Message:
     config = load_config(config_path, overrides=overrides)
 
     task = (msg.content.config_records.get("config") or ConfigRecord()).get("task")
+    if isinstance(task, bytes):
+        task = task.decode()
     if task == "personalization_metadata":
         partition_id = int(context.node_config["partition-id"])
         num_partitions = int(context.node_config["num-partitions"])
@@ -792,11 +799,11 @@ def evaluate(msg: Message, context: Context) -> Message:
 
     client_epsilon = None
     accountant = None
-    mechanism_state = None
+    mechanism_state: Any = None
     rdp_native = _is_rdp_native(config)
 
     if config.privacy.enabled and ACCOUNTANT_STATE_KEY in context.state:
-        state = context.state[ACCOUNTANT_STATE_KEY]
+        state: Any = context.state[ACCOUNTANT_STATE_KEY]
         accountant = RDPAccountant.from_state(state)
         if rdp_native:
             client_epsilon = accountant.get_rdp_at_alpha(config.privacy.rdp_alpha)

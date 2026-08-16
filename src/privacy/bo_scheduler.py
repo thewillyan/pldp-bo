@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 
 import numpy as np
 from scipy.stats import norm
@@ -46,7 +47,8 @@ def expected_improvement(
     improvement = f_best - mean
     z = improvement / std
     ei = improvement * norm.cdf(z) + std * norm.pdf(z)
-    return np.maximum(ei, 0.0)
+    result: np.ndarray = np.maximum(ei, 0.0)
+    return result
 
 
 def normalize_ei(ei: np.ndarray) -> np.ndarray:
@@ -57,18 +59,19 @@ def normalize_ei(ei: np.ndarray) -> np.ndarray:
     # float-noise level; otherwise normalization would amplify noise to full
     # scale and the acquisition penalty would never guide the selection.
     if span > 1e-4 * scale:
-        return (ei - ei_min) / span
+        normalized: np.ndarray = (ei - ei_min) / span
+        return normalized
     return np.zeros_like(ei)
 
 
-def _serialize_kernel_params(params: dict) -> dict:
+def _serialize_kernel_params(params: dict[str, Any]) -> dict[str, Any]:
     """Filter kernel params to only ConfigRecord-compatible values.
 
     sklearn's get_params(deep=True) returns Kernel objects and tuples which
     are not valid ConfigRecord values. Extract only numeric scalars and
     convert tuples to lists.
     """
-    serialized: dict = {}
+    serialized: dict[str, Any] = {}
     for k, v in params.items():
         if isinstance(v, (float, int, str, bool)):
             serialized[k] = v
@@ -238,7 +241,7 @@ class PLDPBOScheduler(EpsilonScheduler):
         # which automatically selects epsilon_min as argmax.
         return float(grid[np.argmax(alpha)])
 
-    def get_state(self) -> dict:
+    def get_state(self) -> dict[str, Any]:
         state = {
             "type": "pldp_bo",
             "epsilon_min": self._epsilon_min,
@@ -274,7 +277,7 @@ class PLDPBOScheduler(EpsilonScheduler):
         return state
 
     @classmethod
-    def from_state(cls, state: dict) -> PLDPBOScheduler:
+    def from_state(cls, state: dict[str, Any]) -> PLDPBOScheduler:
         scheduler = cls(
             epsilon_min=state["epsilon_min"],
             epsilon_max=state["epsilon_max"],
@@ -460,7 +463,7 @@ class PLDPBORDPScheduler(RDPNativeScheduler):
 
         return float(grid[np.argmax(alpha)])
 
-    def get_state(self) -> dict:
+    def get_state(self) -> dict[str, Any]:
         state = {
             "type": "pldp_bo_rdp",
             "rdp_min": self._rdp_min,
@@ -497,7 +500,7 @@ class PLDPBORDPScheduler(RDPNativeScheduler):
         return state
 
     @classmethod
-    def from_state(cls, state: dict) -> PLDPBORDPScheduler:
+    def from_state(cls, state: dict[str, Any]) -> PLDPBORDPScheduler:
         scheduler = cls(
             rdp_min=state["rdp_min"],
             rdp_max=state["rdp_max"],

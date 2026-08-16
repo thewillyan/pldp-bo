@@ -5,6 +5,7 @@ import types
 import typing
 from dataclasses import dataclass, field, fields
 from pathlib import Path
+from typing import Mapping, cast
 
 import yaml
 
@@ -73,7 +74,7 @@ class PrivacyConfig:
 class PersonalizationConfig:
     enabled: bool = False
     strategy: str = "uniform"
-    client_epsilon_map: dict = field(default_factory=dict)
+    client_epsilon_map: dict[str, float] = field(default_factory=dict)
     track_cumulative: bool = True
 
 
@@ -99,9 +100,9 @@ class BOConfig:
     bounds_strategy: str = "global"
     bounds_ratio_min: float = 0.1
     bounds_ratio_max: float = 1.0
-    client_eps_min_map: dict = field(default_factory=dict)
-    client_eps_max_map: dict = field(default_factory=dict)
-    client_warmup_rounds_map: dict = field(default_factory=dict)
+    client_eps_min_map: dict[str, float] = field(default_factory=dict)
+    client_eps_max_map: dict[str, float] = field(default_factory=dict)
+    client_warmup_rounds_map: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -141,8 +142,8 @@ _CONFIG_KEY_MAP = {
 }
 
 
-def _expand_dot_keys(overrides: dict) -> dict:
-    result: dict = {}
+def _expand_dot_keys(overrides: Mapping[str, object]) -> dict[str, object]:
+    result: dict[str, object] = {}
     for key, value in overrides.items():
         parts = key.split(".")
         current = result
@@ -154,7 +155,7 @@ def _expand_dot_keys(overrides: dict) -> dict:
                     ".".join(parts[: depth + 1]),
                 )
                 break
-            current = current.setdefault(part, {})
+            current = cast(dict[str, object], current.setdefault(part, {}))
         else:
             existing = current.get(parts[-1])
             if isinstance(existing, dict):
@@ -173,7 +174,7 @@ def _unwrap_optional(tp: type) -> type:
         args = typing.get_args(tp)
         non_none = [a for a in args if a is not type(None)]
         if len(non_none) == 1:
-            return non_none[0]
+            return cast(type, non_none[0])
     return tp
 
 
@@ -198,7 +199,7 @@ def _coerce_value(value: object, expected: type) -> object:
 
 def _merge_dict_into_dataclass(
     dc_instance: object,
-    override: dict,
+    override: dict[str, object],
     dc_type: type | None = None,
 ) -> None:
     if dc_type is None:
@@ -218,7 +219,10 @@ def _merge_dict_into_dataclass(
             setattr(dc_instance, key, value)
 
 
-def load_config(config_path: str, overrides: dict | None = None) -> ExperimentConfig:
+def load_config(
+    config_path: str,
+    overrides: Mapping[str, object] | None = None,
+) -> ExperimentConfig:
     config = ExperimentConfig()
 
     path = Path(config_path)

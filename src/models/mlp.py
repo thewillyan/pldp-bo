@@ -22,10 +22,11 @@ class MLP(nn.Module):
         self.relu = nn.ReLU()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x.view(x.size(0), -1)
-        x = self.relu(self.fc1(x))
-        x = self.relu(self.fc2(x))
-        return self.fc3(x)
+        h: torch.Tensor = x.view(x.size(0), -1)
+        h = self.relu(self.fc1(h))
+        h = self.relu(self.fc2(h))
+        out: torch.Tensor = self.fc3(h)
+        return out
 
 
 class MLPModel(BaseModel):

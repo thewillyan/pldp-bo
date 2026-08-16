@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+from typing import Any
 
 import numpy as np
 
@@ -13,7 +14,7 @@ class RDPAccountant:
     def __init__(self, delta: float = 1e-5) -> None:
         self._delta = delta
         self._rdp_per_alpha: np.ndarray = np.zeros_like(RDP_ALPHAS)
-        self._steps: list[dict] = []
+        self._steps: list[dict[str, Any]] = []
 
     def step(
         self, *, sigma: float, clipping_norm: float, num_steps: int = 1, mode: str = "per_update"
@@ -97,7 +98,7 @@ class RDPAccountant:
         self._rdp_per_alpha = np.zeros_like(RDP_ALPHAS)
         self._steps = []
 
-    def get_state(self) -> dict:
+    def get_state(self) -> dict[str, Any]:
         return {
             "delta": self._delta,
             "steps": json.dumps(self._steps),
@@ -105,7 +106,7 @@ class RDPAccountant:
         }
 
     @classmethod
-    def from_state(cls, state: dict) -> RDPAccountant:
+    def from_state(cls, state: dict[str, Any]) -> RDPAccountant:
         accountant = cls(delta=state["delta"])
         rdp_data = state.get("rdp_per_alpha", [])
         accountant._rdp_per_alpha = np.array(rdp_data, dtype=np.float64)

@@ -5,6 +5,7 @@ from pathlib import Path
 import matplotlib.figure
 import matplotlib.pyplot as plt
 import numpy as np
+from mlflow.entities import Run
 
 from src.plotting._helpers import (
     _get_metric_history,
@@ -14,7 +15,7 @@ from src.plotting._helpers import (
 )
 
 
-def _discover_client_ids(run) -> set[int]:
+def _discover_client_ids(run: Run) -> set[int]:
     ids: set[int] = set()
     for key in run.data.metrics:
         if "_client_" not in key:
@@ -29,7 +30,7 @@ def _discover_client_ids(run) -> set[int]:
     return ids
 
 
-def _get_client_latest(run, metric_suffix: str) -> dict[int, float]:
+def _get_client_latest(run: Run, metric_suffix: str) -> dict[int, float]:
     result: dict[int, float] = {}
     for key, value in run.data.metrics.items():
         if not key.endswith(metric_suffix):
@@ -51,7 +52,7 @@ def _get_client_trace(run_id: str, client_id: int, metric: str) -> list[tuple[in
     return []
 
 
-def _detect_format(run) -> str:
+def _detect_format(run: Run) -> str:
     for key in run.data.metrics:
         if key.startswith("round_"):
             return "legacy"
@@ -228,7 +229,7 @@ def plot_client_epsilon_distribution(
 
 
 def _plot_client_epsilon_legacy(
-    run,
+    run: Run,
     run_id: str,
     save_path: Path | None,
     dpi: int,
@@ -505,7 +506,7 @@ def plot_cumulative_privacy_budget(
 
 
 def _plot_cumulative_legacy(
-    run,
+    run: Run,
     run_id: str,
     save_path: Path | None,
     dpi: int,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+from typing import Any, Sized
 
 import numpy as np
 from torch.utils.data import Dataset, Subset
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 def compute_budget_weight(
     partition_id: int,
-    train_dataset: Dataset | Subset,
+    train_dataset: Dataset[Any] | Subset[Any],
     config: PersonalizationConfig,
     num_clients: int = 1,
     total_train_size: int | None = None,
@@ -60,7 +61,7 @@ def _weight_custom(partition_id: int, config: PersonalizationConfig) -> float:
 
 
 def _weight_data_proportional(
-    dataset: Dataset | Subset,
+    dataset: Dataset[Any] | Subset[Any],
     num_clients: int,
     total_train_size: int,
 ) -> float:
@@ -70,13 +71,15 @@ def _weight_data_proportional(
     privacy / less noise), while clients with fewer data receive a
     smaller weight (stronger privacy / more noise).
     """
+    if not isinstance(dataset, Sized):
+        raise TypeError(f"dataset must implement __len__, got {type(dataset).__name__}")
     client_size = len(dataset)
     expected_per_client = total_train_size / num_clients
     return client_size / expected_per_client
 
 
 def _weight_heterogeneity(
-    dataset: Dataset | Subset,
+    dataset: Dataset[Any] | Subset[Any],
     total_num_classes: int | None = None,
 ) -> float:
     entropy = _compute_label_entropy(dataset)
@@ -85,7 +88,7 @@ def _weight_heterogeneity(
     return 1.0 - normalized_entropy
 
 
-def _compute_label_entropy(dataset: Dataset | Subset) -> float:
+def _compute_label_entropy(dataset: Dataset[Any] | Subset[Any]) -> float:
     targets = _get_targets(dataset)
     class_counts = np.bincount(targets, minlength=_get_num_classes(dataset)).astype(float)
     class_counts = class_counts[class_counts > 0]
@@ -94,7 +97,7 @@ def _compute_label_entropy(dataset: Dataset | Subset) -> float:
     return float(entropy)
 
 
-def _get_targets(dataset: Dataset | Subset) -> np.ndarray:
+def _get_targets(dataset: Dataset[Any] | Subset[Any]) -> np.ndarray:
     indices = None
     while isinstance(dataset, Subset):
         if indices is None:
@@ -102,16 +105,17 @@ def _get_targets(dataset: Dataset | Subset) -> np.ndarray:
         else:
             indices = np.asarray(dataset.indices)[indices]
         dataset = dataset.dataset
+    raw: Any = dataset
     try:
-        targets = np.array(dataset.targets)
+        targets = np.array(raw.targets)
     except AttributeError, IndexError:
-        targets = dataset.tensors[1].numpy()
+        targets = raw.tensors[1].numpy()
     if indices is not None:
         targets = targets[indices]
     return targets
 
 
-def _get_num_classes(dataset: Dataset | Subset) -> int:
+def _get_num_classes(dataset: Dataset[Any] | Subset[Any]) -> int:
     targets = _get_targets(dataset)
     return len(np.unique(targets))
 
@@ -135,7 +139,7 @@ def _resolve_warmup(
 
 def assign_epsilon_bounds(
     partition_id: int,
-    train_dataset: Dataset | Subset,
+    train_dataset: Dataset[Any] | Subset[Any],
     personalization_config: PersonalizationConfig,
     bo_config: BOConfig,
     num_clients: int = 1,

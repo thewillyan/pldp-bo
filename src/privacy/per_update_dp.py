@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+from typing import Any
 
 import numpy as np
 
@@ -94,7 +95,8 @@ def calibrate_sigma(
 def _clip_update(delta: np.ndarray, clipping_norm: float) -> np.ndarray:
     norm = np.linalg.norm(delta)
     if norm > clipping_norm:
-        return delta * (clipping_norm / norm)
+        clipped: np.ndarray = delta * (clipping_norm / norm)
+        return clipped
     return delta
 
 
@@ -106,7 +108,8 @@ def add_gaussian_noise(
     if rng is None:
         rng = np.random.RandomState()
     noise = rng.normal(0, sigma, size=clipped_delta.shape).astype(clipped_delta.dtype)
-    return clipped_delta + noise
+    noisy: np.ndarray = clipped_delta + noise
+    return noisy
 
 
 def compute_rdp_cost(alpha: float, sigma: float, clipping_norm: float) -> float:
@@ -336,13 +339,13 @@ class PerUpdateGaussianMechanism:
         noisy = add_gaussian_noise(clipped, sigma, rng=self._rng)
         return noisy, sigma
 
-    def get_state(self) -> dict:
+    def get_state(self) -> dict[str, Any]:
         return {"rng_state": serialize_rng(self._rng)}
 
     @classmethod
     def from_state(
         cls,
-        state: dict,
+        state: dict[str, Any],
         clipping_norm: float,
         delta: float,
     ) -> PerUpdateGaussianMechanism:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import random
+from typing import Any
 
 import numpy as np
 import torch
@@ -36,7 +37,7 @@ def serialize_rng(rng: np.random.RandomState) -> str:
     return json.dumps([x.tolist() if isinstance(x, np.ndarray) else x for x in state])
 
 
-def deserialize_rng(data: str) -> tuple:
+def deserialize_rng(data: str) -> tuple[Any, ...]:
     return tuple(
         np.array(x, dtype=np.uint32) if isinstance(x, list) else x for x in json.loads(data)
     )

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.figure import Figure
 
 from src.plotting._helpers import (
     _is_rdp_native,
@@ -19,7 +20,7 @@ def plot_metric_vs_epsilon(
     warmup_rounds: int | None = None,
     save_path: Path | None = None,
     dpi: int = 150,
-) -> plt.Figure:
+) -> Figure:
     run = get_run_by_id(run_id)
 
     rdp = _is_rdp_native(run)

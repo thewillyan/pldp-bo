@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 import subprocess
-from dataclasses import fields
+from dataclasses import fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
@@ -132,6 +132,8 @@ class ExperimentTracker:
 
     @staticmethod
     def _flatten_dataclass(obj: object, prefix: str = "") -> dict[str, str]:
+        if not is_dataclass(obj):
+            raise TypeError(f"expected a dataclass, got {type(obj).__name__}")
         result: dict[str, str] = {}
         for f in fields(obj):
             key = f"{prefix}.{f.name}" if prefix else f.name
