@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import os
+import tempfile
 import types
 from pathlib import Path
 from types import SimpleNamespace
@@ -36,6 +39,7 @@ def _load_script(path: str, module_name: str) -> types.ModuleType:
 _run = _load_script("scripts/run", "_run_script")
 _plot = _load_script("scripts/plot", "_plot_script")
 _gen = _load_script("scripts/gen_matrix_configs", "_gen_script")
+_verify = _load_script("scripts/verify", "_verify_script")
 
 
 def _make_run(
@@ -56,6 +60,55 @@ def _make_run(
         run_id = run.info.run_id
         if tag is not None:
             client.set_tag(run_id, "config_version", tag)
+        client.set_terminated(run_id, status=status)
+        return run_id
+    finally:
+        mlflow.set_tracking_uri(prev)
+
+
+def _make_verify_run(
+    tracking_uri: str,
+    experiment: str,
+    run_name: str,
+    *,
+    method: str,
+    dataset: str,
+    partition: str,
+    seed: int,
+    status: str = "FINISHED",
+    tag: str | None = None,
+    params: dict[str, str] | None = None,
+    state: dict | None = None,
+) -> str:
+    """Create a §4-schema run; optionally log a client_state.json artifact.
+
+    Callers must chdir into a tmp dir first (artifact root resolves from CWD).
+    """
+    prev = mlflow.get_tracking_uri()
+    mlflow.set_tracking_uri(tracking_uri)
+    try:
+        client = mlflow.tracking.MlflowClient()
+        exp = client.get_experiment_by_name(experiment)
+        exp_id = exp.experiment_id if exp else client.create_experiment(experiment)
+        run_id = client.create_run(exp_id, run_name=run_name).info.run_id
+        for key, value in {
+            "dataset": dataset,
+            "partition": partition,
+            "method": method,
+            "seed": str(seed),
+            "config_version": tag or locked_config_version(),
+        }.items():
+            client.set_tag(run_id, key, value)
+        for key, value in (params or {}).items():
+            client.log_param(run_id, key, value)
+        if state is not None:
+            tmp = os.path.join(tempfile.mkdtemp(), "client_state.json")
+            with open(tmp, "w") as f:
+                json.dump(state, f)
+            try:
+                client.log_artifact(run_id, tmp, artifact_path="")
+            finally:
+                os.unlink(tmp)
         client.set_terminated(run_id, status=status)
         return run_id
     finally:
@@ -622,3 +675,105 @@ class TestRunMatrix:
         )
         _run.run_matrix(mlflow_uri, _run.matrix_plan(inventory), num_clients=20)
         assert calls and calls[0][1] == 20
+
+
+class TestVerifyDiscovery:
+    @pytest.fixture(autouse=True)
+    def _tmp_cwd(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        self.mlflow_uri = f"sqlite:///{tmp_path}/mlflow.db"
+
+    def test_includes_only_finished_current_version(self) -> None:
+        good = _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+        )
+        _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed1",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=1,
+            status="FAILED",
+        )
+        _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed2",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=2,
+            tag="deadbeef",
+        )
+        runs = _verify._discover_runs(self.mlflow_uri)
+        assert [r.run_id for r in runs] == [good]
+
+    def test_spans_experiments(self) -> None:
+        _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+        )
+        _make_verify_run(
+            self.mlflow_uri, "cifar100_dirichlet_0.1", "pldpbo_nun_seed3",
+            method="pldpbo_nun", dataset="cifar100", partition="dirichlet_0.1", seed=3,
+        )
+        runs = _verify._discover_runs(self.mlflow_uri)
+        assert sorted(r.experiment for r in runs) == [
+            "cifar100_dirichlet_0.1", "mnist_iid",
+        ]
+
+    def test_filters_by_tags(self) -> None:
+        _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+        )
+        _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed7",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=7,
+        )
+        _make_verify_run(
+            self.mlflow_uri, "cifar100_iid", "pldpbo_snr_seed0",
+            method="pldpbo_snr", dataset="cifar100", partition="iid", seed=0,
+        )
+        runs = _verify._discover_runs(
+            self.mlflow_uri,
+            datasets=["mnist"], partitions=["iid"],
+            methods=["pldpbo_snr"], seeds=[0],
+        )
+        assert len(runs) == 1
+        assert runs[0].seed == 0
+        assert runs[0].experiment == "mnist_iid"
+
+    def test_carries_params(self) -> None:
+        _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+            params={"T": "200", "K": "100", "B_RDP": "10.0", "dataset_root": "/data"},
+        )
+        runs = _verify._discover_runs(self.mlflow_uri)
+        assert runs[0].params["T"] == "200"
+        assert runs[0].params["B_RDP"] == "10.0"
+
+    def test_loads_client_state_artifact(self) -> None:
+        state = {"0": {"acct_cost": [0.01, 0.02]}}
+        run_id = _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+            state=state,
+        )
+        runs = _verify._discover_runs(self.mlflow_uri)
+        assert runs[0].run_id == run_id
+        assert runs[0].client_state == state
+
+    def test_no_artifact_gives_none(self) -> None:
+        _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+        )
+        runs = _verify._discover_runs(self.mlflow_uri)
+        assert runs[0].client_state is None
+
+
+class TestVerifyCli:
+    def test_parser_exposes_matrix_style_flags(self) -> None:
+        args = _verify.build_parser().parse_args(
+            ["--tracking-uri", "sqlite:///x.db", "--dataset", "mnist",
+             "--method", "pldpbo_snr", "--seeds", "0-3"],
+        )
+        assert args.tracking_uri == "sqlite:///x.db"
+        assert args.dataset == ["mnist"]
+        assert args.method == ["pldpbo_snr"]
+        assert args.seeds == "0-3"

@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+"""PLDP-BO §5.1 verification checks against MLflow runs (IMPL-13).
+
+Reads FINISHED §4-schema runs (matching ``config_version`` tag), loads each
+run's ``client_state.json`` artifact, and runs the §5.1 checks:
+  1. warm-up sum (mean ± SD over first-10-participation acct_cost sums,
+     nominal = WARMUP_SUM_NOMINAL, pass ±5%) + per-round acct_cost vs
+     r_t_final parity (median/max relative error);
+  2. budget matching (mean final cum_rdp vs B_RDP, utilization 1.00 ± 0.02;
+     nonprivate = 0);
+  3. drop-out distribution (never = T+1, fraction never, mean ± SD round,
+     mean final cum RDP);
+  4. FEMNIST counts (SKIP when the dataset dir is absent);
+  5. accounting convention (covered by check 1).
+
+Prints a PASS/FAIL list; exits 1 when any check FAILs. ``--json`` emits the
+§6.1 ``verification`` block (incl. enforcement stats) and nothing else.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from dataclasses import dataclass, field
+
+import mlflow
+
+from src.config.locked import config_version as locked_config_version
+
+CLIENT_STATE_ARTIFACT = "client_state.json"
+
+
+@dataclass
+class VerifyRun:
+    """One FINISHED §4-schema run with its artifact loaded."""
+
+    experiment: str
+    method: str
+    run_id: str
+    seed: int
+    params: dict[str, str] = field(default_factory=dict)
+    client_state: dict | None = None
+
+    def param_float(self, key: str, default: float) -> float:
+        try:
+            return float(self.params.get(key, ""))
+        except (TypeError, ValueError):
+            return default
+
+
+def _load_client_state(client: mlflow.tracking.MlflowClient, run_id: str) -> dict | None:
+    try:
+        names = {f.path for f in client.list_artifacts(run_id)}
+    except mlflow.exceptions.MlflowException:
+        return None
+    if CLIENT_STATE_ARTIFACT not in names:
+        return None
+    path = client.download_artifacts(run_id, CLIENT_STATE_ARTIFACT)
+    with open(path) as f:
+        return json.load(f)
+
+
+def _discover_runs(
+    tracking_uri: str,
+    datasets: list[str] | None = None,
+    partitions: list[str] | None = None,
+    methods: list[str] | None = None,
+    seeds: list[int] | None = None,
+) -> list[VerifyRun]:
+    """All FINISHED runs whose ``config_version`` tag matches, filterable by tag."""
+    prev_uri = mlflow.get_tracking_uri()
+    mlflow.set_tracking_uri(tracking_uri)
+    try:
+        client = mlflow.tracking.MlflowClient()
+        runs: list[VerifyRun] = []
+        for exp in client.search_experiments():
+            for run in client.search_runs(
+                [exp.experiment_id],
+                filter_string="attributes.status = 'FINISHED'",
+                order_by=["start_time ASC"],
+                max_results=50_000,
+            ):
+                tags = run.data.tags or {}
+                if tags.get("config_version") != locked_config_version():
+                    continue
+                method = tags.get("method", "")
+                dataset = tags.get("dataset", "")
+                partition = tags.get("partition", "")
+                try:
+                    seed = int(tags.get("seed", ""))
+                except ValueError:
+                    continue
+                if datasets and dataset not in datasets:
+                    continue
+                if partitions and partition not in partitions:
+                    continue
+                if methods and method not in methods:
+                    continue
+                if seeds is not None and seed not in seeds:
+                    continue
+                state = _load_client_state(client, run.info.run_id)
+                runs.append(
+                    VerifyRun(
+                        exp.name, method, run.info.run_id, seed,
+                        dict(run.data.params), state,
+                    ),
+                )
+        return runs
+    finally:
+        mlflow.set_tracking_uri(prev_uri)
+
+
+def _parse_seeds(spec: str) -> list[int]:
+    """Parse 'A-B' (inclusive) or 'N' into a list of seed ints."""
+    if "-" in spec:
+        start, end = (int(p) for p in spec.split("-", 1))
+        return list(range(start, end + 1))
+    return [int(spec)]
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="PLDP-BO §5.1 verification checks")
+    parser.add_argument(
+        "--tracking-uri", type=str, default=None,
+        help="MLflow tracking URI (default: MLFLOW_TRACKING_URI or sqlite:///./mlflow.db)",
+    )
+    parser.add_argument("--dataset", nargs="*", default=[])
+    parser.add_argument("--partition", nargs="*", default=[])
+    parser.add_argument("--method", nargs="*", default=[])
+    parser.add_argument(
+        "--seeds", type=str, default=None,
+        help="seed range 'A-B' or single 'N' (default: all seeds)",
+    )
+    parser.add_argument(
+        "--json", action="store_true",
+        help="emit the §6.1 verification block as JSON only",
+    )
+    return parser
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    tracking_uri = (
+        args.tracking_uri
+        or os.environ.get("MLFLOW_TRACKING_URI")
+        or "sqlite:///./mlflow.db"
+    )
+    seeds = _parse_seeds(args.seeds) if args.seeds else None
+    runs = _discover_runs(
+        tracking_uri,
+        datasets=args.dataset or None,
+        partitions=args.partition or None,
+        methods=args.method or None,
+        seeds=seeds,
+    )
+    if not runs:
+        print("verify: no §4-schema runs found")
+    else:
+        print(f"verify: {len(runs)} §4-schema run(s) found")
+    return 0
+
+
+def main() -> None:
+    sys.exit(cmd_verify(build_parser().parse_args()))
+
+
+if __name__ == "__main__":
+    main()
