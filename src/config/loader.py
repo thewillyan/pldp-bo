@@ -150,7 +150,8 @@ def _expand_dot_keys(overrides: dict) -> dict:
             if part in current and not isinstance(current[part], dict):
                 logger.warning(
                     "Config override key conflict: '%s' overlaps with existing key at '%s'",
-                    key, ".".join(parts[:depth + 1]),
+                    key,
+                    ".".join(parts[: depth + 1]),
                 )
                 break
             current = current.setdefault(part, {})
@@ -185,18 +186,20 @@ def _coerce_value(value: object, expected: type) -> object:
     if expected is int:
         try:
             return int(value)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise ValueError(f"Cannot convert override value '{value}' to int") from None
     if expected is float:
         try:
             return float(value)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise ValueError(f"Cannot convert override value '{value}' to float") from None
     return value
 
 
 def _merge_dict_into_dataclass(
-    dc_instance: object, override: dict, dc_type: type | None = None,
+    dc_instance: object,
+    override: dict,
+    dc_type: type | None = None,
 ) -> None:
     if dc_type is None:
         dc_type = type(dc_instance)
@@ -235,10 +238,13 @@ def load_config(config_path: str, overrides: dict | None = None) -> ExperimentCo
                         if isinstance(value, str) and expected in (float, int):
                             try:
                                 value = expected(value)
-                            except (ValueError, TypeError):
+                            except ValueError, TypeError:
                                 logger.warning(
                                     "Config key '%s.%s': cannot convert '%s' to %s",
-                                    key, fld.name, value, expected.__name__,
+                                    key,
+                                    fld.name,
+                                    value,
+                                    expected.__name__,
                                 )
                         setattr(current, fld.name, value)
             elif hasattr(config, key):

@@ -33,13 +33,10 @@ def set_seed(seed: int, *, deterministic: bool = False) -> None:
 
 def serialize_rng(rng: np.random.RandomState) -> str:
     state = rng.get_state()
-    return json.dumps([
-        x.tolist() if isinstance(x, np.ndarray) else x for x in state
-    ])
+    return json.dumps([x.tolist() if isinstance(x, np.ndarray) else x for x in state])
 
 
 def deserialize_rng(data: str) -> tuple:
     return tuple(
-        np.array(x, dtype=np.uint32) if isinstance(x, list) else x
-        for x in json.loads(data)
+        np.array(x, dtype=np.uint32) if isinstance(x, list) else x for x in json.loads(data)
     )

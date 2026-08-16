@@ -11,8 +11,7 @@ from src.device import get_device
 
 class BaseModel(ABC):
     @abstractmethod
-    def get_model(self) -> nn.Module:
-        ...
+    def get_model(self) -> nn.Module: ...
 
     def get_weights(self) -> list[np.ndarray]:
         return [val.cpu().numpy().copy() for val in self.get_model().state_dict().values()]

@@ -125,10 +125,12 @@ def _run_femnist_client_test_accuracy(
 
     query_msgs = [
         Message(
-            content=RecordDict({
-                "config": ConfigRecord({"task": "client_test_accuracy"}),
-                "arrays": ArrayRecord(dict(final_arrays.items())),
-            }),
+            content=RecordDict(
+                {
+                    "config": ConfigRecord({"task": "client_test_accuracy"}),
+                    "arrays": ArrayRecord(dict(final_arrays.items())),
+                }
+            ),
             message_type="query",
             dst_node_id=nid,
             group_id="pldp-client-test-accuracy",
@@ -197,9 +199,7 @@ def _write_client_state_artifact(
         return
 
     payload = {
-        "client_state": {
-            str(cid): s for cid, s in sorted(state.items())
-        },
+        "client_state": {str(cid): s for cid, s in sorted(state.items())},
     }
     fd, tmp_path = tempfile.mkstemp(suffix=".json", prefix="client_state_")
     try:
@@ -282,6 +282,7 @@ def _compute_per_client_budgets(
     if not node_ids:
         logger.warning("No nodes discovered for budget setup, retrying in 5s...")
         import time
+
         time.sleep(5)
         node_ids = list(grid.get_node_ids())
     if not node_ids:
@@ -292,17 +293,14 @@ def _compute_per_client_budgets(
     return budgets, None
 
 
-
-
 @app.main()
 def main(grid: Grid, context: Context) -> None:
     config_path = str(context.run_config.get("config-path", "config/default.yaml"))
 
-    app_overrides = json.loads(
-        str(context.run_config.get("app_config_overrides", "{}"))
-    )
+    app_overrides = json.loads(str(context.run_config.get("app_config_overrides", "{}")))
     overrides = {
-        k: v for k, v in context.run_config.items()
+        k: v
+        for k, v in context.run_config.items()
         if k not in ("config-path", "app_config_overrides")
     }
     overrides.update(app_overrides)
@@ -340,7 +338,11 @@ def main(grid: Grid, context: Context) -> None:
         nonlocal last_arrays
         last_arrays = round_arrays
         return _run_global_test_evaluate(
-            server_round, round_arrays, config, global_model, tracker,
+            server_round,
+            round_arrays,
+            config,
+            global_model,
+            tracker,
         )
 
     wall_start = perf_counter()

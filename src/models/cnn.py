@@ -22,7 +22,13 @@ _INPUT_DIMS_MAP: dict[str, tuple[int, int]] = {
 
 
 class CNN(nn.Module):
-    def __init__(self, num_classes: int = 10, in_channels: int = 3, input_h: int = 32, input_w: int = 32) -> None:
+    def __init__(
+        self,
+        num_classes: int = 10,
+        in_channels: int = 3,
+        input_h: int = 32,
+        input_w: int = 32,
+    ) -> None:
         super().__init__()
         self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=3, padding=1)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
@@ -56,7 +62,10 @@ class CNNModel(BaseModel):
         in_channels = _INPUT_CHANNELS_MAP.get(dataset_name, 3)
         input_h, input_w = _INPUT_DIMS_MAP.get(dataset_name, (32, 32))
         self._model = CNN(
-            num_classes, in_channels=in_channels, input_h=input_h, input_w=input_w,
+            num_classes,
+            in_channels=in_channels,
+            input_h=input_h,
+            input_w=input_w,
         )
 
     def get_model(self) -> nn.Module:

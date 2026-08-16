@@ -61,17 +61,13 @@ def test_weight_roundtrip() -> None:
     model.set_weights(modified_weights)
 
     new_weights = model.get_weights()
-    for orig, new in zip(original_weights, new_weights):
-        assert not torch.allclose(
-            torch.from_numpy(orig), torch.from_numpy(new)
-        )
+    for orig, new in zip(original_weights, new_weights, strict=False):
+        assert not torch.allclose(torch.from_numpy(orig), torch.from_numpy(new))
 
     model.set_weights(original_weights)
     restored_weights = model.get_weights()
-    for orig, restored in zip(original_weights, restored_weights):
-        assert torch.allclose(
-            torch.from_numpy(orig), torch.from_numpy(restored)
-        )
+    for orig, restored in zip(original_weights, restored_weights, strict=False):
+        assert torch.allclose(torch.from_numpy(orig), torch.from_numpy(restored))
 
 
 def test_forward_pass() -> None:

@@ -41,7 +41,9 @@ class TestConfigLoading:
         assert config.bo.optimization_metric == "utility_retention"
 
     def test_pldp_bo_noniid_config_loads(self) -> None:
-        config = load_config("config/experiments/archive/pldp_bo_cifar100_noniid_logit_disagreement.yaml")
+        config = load_config(
+            "config/experiments/archive/pldp_bo_cifar100_noniid_logit_disagreement.yaml",
+        )
         assert config.data.partition_type == "noniid"
         assert config.data.partition_alpha == 0.5
         assert config.model.name == "cnn"
@@ -161,7 +163,11 @@ class TestFullRoundLifecycle:
             assert epsilon <= candidate + 1e-12
             assert self.EPS_MIN <= epsilon <= self.EPS_MAX
 
-            sigma = computed_sigma if computed_sigma > 0 else calibrate_sigma(epsilon, self.C, self.DELTA)
+            sigma = (
+                computed_sigma
+                if computed_sigma > 0
+                else calibrate_sigma(epsilon, self.C, self.DELTA)
+            )
             accountant.step(sigma=sigma, clipping_norm=self.C, num_steps=1)
 
             metric = self._simulate_training_metric(epsilon)
@@ -199,7 +205,11 @@ class TestFullRoundLifecycle:
             epsilon, computed_sigma = self._resolve_epsilon(candidate, accountant)
             if epsilon < 0:
                 break
-            sigma = computed_sigma if computed_sigma > 0 else calibrate_sigma(epsilon, self.C, self.DELTA)
+            sigma = (
+                computed_sigma
+                if computed_sigma > 0
+                else calibrate_sigma(epsilon, self.C, self.DELTA)
+            )
             accountant.step(sigma=sigma, clipping_norm=self.C, num_steps=1)
             metric = self._simulate_training_metric(epsilon)
             scheduler.step(epsilon, metric)
@@ -245,7 +255,11 @@ class TestFullRoundLifecycle:
             else:
                 epsilon = candidate
                 computed_sigma = 0.0
-            sigma = computed_sigma if computed_sigma > 0 else calibrate_sigma(epsilon, self.C, self.DELTA)
+            sigma = (
+                computed_sigma
+                if computed_sigma > 0
+                else calibrate_sigma(epsilon, self.C, self.DELTA)
+            )
             accountant.step(sigma=sigma, clipping_norm=self.C, num_steps=1)
 
         assert accountant.get_epsilon() > 0
@@ -268,7 +282,11 @@ class TestFullRoundLifecycle:
             else:
                 epsilon = candidate
                 computed_sigma = 0.0
-            sigma = computed_sigma if computed_sigma > 0 else calibrate_sigma(epsilon, self.C, self.DELTA)
+            sigma = (
+                computed_sigma
+                if computed_sigma > 0
+                else calibrate_sigma(epsilon, self.C, self.DELTA)
+            )
             accountant.step(sigma=sigma, clipping_norm=self.C, num_steps=1)
 
         assert accountant.get_epsilon() > 0
@@ -300,7 +318,11 @@ class TestFullRoundLifecycle:
                 epsilon, computed_sigma = self._resolve_epsilon(candidate, acct)
                 if epsilon < 0:
                     continue
-                sigma = computed_sigma if computed_sigma > 0 else calibrate_sigma(epsilon, self.C, self.DELTA)
+                sigma = (
+                    computed_sigma
+                    if computed_sigma > 0
+                    else calibrate_sigma(epsilon, self.C, self.DELTA)
+                )
                 acct.step(sigma=sigma, clipping_norm=self.C, num_steps=1)
                 sched.step(epsilon, metric(idx, epsilon))
 
@@ -326,7 +348,7 @@ class TestFullRoundLifecycle:
         sigma = calibrate_sigma(epsilon, self.C, self.DELTA)
         accountant.step(sigma=sigma, clipping_norm=self.C, num_steps=1)
 
-        for metric_config, metrics_key, value in [
+        for metric_config, _metrics_key, value in [
             ("nun", "update_norm", 1.5),
             ("utility", "utility_loss", 0.75),
         ]:
@@ -399,8 +421,14 @@ class TestFixedBaselineBudgetMatch:
         accepted = 0
         for _ in range(40):
             rdp_cost, sigma = enforce_rdp_budget(
-                scheduler.get_rdp(), current, self.BUDGET, 1e-6,
-                self.ALPHA, 1.0, clipping_mode="per_update", num_steps=1,
+                scheduler.get_rdp(),
+                current,
+                self.BUDGET,
+                1e-6,
+                self.ALPHA,
+                1.0,
+                clipping_mode="per_update",
+                num_steps=1,
             )
             if rdp_cost < 0:
                 break
@@ -412,8 +440,14 @@ class TestFixedBaselineBudgetMatch:
         assert accepted == 20
         assert current == pytest.approx(self.BUDGET)
         rdp_cost, _ = enforce_rdp_budget(
-            self.CANDIDATE, current, self.BUDGET, 1e-6,
-            self.ALPHA, 1.0, clipping_mode="per_update", num_steps=1,
+            self.CANDIDATE,
+            current,
+            self.BUDGET,
+            1e-6,
+            self.ALPHA,
+            1.0,
+            clipping_mode="per_update",
+            num_steps=1,
         )
         assert rdp_cost < 0
 
@@ -431,30 +465,39 @@ class TestFourCellMatrixSmoke:
     METHOD_OVERRIDES: dict[str, dict[str, bool | float]] = {
         "nonprivate": {"privacy.enabled": False, "bo.enabled": False},
         "dpfedavg_fixed": {"privacy.enabled": True, "bo.enabled": False},
-        "fedprox_fixed": {"privacy.enabled": True, "bo.enabled": False,
-                          "federated.proximal_mu": 0.01},
+        "fedprox_fixed": {
+            "privacy.enabled": True,
+            "bo.enabled": False,
+            "federated.proximal_mu": 0.01,
+        },
         "pldpbo_nun": {"privacy.enabled": True, "bo.enabled": True},
     }
 
     @pytest.mark.parametrize(("method", "aggregation", "scheduler_cls", "strategy_cls"), CELLS)
     def test_cell_wiring(
-        self, method: str, aggregation: str,
-        scheduler_cls: str | None, strategy_cls: str,
+        self,
+        method: str,
+        aggregation: str,
+        scheduler_cls: str | None,
+        strategy_cls: str,  # noqa: ARG002
     ) -> None:
         from src.config.locked import collect_violations
         from src.server.strategy import MedianRobustAggregation, SafeFedAvg
         from src.server_app import _make_strategy
 
-        cfg = load_config("config/default.yaml", overrides={
-            "method": method,
-            "federated.aggregation": aggregation,
-            "assert_locked_config": False,
-            **self.METHOD_OVERRIDES[method],
-        })
+        cfg = load_config(
+            "config/default.yaml",
+            overrides={
+                "method": method,
+                "federated.aggregation": aggregation,
+                "assert_locked_config": False,
+                **self.METHOD_OVERRIDES[method],
+            },
+        )
 
-        assert all(
-            not v.startswith("method") for v in collect_violations(cfg)
-        ), collect_violations(cfg)
+        assert all(not v.startswith("method") for v in collect_violations(cfg)), collect_violations(
+            cfg
+        )
 
         if method == "nonprivate":
             from src.client_app import _make_scheduler
@@ -467,6 +510,8 @@ class TestFourCellMatrixSmoke:
             from src.privacy.epsilon_scheduler import FixedRDPScheduler
 
             scheduler = _make_rdp_native_scheduler(0, cfg)
-            expected_cls = FixedRDPScheduler if scheduler_cls == "FixedRDPScheduler" else PLDPBORDPScheduler
+            expected_cls = (
+                FixedRDPScheduler if scheduler_cls == "FixedRDPScheduler" else PLDPBORDPScheduler
+            )
             assert isinstance(scheduler, expected_cls)
             assert isinstance(_make_strategy(cfg, None, None, None), MedianRobustAggregation)

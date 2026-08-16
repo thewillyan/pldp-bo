@@ -101,9 +101,7 @@ class TestWeightedAveraging:
         deltas = [np.array([1.0, 0.0]), np.array([0.0, 1.0]), np.array([0.5, 0.5])]
         agg = _weighted_average(deltas, weights)
         w_sum = (
-            1.0 * np.array([1.0, 0.0])
-            + 1.0 * np.array([0.0, 1.0])
-            + 0.2 * np.array([0.5, 0.5])
+            1.0 * np.array([1.0, 0.0]) + 1.0 * np.array([0.0, 1.0]) + 0.2 * np.array([0.5, 0.5])
         ) / 2.2
         expected = w_sum
         np.testing.assert_array_almost_equal(agg, expected)
@@ -227,6 +225,7 @@ def _linear_two_input_model() -> nn.Module:
 class TestMacroF1:
     def test_hand_computed_three_class(self) -> None:
         from src.server_app import _macro_f1
+
         y_true = [0, 1, 2, 0, 1]
         y_pred = [0, 1, 2, 1, 1]
         # class 0: tp=1, fp=0, fn=1 -> P=1.0, R=0.5, F=2/3
@@ -236,15 +235,18 @@ class TestMacroF1:
 
     def test_never_correct_class_contributes_zero(self) -> None:
         from src.server_app import _macro_f1
+
         # class 0: tp=0, fp=0, fn=1 -> F=0; class 1: tp=1, fp=1, fn=0 -> F=2/3
         assert _macro_f1([0, 1], [1, 1]) == pytest.approx((0.0 + 2 / 3) / 2)
 
     def test_all_correct_single_class(self) -> None:
         from src.server_app import _macro_f1
+
         assert _macro_f1([2, 2, 2], [2, 2, 2]) == pytest.approx(1.0)
 
     def test_empty_returns_zero(self) -> None:
         from src.server_app import _macro_f1
+
         assert _macro_f1([], []) == 0.0
 
 
@@ -254,6 +256,7 @@ class TestGlobalTestEvaluate:
 
     def test_round_zero_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from src.server_app import _run_global_test_evaluate
+
         calls: list[int] = []
 
         def _counting_loader(_cfg: object) -> DataLoader[Any]:
@@ -274,9 +277,11 @@ class TestGlobalTestEvaluate:
         assert tracker.metrics == []
 
     def test_logs_acc_test_and_f1_test_at_round_step(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         from src.server_app import _run_global_test_evaluate
+
         monkeypatch.setattr(
             "src.server_app.create_test_loader",
             lambda _cfg: self._make_loader(torch.eye(2), torch.tensor([0, 1])),
@@ -292,15 +297,19 @@ class TestGlobalTestEvaluate:
         assert result is not None
         assert result["acc_test"] == pytest.approx(1.0)
         assert result["f1_test"] == pytest.approx(1.0)
-        assert tracker.metrics == [(  # type: ignore[comparison-overlap]
-            {"acc_test": pytest.approx(1.0), "f1_test": pytest.approx(1.0)},
-            7,
-        )]
+        assert tracker.metrics == [
+            (  # type: ignore[comparison-overlap]
+                {"acc_test": pytest.approx(1.0), "f1_test": pytest.approx(1.0)},
+                7,
+            )
+        ]
 
     def test_macro_f1_matches_hand_computed_on_mixed_batch(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         from src.server_app import _run_global_test_evaluate
+
         x = torch.cat([torch.eye(2), torch.eye(2)[:1], torch.eye(2)[:1]])  # e0, e1, e0, e0
         y = torch.tensor([0, 1, 0, 1])
         monkeypatch.setattr(
@@ -330,7 +339,9 @@ class _FakeGrid:
         return list(range(len(self._replies)))
 
     def send_and_receive(
-        self, messages: list[Message], timeout: float | None = None,  # noqa: ARG002
+        self,
+        messages: list[Message],
+        timeout: float | None = None,  # noqa: ARG002
     ) -> list[Message]:
         self.sent = messages
         return self._replies
@@ -338,13 +349,17 @@ class _FakeGrid:
 
 def _test_accuracy_reply(msg: Message, pid: int, acc: float, n: int) -> Message:
     return Message(
-        content=RecordDict({
-            "config": ConfigRecord({
-                "partition_id": pid,
-                "test_accuracy": acc,
-                "n_test": n,
-            }),
-        }),
+        content=RecordDict(
+            {
+                "config": ConfigRecord(
+                    {
+                        "partition_id": pid,
+                        "test_accuracy": acc,
+                        "n_test": n,
+                    }
+                ),
+            }
+        ),
         reply_to=msg,
     )
 
@@ -352,6 +367,7 @@ def _test_accuracy_reply(msg: Message, pid: int, acc: float, n: int) -> Message:
 class TestFemnistClientTestAccuracy:
     def test_sends_query_with_task_and_final_arrays(self) -> None:
         from src.server_app import _run_femnist_client_test_accuracy
+
         msg = Message(content=RecordDict({}), message_type="query", dst_node_id=0)
         grid = _FakeGrid([_test_accuracy_reply(msg, 0, 0.9, 5)])
         tracker = _RecordingTracker()
@@ -363,14 +379,17 @@ class TestFemnistClientTestAccuracy:
 
     def test_writes_deterministic_json_keyed_by_partition_id(self) -> None:
         from src.server_app import _run_femnist_client_test_accuracy
+
         msgs = [
             Message(content=RecordDict({}), message_type="query", dst_node_id=0),
             Message(content=RecordDict({}), message_type="query", dst_node_id=1),
         ]
-        grid = _FakeGrid([
-            _test_accuracy_reply(msgs[0], 2, 0.85, 10),
-            _test_accuracy_reply(msgs[1], 1, 0.90, 5),
-        ])
+        grid = _FakeGrid(
+            [
+                _test_accuracy_reply(msgs[0], 2, 0.85, 10),
+                _test_accuracy_reply(msgs[1], 1, 0.90, 5),
+            ]
+        )
         tracker = _RecordingTracker()
         _run_femnist_client_test_accuracy(cast(Any, grid), ArrayRecord({}), cast(Any, tracker))
         assert len(tracker.artifacts) == 1
@@ -379,15 +398,20 @@ class TestFemnistClientTestAccuracy:
 
     def test_missing_accuracy_reply_skipped(self) -> None:
         from src.server_app import _run_femnist_client_test_accuracy
+
         msg = Message(content=RecordDict({}), message_type="query", dst_node_id=0)
-        grid = _FakeGrid([
-            Message(
-                content=RecordDict({
-                    "config": ConfigRecord({"partition_id": 0}),
-                }),
-                reply_to=msg,
-            ),
-        ])
+        grid = _FakeGrid(
+            [
+                Message(
+                    content=RecordDict(
+                        {
+                            "config": ConfigRecord({"partition_id": 0}),
+                        }
+                    ),
+                    reply_to=msg,
+                ),
+            ]
+        )
         tracker = _RecordingTracker()
         _run_femnist_client_test_accuracy(cast(Any, grid), ArrayRecord({}), cast(Any, tracker))
         assert tracker.artifacts == []
@@ -396,6 +420,7 @@ class TestFemnistClientTestAccuracy:
 class TestRemainingRdpMap:
     def _make_strategy(self) -> Any:
         from src.server.strategy import MedianRobustAggregation
+
         return MedianRobustAggregation(
             per_client_budgets={0: 10.0, 1: 10.0},
             node_to_partition={7: 0, 8: 1},
@@ -417,6 +442,7 @@ class TestRemainingRdpMap:
 
     def test_node_keyed_budgets_resolve_partitions(self) -> None:
         from src.server.strategy import MedianRobustAggregation
+
         strategy = MedianRobustAggregation(
             per_client_budgets={7: 10.0, 8: 10.0},
             node_to_partition={7: 0, 8: 1},
@@ -426,6 +452,7 @@ class TestRemainingRdpMap:
 
     def test_none_when_no_budgets(self) -> None:
         from src.server.strategy import MedianRobustAggregation
+
         strategy = MedianRobustAggregation()
         assert strategy._remaining_rdp_map() is None
 
@@ -463,22 +490,26 @@ class TestSpecRoundMetrics:
 
     def _active_contents(self) -> list[RecordDict]:
         return [
-            _metrics_content({
-                "client-id": 0,
-                "num-examples": 4,
-                "r_t_final": 0.5,
-                "cumulative_rdp": 1.0,
-                "bo_time": 0.1,
-                "acct_time": 0.02,
-            }),
-            _metrics_content({
-                "client-id": 1,
-                "num-examples": 4,
-                "r_t_final": 0.3,
-                "cumulative_rdp": 0.6,
-                "bo_time": 0.2,
-                "acct_time": 0.04,
-            }),
+            _metrics_content(
+                {
+                    "client-id": 0,
+                    "num-examples": 4,
+                    "r_t_final": 0.5,
+                    "cumulative_rdp": 1.0,
+                    "bo_time": 0.1,
+                    "acct_time": 0.02,
+                }
+            ),
+            _metrics_content(
+                {
+                    "client-id": 1,
+                    "num-examples": 4,
+                    "r_t_final": 0.3,
+                    "cumulative_rdp": 0.6,
+                    "bo_time": 0.2,
+                    "acct_time": 0.04,
+                }
+            ),
         ]
 
     def test_logs_section43_keys_at_round_step(self) -> None:
@@ -529,22 +560,24 @@ class TestClientStateAccumulation:
         strategy._log_client_metrics(
             1,
             [
-                _metrics_content({
-                    "client-id": 0,
-                    "num-examples": 4,
-                    "r_t_candidate": 0.6,
-                    "r_t_final": 0.5,
-                    "cumulative_rdp": 1.0,
-                    "phase": 0.0,
-                    "observed_m": 0.42,
-                    "acct_cost": 0.31,
-                    "utility_loss_clean": 1.2,
-                    "utility_loss": 1.4,
-                    "update_norm": 0.7,
-                    "update_norm_clean": 0.5,
-                    "sigma": 8.0,
-                    "logit_disagreement": 0.1,
-                }),
+                _metrics_content(
+                    {
+                        "client-id": 0,
+                        "num-examples": 4,
+                        "r_t_candidate": 0.6,
+                        "r_t_final": 0.5,
+                        "cumulative_rdp": 1.0,
+                        "phase": 0.0,
+                        "observed_m": 0.42,
+                        "acct_cost": 0.31,
+                        "utility_loss_clean": 1.2,
+                        "utility_loss": 1.4,
+                        "update_norm": 0.7,
+                        "update_norm_clean": 0.5,
+                        "sigma": 8.0,
+                        "logit_disagreement": 0.1,
+                    }
+                ),
             ],
         )
         s = strategy._client_state[0]
@@ -570,29 +603,33 @@ class TestClientStateAccumulation:
         strategy._log_client_metrics(
             1,
             [
-                _metrics_content({
-                    "client-id": 0,
-                    "num-examples": 4,
-                    "r_t_candidate": 0.05,
-                    "r_t_final": 0.02,
-                    "cumulative_rdp": 0.5,
-                    "phase": 0.0,
-                    "acct_cost": 0.5,
-                }),
+                _metrics_content(
+                    {
+                        "client-id": 0,
+                        "num-examples": 4,
+                        "r_t_candidate": 0.05,
+                        "r_t_final": 0.02,
+                        "cumulative_rdp": 0.5,
+                        "phase": 0.0,
+                        "acct_cost": 0.5,
+                    }
+                ),
             ],
         )
         strategy._log_client_metrics(
             2,
             [
-                _metrics_content({
-                    "client-id": 0,
-                    "num-examples": 4,
-                    "r_t_candidate": 0.4,
-                    "r_t_final": 0.4,
-                    "cumulative_rdp": 0.9,
-                    "phase": 1.0,
-                    "acct_cost": 0.1,
-                }),
+                _metrics_content(
+                    {
+                        "client-id": 0,
+                        "num-examples": 4,
+                        "r_t_candidate": 0.4,
+                        "r_t_final": 0.4,
+                        "cumulative_rdp": 0.9,
+                        "phase": 1.0,
+                        "acct_cost": 0.1,
+                    }
+                ),
             ],
         )
         s = strategy._client_state[0]
@@ -604,17 +641,19 @@ class TestClientStateAccumulation:
         strategy = self._make_strategy()
         strategy._remaining_rdp_sent = {0: 0.0}
         reply = Message(
-            content=_metrics_content({
-                "client-id": 0,
-                "num-examples": 0,
-                "budget_exhausted": 1.0,
-                "rdp_cost": 0.0,
-                "cumulative_rdp": 10.0,
-                "phase": 2.0,
-                "r_t_candidate": 0.05,
-                "update_norm": 0.0,
-                "sigma": 0.0,
-            }),
+            content=_metrics_content(
+                {
+                    "client-id": 0,
+                    "num-examples": 0,
+                    "budget_exhausted": 1.0,
+                    "rdp_cost": 0.0,
+                    "cumulative_rdp": 10.0,
+                    "phase": 2.0,
+                    "r_t_candidate": 0.05,
+                    "update_norm": 0.0,
+                    "sigma": 0.0,
+                }
+            ),
             message_type="train",
             dst_node_id=0,
         )
@@ -637,15 +676,17 @@ class TestClientStateAccumulation:
         strategy._log_client_metrics(
             1,
             [
-                _metrics_content({
-                    "client-id": 0,
-                    "num-examples": 4,
-                    "r_t_candidate": 0.5,
-                    "r_t_final": 0.5,
-                    "cumulative_rdp": 1.0,
-                    "phase": 1.0,
-                    "acct_cost": 0.2,
-                }),
+                _metrics_content(
+                    {
+                        "client-id": 0,
+                        "num-examples": 4,
+                        "r_t_candidate": 0.5,
+                        "r_t_final": 0.5,
+                        "cumulative_rdp": 1.0,
+                        "phase": 1.0,
+                        "acct_cost": 0.2,
+                    }
+                ),
             ],
         )
         state = strategy.get_client_state()
@@ -664,15 +705,29 @@ class TestClientStateAccumulation:
         strategy = self._make_strategy()
         strategy._log_client_metrics(
             1,
-            [_metrics_content({
-                "client-id": 0, "num-examples": 4, "bo_time": 0.1, "acct_time": 0.02,
-            })],
+            [
+                _metrics_content(
+                    {
+                        "client-id": 0,
+                        "num-examples": 4,
+                        "bo_time": 0.1,
+                        "acct_time": 0.02,
+                    }
+                )
+            ],
         )
         strategy._log_client_metrics(
             2,
-            [_metrics_content({
-                "client-id": 0, "num-examples": 4, "bo_time": 0.3, "acct_time": 0.04,
-            })],
+            [
+                _metrics_content(
+                    {
+                        "client-id": 0,
+                        "num-examples": 4,
+                        "bo_time": 0.3,
+                        "acct_time": 0.04,
+                    }
+                )
+            ],
         )
         assert strategy.get_bo_time_total() == pytest.approx(0.4)
         assert strategy.get_acct_time_total() == pytest.approx(0.06)
@@ -696,15 +751,17 @@ class TestClientStateArtifact:
         strategy._log_client_metrics(
             1,
             [
-                _metrics_content({
-                    "client-id": 0,
-                    "num-examples": 4,
-                    "r_t_candidate": 0.05,
-                    "r_t_final": 0.05,
-                    "cumulative_rdp": 2.0,
-                    "phase": 1.0,
-                    "acct_cost": 0.2,
-                }),
+                _metrics_content(
+                    {
+                        "client-id": 0,
+                        "num-examples": 4,
+                        "r_t_candidate": 0.05,
+                        "r_t_final": 0.05,
+                        "cumulative_rdp": 2.0,
+                        "phase": 1.0,
+                        "acct_cost": 0.2,
+                    }
+                ),
             ],
         )
         return strategy
@@ -748,7 +805,11 @@ class TestClientStateArtifact:
         strategy = self._accumulated_strategy()
         strategy._tracker = tracker
         _write_client_state_artifact(
-            strategy, self._config(privacy_enabled=False), tracker, 10.0, 3,
+            strategy,
+            self._config(privacy_enabled=False),
+            tracker,
+            10.0,
+            3,
         )
         assert tracker.artifacts == []
 
@@ -794,7 +855,9 @@ class TestStrategyRouting:
 
         strategy = _make_strategy(
             self._config("attenuation", "pldpbo_nun"),
-            cast("ExperimentTracker | None", _RecordingTracker()), {0: 10.0}, {0: 0},
+            cast("ExperimentTracker | None", _RecordingTracker()),
+            {0: 10.0},
+            {0: 0},
         )
         assert isinstance(strategy, MedianRobustAggregation)
         assert strategy._tracker is not None

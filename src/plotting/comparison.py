@@ -36,7 +36,7 @@ def _resolve_labels(
 
 def _setup_figure(
     n_plots: int,
-    n_runs: int,
+    _n_runs: int,
 ) -> tuple[matplotlib.figure.Figure, list[matplotlib.axes.Axes]]:
     if n_plots == 1:
         width = 8
@@ -96,7 +96,12 @@ def plot_comparison_convergence(
             color = palette[i]
             ls = LINE_STYLES[i % len(LINE_STYLES)]
             ax.plot(
-                loss_rounds, loss_vals, color=color, linestyle=ls, linewidth=2, label=label,
+                loss_rounds,
+                loss_vals,
+                color=color,
+                linestyle=ls,
+                linewidth=2,
+                label=label,
             )
         ax.set_xlabel("Round")
         ax.set_ylabel("Loss")
@@ -112,7 +117,12 @@ def plot_comparison_convergence(
             color = palette[i]
             ls = LINE_STYLES[i % len(LINE_STYLES)]
             ax.plot(
-                acc_rounds, accuracies, color=color, linestyle=ls, linewidth=2, label=label,
+                acc_rounds,
+                accuracies,
+                color=color,
+                linestyle=ls,
+                linewidth=2,
+                label=label,
             )
         ax.set_xlabel("Round")
         ax.set_ylabel("Accuracy")
@@ -197,12 +207,14 @@ def plot_mean_convergence(
         losses_arr = numpy.array(all_loss)
         mean = numpy.mean(losses_arr, axis=0)
         n_contrib = len(all_loss)
-        ax.plot(common_rounds_loss, mean, color="steelblue", linewidth=2,
-                label=f"Mean (N={n_contrib})")
+        ax.plot(
+            common_rounds_loss, mean, color="steelblue", linewidth=2, label=f"Mean (N={n_contrib})"
+        )
         if n_contrib > 1:
             std = numpy.std(losses_arr, axis=0, ddof=1)
-            ax.fill_between(common_rounds_loss, mean - std, mean + std,
-                            alpha=0.3, color="steelblue")
+            ax.fill_between(
+                common_rounds_loss, mean - std, mean + std, alpha=0.3, color="steelblue"
+            )
         ax.set_xlabel("Round")
         ax.set_ylabel("Loss")
         ax.set_title("Server Loss vs Round (Mean ± Std)")
@@ -216,12 +228,10 @@ def plot_mean_convergence(
         acc_arr = numpy.array(all_acc)
         mean = numpy.mean(acc_arr, axis=0)
         n_contrib = len(all_acc)
-        ax.plot(common_rounds_acc, mean, color="green", linewidth=2,
-                label=f"Mean (N={n_contrib})")
+        ax.plot(common_rounds_acc, mean, color="green", linewidth=2, label=f"Mean (N={n_contrib})")
         if n_contrib > 1:
             std = numpy.std(acc_arr, axis=0, ddof=1)
-            ax.fill_between(common_rounds_acc, mean - std, mean + std,
-                            alpha=0.3, color="green")
+            ax.fill_between(common_rounds_acc, mean - std, mean + std, alpha=0.3, color="green")
         ax.set_xlabel("Round")
         ax.set_ylabel("Accuracy")
         ax.set_title("Accuracy vs Round (Mean ± Std)")
@@ -287,8 +297,12 @@ def plot_comparison_privacy(
             epsilons = eps_stats.get("mean", [])
             if epsilons:
                 ax.plot(
-                    rounds_per, epsilons, color=color, linestyle=ls,
-                    linewidth=2, label=label,
+                    rounds_per,
+                    epsilons,
+                    color=color,
+                    linestyle=ls,
+                    linewidth=2,
+                    label=label,
                 )
                 if show_std:
                     stds = eps_stats.get("std", [])
@@ -317,13 +331,19 @@ def plot_comparison_privacy(
             rdp = run_rdp_flags[run_id]
             cumulative_metric = "cumulative_rdp" if rdp else "cumulative_epsilon"
             rounds_cum, cum_stats = extract_round_stats(
-                run, cumulative_metric, aggs=("mean",),
+                run,
+                cumulative_metric,
+                aggs=("mean",),
             )
             cum_epsilons = cum_stats.get("mean", [])
             if cum_epsilons:
                 ax.plot(
-                    rounds_cum, cum_epsilons, color=color, linestyle=ls,
-                    linewidth=2, label=label,
+                    rounds_cum,
+                    cum_epsilons,
+                    color=color,
+                    linestyle=ls,
+                    linewidth=2,
+                    label=label,
                 )
 
         any_rdp = any(run_rdp_flags.get(rid, False) for rid in run_ids)

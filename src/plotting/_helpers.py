@@ -23,7 +23,7 @@ def get_run_by_id(run_id: str) -> Run:
             raise ValueError(
                 f"Multiple runs match prefix '{run_id}': "
                 f"{[m.info.run_id for m in matches]}. Use full run ID.",
-            )
+            ) from err
         if matches:
             return matches[0]
         raise ValueError(
@@ -44,6 +44,7 @@ def get_run_name(run: Run) -> str:
 _AUTO_NAME_RE = re.compile(r"^[a-z]+-[a-z]+-\d+$")
 _per_client_key_re = re.compile(r"(?:^|_)client_\d+_")
 
+
 def _is_mlflow_auto_name(name: str) -> bool:
     return bool(_AUTO_NAME_RE.match(name))
 
@@ -59,8 +60,7 @@ def _get_metric_history(run_id: str, metric_name: str) -> list[tuple[int, float]
         metrics = client.get_metric_history(run_id, metric_name)
     except Exception as e:
         warnings.warn(
-            f"Failed to fetch metric history for '{metric_name}' "
-            f"(run {run_id[:8]}): {e}",
+            f"Failed to fetch metric history for '{metric_name}' (run {run_id[:8]}): {e}",
             stacklevel=2,
         )
         return []
@@ -75,7 +75,8 @@ def _dedup_by_step(pairs: list[tuple[int, float]]) -> list[tuple[int, float]]:
 
 
 def extract_metrics_by_round(
-    run: Run, metric_name: str,
+    run: Run,
+    metric_name: str,
 ) -> tuple[list[int], list[float]]:
     history = _get_metric_history(run.info.run_id, metric_name)
     if history:
@@ -97,7 +98,7 @@ def extract_metrics_by_round(
             try:
                 round_num = int(parts[1])
                 rounds[round_num] = float(value)
-            except (ValueError, IndexError):
+            except ValueError, IndexError:
                 continue
 
     if not rounds:
@@ -170,7 +171,7 @@ def extract_per_client_metric(
                 try:
                     round_num = int(parts[1])
                     rounds[round_num] = float(value)
-                except (ValueError, IndexError):
+                except ValueError, IndexError:
                     continue
 
     if not rounds:
@@ -225,7 +226,7 @@ def extract_round_stats(
         try:
             round_num = int(parts[1])
             result[agg][round_num] = float(value)
-        except (ValueError, IndexError):
+        except ValueError, IndexError:
             continue
 
     all_rounds = set()

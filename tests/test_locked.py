@@ -102,53 +102,113 @@ def test_constant_violations_raise(label: str, mutate: object) -> None:
         ("method", lambda c: setattr(c, "method", "bogus")),
         ("method", lambda c: setattr(c, "method", "")),
         # nonprivate contract
-        ("method", lambda c: (setattr(c, "method", "nonprivate"))),
-        ("method", lambda c: (
-            setattr(c, "method", "nonprivate"),
-            setattr(c.privacy, "enabled", True),
-        )[-1] and None),
-        ("method", lambda c: (
-            setattr(c, "method", "nonprivate"),
-            setattr(c.bo, "enabled", True),
-        )[-1] and None),
-        ("method", lambda c: (
-            setattr(c, "method", "nonprivate"),
-            setattr(c.federated, "aggregation", "attenuation"),
-        )[-1] and None),
+        ("method", lambda c: setattr(c, "method", "nonprivate")),
+        (
+            "method",
+            lambda c: (
+                (
+                    setattr(c, "method", "nonprivate"),
+                    setattr(c.privacy, "enabled", True),
+                )[-1]
+                and None
+            ),
+        ),
+        (
+            "method",
+            lambda c: (
+                (
+                    setattr(c, "method", "nonprivate"),
+                    setattr(c.bo, "enabled", True),
+                )[-1]
+                and None
+            ),
+        ),
+        (
+            "method",
+            lambda c: (
+                (
+                    setattr(c, "method", "nonprivate"),
+                    setattr(c.federated, "aggregation", "attenuation"),
+                )[-1]
+                and None
+            ),
+        ),
         # fixed baselines
-        ("method", lambda c: (
-            setattr(c, "method", "dpfedavg_fixed"),
-            setattr(c.privacy, "enabled", False),
-            setattr(c.bo, "enabled", False),
-        )[-1] and None),
-        ("method", lambda c: (
-            setattr(c, "method", "dpfedavg_fixed"),
-            setattr(c.bo, "enabled", True),
-        )[-1] and None),
-        ("fixed_rdp_target", lambda c: (
-            setattr(c, "method", "dpfedavg_fixed"),
-            setattr(c.bo, "enabled", False),
-            setattr(c.privacy, "fixed_rdp_target", 1.0),
-        )[-1] and None),
+        (
+            "method",
+            lambda c: (
+                (
+                    setattr(c, "method", "dpfedavg_fixed"),
+                    setattr(c.privacy, "enabled", False),
+                    setattr(c.bo, "enabled", False),
+                )[-1]
+                and None
+            ),
+        ),
+        (
+            "method",
+            lambda c: (
+                (
+                    setattr(c, "method", "dpfedavg_fixed"),
+                    setattr(c.bo, "enabled", True),
+                )[-1]
+                and None
+            ),
+        ),
+        (
+            "fixed_rdp_target",
+            lambda c: (
+                (
+                    setattr(c, "method", "dpfedavg_fixed"),
+                    setattr(c.bo, "enabled", False),
+                    setattr(c.privacy, "fixed_rdp_target", 1.0),
+                )[-1]
+                and None
+            ),
+        ),
         # BO variants
-        ("method", lambda c: (
-            setattr(c, "method", "pldpbo_snr"),
-            setattr(c.bo, "enabled", False),
-        )[-1] and None),
-        ("method", lambda c: (
-            setattr(c, "method", "pldpbo_utility"),
-            setattr(c.privacy, "enabled", False),
-        )[-1] and None),
-        ("method", lambda c: (
-            setattr(c, "method", "pldpbo_agreement"),
-            setattr(c.federated, "aggregation", "plain"),
-        )[-1] and None),
+        (
+            "method",
+            lambda c: (
+                (
+                    setattr(c, "method", "pldpbo_snr"),
+                    setattr(c.bo, "enabled", False),
+                )[-1]
+                and None
+            ),
+        ),
+        (
+            "method",
+            lambda c: (
+                (
+                    setattr(c, "method", "pldpbo_utility"),
+                    setattr(c.privacy, "enabled", False),
+                )[-1]
+                and None
+            ),
+        ),
+        (
+            "method",
+            lambda c: (
+                (
+                    setattr(c, "method", "pldpbo_agreement"),
+                    setattr(c.federated, "aggregation", "plain"),
+                )[-1]
+                and None
+            ),
+        ),
         # fedprox mu
-        ("mu_fedprox", lambda c: (
-            setattr(c, "method", "fedprox_fixed"),
-            setattr(c.bo, "enabled", False),
-            setattr(c.federated, "proximal_mu", 0.0),
-        )[-1] and None),
+        (
+            "mu_fedprox",
+            lambda c: (
+                (
+                    setattr(c, "method", "fedprox_fixed"),
+                    setattr(c.bo, "enabled", False),
+                    setattr(c.federated, "proximal_mu", 0.0),
+                )[-1]
+                and None
+            ),
+        ),
         ("mu_fedprox", lambda c: setattr(c.federated, "proximal_mu", 0.01)),
         # aggregation value
         ("aggregation", lambda c: setattr(c.federated, "aggregation", "bogus")),
@@ -198,9 +258,18 @@ def test_config_version_changes_with_constants(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_every_method_name_is_valid() -> None:
-    for name in ("nonprivate", "dpfedavg_fixed", "fedprox_fixed", "pldpbo_nun",
-                 "pldpbo_utility", "pldpbo_retention", "pldpbo_efficiency",
-                 "pldpbo_perremaining", "pldpbo_snr", "pldpbo_agreement"):
+    for name in (
+        "nonprivate",
+        "dpfedavg_fixed",
+        "fedprox_fixed",
+        "pldpbo_nun",
+        "pldpbo_utility",
+        "pldpbo_retention",
+        "pldpbo_efficiency",
+        "pldpbo_perremaining",
+        "pldpbo_snr",
+        "pldpbo_agreement",
+    ):
         cfg = _locked_config()
         cfg.method = name
         if name == "nonprivate":

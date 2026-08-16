@@ -18,7 +18,16 @@ logger = logging.getLogger(__name__)
 # ratio 50^(1/9) ~= 1.5444, sum ~= 1.3995 (~14% of B_RDP=10.0). The paper
 # fixes warm-up in absolute RDP units, independent of the BO search bounds.
 WARMUP_GRID: tuple[float, ...] = (
-    0.01, 0.0154, 0.0239, 0.0368, 0.0569, 0.0879, 0.1357, 0.2095, 0.3236, 0.4998,
+    0.01,
+    0.0154,
+    0.0239,
+    0.0368,
+    0.0569,
+    0.0879,
+    0.1357,
+    0.2095,
+    0.3236,
+    0.4998,
 )
 WARMUP_SUM_NOMINAL: float = sum(WARMUP_GRID)
 
@@ -75,9 +84,13 @@ def _serialize_kernel_params(params: dict) -> dict:
             serialized[k] = v.tolist()
         elif isinstance(v, (tuple, list)):
             serialized[k] = [
-                float(x) if isinstance(x, (float, np.floating)) else
-                int(x) if isinstance(x, (int, np.integer)) else
-                bool(x) if isinstance(x, np.bool_) else x
+                float(x)
+                if isinstance(x, (float, np.floating))
+                else int(x)
+                if isinstance(x, (int, np.integer))
+                else bool(x)
+                if isinstance(x, np.bool_)
+                else x
                 for x in v
             ]
     return serialized
@@ -167,7 +180,7 @@ class PLDPBOScheduler(EpsilonScheduler):
         else:
             self._ema_t += 1
             raw = self._ema_alpha * metric + (1 - self._ema_alpha) * self._prev_smoothed
-            bias_correction = 1 - self._ema_alpha ** self._ema_t
+            bias_correction = 1 - self._ema_alpha**self._ema_t
             smoothed = raw / max(bias_correction, 1e-12)
         self._prev_smoothed = smoothed
 
@@ -249,9 +262,13 @@ class PLDPBOScheduler(EpsilonScheduler):
         if self._remaining_budget is not None:
             state["remaining_budget"] = self._remaining_budget
         if self._restored_kernel is not None:
-            state["gp_kernel_params"] = json.dumps(_serialize_kernel_params(self._restored_kernel.get_params(deep=True)))
+            state["gp_kernel_params"] = json.dumps(
+                _serialize_kernel_params(self._restored_kernel.get_params(deep=True)),
+            )
         elif self._gp is not None:
-            state["gp_kernel_params"] = json.dumps(_serialize_kernel_params(self._gp.kernel_.get_params(deep=True)))
+            state["gp_kernel_params"] = json.dumps(
+                _serialize_kernel_params(self._gp.kernel_.get_params(deep=True)),
+            )
         if self._seed is not None:
             state["seed"] = self._seed
         return state
@@ -290,7 +307,8 @@ class PLDPBOScheduler(EpsilonScheduler):
             except (ValueError, TypeError) as exc:
                 logger.warning(
                     "Failed to restore kernel params for %s: %s; using fresh kernel",
-                    state.get("gp_kernel", "?"), exc,
+                    state.get("gp_kernel", "?"),
+                    exc,
                 )
             scheduler._restored_kernel = k
         if scheduler._phase == "bo":
@@ -389,7 +407,7 @@ class PLDPBORDPScheduler(RDPNativeScheduler):
         else:
             self._ema_t += 1
             raw = self._ema_alpha * metric + (1 - self._ema_alpha) * self._prev_smoothed
-            bias_correction = 1 - self._ema_alpha ** self._ema_t
+            bias_correction = 1 - self._ema_alpha**self._ema_t
             smoothed = raw / max(bias_correction, 1e-12)
         self._prev_smoothed = smoothed
 
@@ -467,9 +485,13 @@ class PLDPBORDPScheduler(RDPNativeScheduler):
         if self._remaining_budget is not None:
             state["remaining_budget"] = self._remaining_budget
         if self._restored_kernel is not None:
-            state["gp_kernel_params"] = json.dumps(_serialize_kernel_params(self._restored_kernel.get_params(deep=True)))
+            state["gp_kernel_params"] = json.dumps(
+                _serialize_kernel_params(self._restored_kernel.get_params(deep=True)),
+            )
         elif self._gp is not None:
-            state["gp_kernel_params"] = json.dumps(_serialize_kernel_params(self._gp.kernel_.get_params(deep=True)))
+            state["gp_kernel_params"] = json.dumps(
+                _serialize_kernel_params(self._gp.kernel_.get_params(deep=True)),
+            )
         if self._seed is not None:
             state["seed"] = self._seed
         return state
@@ -509,7 +531,8 @@ class PLDPBORDPScheduler(RDPNativeScheduler):
             except (ValueError, TypeError) as exc:
                 logger.warning(
                     "Failed to restore kernel params for %s: %s; using fresh kernel",
-                    state.get("gp_kernel", "?"), exc,
+                    state.get("gp_kernel", "?"),
+                    exc,
                 )
             scheduler._restored_kernel = k
         if scheduler._phase == "bo":

@@ -29,7 +29,11 @@ def compute_budget_weight(
                 "total_train_size is required for data_proportional strategy. "
                 "This should be provided by the caller (e.g., via create_client_dataloader)."
             )
-        return _weight_data_proportional(train_dataset, num_clients, total_train_size=total_train_size)
+        return _weight_data_proportional(
+            train_dataset,
+            num_clients,
+            total_train_size=total_train_size,
+        )
     if strategy == "heterogeneity":
         return _weight_heterogeneity(train_dataset, total_num_classes=total_num_classes)
     if strategy == "uniform":
@@ -56,7 +60,8 @@ def _weight_custom(partition_id: int, config: PersonalizationConfig) -> float:
 
 
 def _weight_data_proportional(
-    dataset: Dataset | Subset, num_clients: int,
+    dataset: Dataset | Subset,
+    num_clients: int,
     total_train_size: int,
 ) -> float:
     """Budget weight proportional to data size.
@@ -99,7 +104,7 @@ def _get_targets(dataset: Dataset | Subset) -> np.ndarray:
         dataset = dataset.dataset
     try:
         targets = np.array(dataset.targets)
-    except (AttributeError, IndexError):
+    except AttributeError, IndexError:
         targets = dataset.tensors[1].numpy()
     if indices is not None:
         targets = targets[indices]
@@ -142,11 +147,14 @@ def assign_epsilon_bounds(
     if strategy == "global":
         try:
             weight = compute_budget_weight(
-                partition_id, train_dataset, personalization_config, num_clients,
+                partition_id,
+                train_dataset,
+                personalization_config,
+                num_clients,
                 total_train_size=total_train_size,
                 total_num_classes=total_num_classes,
             )
-        except (ValueError, KeyError):
+        except ValueError, KeyError:
             weight = float(num_clients)
         warmup = _resolve_warmup(partition_id, bo_config, num_clients, num_rounds, weight)
         return bo_config.epsilon_min, bo_config.epsilon_max, warmup
@@ -173,7 +181,10 @@ def assign_epsilon_bounds(
                 "bounds_strategy='from_epsilon' requires personalization.enabled=True",
             )
         weight = compute_budget_weight(
-            partition_id, train_dataset, personalization_config, num_clients,
+            partition_id,
+            train_dataset,
+            personalization_config,
+            num_clients,
             total_train_size=total_train_size,
             total_num_classes=total_num_classes,
         )
@@ -188,7 +199,10 @@ def assign_epsilon_bounds(
                 "bounds_strategy='from_rdp' requires personalization.enabled=True",
             )
         weight = compute_budget_weight(
-            partition_id, train_dataset, personalization_config, num_clients,
+            partition_id,
+            train_dataset,
+            personalization_config,
+            num_clients,
             total_train_size=total_train_size,
             total_num_classes=total_num_classes,
         )

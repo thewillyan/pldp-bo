@@ -33,10 +33,14 @@ def test_config_from_empty_yaml(tmp_path: Path) -> None:
 
 def test_config_from_custom_yaml(tmp_path: Path) -> None:
     config_path = tmp_path / "custom.yaml"
-    config_path.write_text(yaml.dump({
-        "data": {"name": "mnist", "num_clients": 3},
-        "federated": {"num_rounds": 5},
-    }))
+    config_path.write_text(
+        yaml.dump(
+            {
+                "data": {"name": "mnist", "num_clients": 3},
+                "federated": {"num_rounds": 5},
+            }
+        )
+    )
     config = load_config(str(config_path))
     assert config.data.name == "mnist"
     assert config.federated.num_rounds == 5
@@ -98,9 +102,7 @@ def test_clipping_mode_default() -> None:
 
 def test_clipping_mode_from_yaml(tmp_path: Path) -> None:
     cfg_file = tmp_path / "test.yaml"
-    cfg_file.write_text(
-        yaml.dump({"privacy": {"enabled": True, "clipping_mode": "per_example"}})
-    )
+    cfg_file.write_text(yaml.dump({"privacy": {"enabled": True, "clipping_mode": "per_example"}}))
     config = load_config(str(cfg_file))
     assert config.privacy.clipping_mode == "per_example"
 
@@ -125,12 +127,14 @@ def test_locked_layer_fields_defaults() -> None:
 def test_locked_layer_fields_from_yaml(tmp_path: Path) -> None:
     cfg_file = tmp_path / "matrix.yaml"
     cfg_file.write_text(
-        yaml.dump({
-            "method": "pldpbo_nun",
-            "assert_locked_config": True,
-            "federated": {"aggregation": "attenuation"},
-            "privacy": {"enforce_budget": True, "fixed_rdp_target": 0.5},
-        })
+        yaml.dump(
+            {
+                "method": "pldpbo_nun",
+                "assert_locked_config": True,
+                "federated": {"aggregation": "attenuation"},
+                "privacy": {"enforce_budget": True, "fixed_rdp_target": 0.5},
+            }
+        )
     )
     config = load_config(str(cfg_file))
     assert config.method == "pldpbo_nun"

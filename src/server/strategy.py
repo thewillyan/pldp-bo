@@ -61,10 +61,12 @@ def _add_budgets_to_messages(
                     remaining = (remaining_rdp_by_client or {}).get(partition_id)
                     if remaining is not None:
                         extra["remaining_rdp"] = remaining
-                    content[key] = ConfigRecord({
-                        **rec,
-                        **extra,
-                    })
+                    content[key] = ConfigRecord(
+                        {
+                            **rec,
+                            **extra,
+                        }
+                    )
                 else:
                     content[key] = rec
             for key, rec in msg.content.array_records.items():
@@ -143,10 +145,7 @@ class MetricLoggingMixin(FedAvg):
         phase = self._PHASE_DECODE.get(phase_float, "bo")
         state: dict[str, Any] = self._client_state.setdefault(
             cid,
-            {
-                key: []
-                for key in (*self._PARTICIPATION_KEYS, *(k for k, _ in self._COMPONENT_KEYS))
-            }
+            {key: [] for key in (*self._PARTICIPATION_KEYS, *(k for k, _ in self._COMPONENT_KEYS))}
             | {"warmup_rounds": [], "enforcement_count": 0},
         )
         state["r_t_candidate"].append(_as_float(m.get("r_t_candidate")))
@@ -313,12 +312,20 @@ class MetricLoggingMixin(FedAvg):
             utility_loss = m.get("utility_loss")
             if utility_loss is not None:
                 utility_losses.append(float(utility_loss))
-                self._log_metric(f"client_{cid}_utility_loss", float(utility_loss), step=server_round)
+                self._log_metric(
+                    f"client_{cid}_utility_loss",
+                    float(utility_loss),
+                    step=server_round,
+                )
 
             utility_eff = m.get("utility_efficiency")
             if utility_eff is not None:
                 utility_efficiencies.append(float(utility_eff))
-                self._log_metric(f"client_{cid}_utility_efficiency", float(utility_eff), step=server_round)
+                self._log_metric(
+                    f"client_{cid}_utility_efficiency",
+                    float(utility_eff),
+                    step=server_round,
+                )
 
             snr_val = m.get("snr")
             if snr_val is not None:
@@ -328,22 +335,38 @@ class MetricLoggingMixin(FedAvg):
             utility_loss_clean = m.get("utility_loss_clean")
             if utility_loss_clean is not None:
                 utility_losses_clean.append(float(utility_loss_clean))
-                self._log_metric(f"client_{cid}_utility_loss_clean", float(utility_loss_clean), step=server_round)
+                self._log_metric(
+                    f"client_{cid}_utility_loss_clean",
+                    float(utility_loss_clean),
+                    step=server_round,
+                )
 
             utility_ret = m.get("utility_retention")
             if utility_ret is not None:
                 utility_retentions.append(float(utility_ret))
-                self._log_metric(f"client_{cid}_utility_retention", float(utility_ret), step=server_round)
+                self._log_metric(
+                    f"client_{cid}_utility_retention",
+                    float(utility_ret),
+                    step=server_round,
+                )
 
             utility_per_rem = m.get("utility_per_remaining")
             if utility_per_rem is not None:
                 utility_per_remainings.append(float(utility_per_rem))
-                self._log_metric(f"client_{cid}_utility_per_remaining", float(utility_per_rem), step=server_round)
+                self._log_metric(
+                    f"client_{cid}_utility_per_remaining",
+                    float(utility_per_rem),
+                    step=server_round,
+                )
 
             logit_disagreement_val = m.get("logit_disagreement")
             if logit_disagreement_val is not None:
                 logit_disagreements.append(float(logit_disagreement_val))
-                self._log_metric(f"client_{cid}_logit_disagreement", float(logit_disagreement_val), step=server_round)
+                self._log_metric(
+                    f"client_{cid}_logit_disagreement",
+                    float(logit_disagreement_val),
+                    step=server_round,
+                )
 
             cum_eps_val = m.get("cumulative_epsilon")
             cum_eps = float(cum_eps_val) if cum_eps_val is not None else None
@@ -355,7 +378,11 @@ class MetricLoggingMixin(FedAvg):
             client_eps = m.get("client_epsilon")
             if client_eps is not None:
                 client_epsilons.append(float(client_eps))
-                self._log_metric(f"client_{cid}_client_epsilon", float(client_eps), step=server_round)
+                self._log_metric(
+                    f"client_{cid}_client_epsilon",
+                    float(client_eps),
+                    step=server_round,
+                )
 
             rdp_cost = m.get("rdp_cost")
             if rdp_cost is not None:
@@ -384,7 +411,8 @@ class MetricLoggingMixin(FedAvg):
                 per_example_clip_fractions.append(float(pe_clip))
                 self._log_metric(
                     f"client_{cid}_per_example_clip_fraction",
-                    float(pe_clip), step=server_round,
+                    float(pe_clip),
+                    step=server_round,
                 )
 
             gn_before = m.get("grad_norm_before_clip")
@@ -392,7 +420,8 @@ class MetricLoggingMixin(FedAvg):
                 grad_norms_before_clip.append(float(gn_before))
                 self._log_metric(
                     f"client_{cid}_grad_norm_before_clip",
-                    float(gn_before), step=server_round,
+                    float(gn_before),
+                    step=server_round,
                 )
 
             gn_after = m.get("grad_norm_after_clip")
@@ -400,7 +429,8 @@ class MetricLoggingMixin(FedAvg):
                 grad_norms_after_clip.append(float(gn_after))
                 self._log_metric(
                     f"client_{cid}_grad_norm_after_clip",
-                    float(gn_after), step=server_round,
+                    float(gn_after),
+                    step=server_round,
                 )
 
             nos = m.get("num_opt_steps")
@@ -408,7 +438,8 @@ class MetricLoggingMixin(FedAvg):
                 num_opt_steps_list.append(float(nos))
                 self._log_metric(
                     f"client_{cid}_num_opt_steps",
-                    float(nos), step=server_round,
+                    float(nos),
+                    step=server_round,
                 )
 
             if self._per_client_budgets is not None and cum_eps is not None:
@@ -431,7 +462,11 @@ class MetricLoggingMixin(FedAvg):
                         budget = self._per_client_budgets.get(node_id)
                 if budget is not None:
                     remaining = max(0.0, budget - float(cum_rdp))
-                    self._log_metric(f"client_{cid}_remaining_rdp_budget", remaining, step=server_round)
+                    self._log_metric(
+                        f"client_{cid}_remaining_rdp_budget",
+                        remaining,
+                        step=server_round,
+                    )
 
         self._log_metric_stats("epsilon", epsilons, server_round)
         self._log_metric_stats("client_epsilon", client_epsilons, server_round)
@@ -448,7 +483,11 @@ class MetricLoggingMixin(FedAvg):
         self._log_metric_stats("logit_disagreement", logit_disagreements, server_round)
         self._log_metric_stats("cumulative_epsilon", cumulative_epsilons, server_round)
         self._log_metric_stats("sigma", sigmas, server_round)
-        self._log_metric_stats("per_example_clip_fraction", per_example_clip_fractions, server_round)
+        self._log_metric_stats(
+            "per_example_clip_fraction",
+            per_example_clip_fractions,
+            server_round,
+        )
         self._log_metric_stats("grad_norm_before_clip", grad_norms_before_clip, server_round)
         self._log_metric_stats("grad_norm_after_clip", grad_norms_after_clip, server_round)
         self._log_metric_stats("num_opt_steps", num_opt_steps_list, server_round)
@@ -471,13 +510,17 @@ class MetricLoggingMixin(FedAvg):
             self._log_metric("mean_r_t", float(np.mean(r_t_finals)), step=server_round)
         if cumulative_rdps:
             self._log_metric(
-                "mean_cum_rdp", float(np.mean(cumulative_rdps)), step=server_round,
+                "mean_cum_rdp",
+                float(np.mean(cumulative_rdps)),
+                step=server_round,
             )
         if bo_times:
             self._log_metric("bo_time_round", float(np.mean(bo_times)), step=server_round)
         if acct_times:
             self._log_metric(
-                "acct_time_round", float(np.mean(acct_times)), step=server_round,
+                "acct_time_round",
+                float(np.mean(acct_times)),
+                step=server_round,
             )
 
 
@@ -493,8 +536,8 @@ class MedianRobustAggregation(MetricLoggingMixin, FedAvg):
         weighted_by_key: str = "num-examples",
         arrayrecord_key: str = "arrays",
         configrecord_key: str = "config",
-        train_metrics_aggr_fn = None,
-        evaluate_metrics_aggr_fn = None,
+        train_metrics_aggr_fn=None,
+        evaluate_metrics_aggr_fn=None,
         tracker: ExperimentTracker | None = None,
         per_client_budgets: dict[int, float] | None = None,
         node_to_partition: dict[int, int] | None = None,
@@ -521,7 +564,11 @@ class MedianRobustAggregation(MetricLoggingMixin, FedAvg):
         self._init_spec_state()
 
     def configure_train(
-        self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid,
+        self,
+        server_round: int,
+        arrays: ArrayRecord,
+        config: ConfigRecord,
+        grid: Grid,
     ) -> Iterable[Message]:
         self._current_arrays = arrays
         remaining_rdp_by_client = self._remaining_rdp_map()
@@ -536,8 +583,7 @@ class MedianRobustAggregation(MetricLoggingMixin, FedAvg):
             )
         )
         self._bytes_sent_round = sum(
-            self._array_bytes(m.content.array_records.get(self.arrayrecord_key))
-            for m in messages
+            self._array_bytes(m.content.array_records.get(self.arrayrecord_key)) for m in messages
         )
         return messages
 
@@ -617,10 +663,7 @@ class MedianRobustAggregation(MetricLoggingMixin, FedAvg):
         ]
 
         aggregated = ArrayRecord(
-            {
-                k: Array(np.asarray(v))
-                for k, v in zip(global_keys, new_ndarrays, strict=True)
-            },
+            {k: Array(np.asarray(v)) for k, v in zip(global_keys, new_ndarrays, strict=True)},
         )
 
         metrics = None
@@ -666,7 +709,11 @@ class SafeFedAvg(MetricLoggingMixin, FedAvg):
         self._init_spec_state()
 
     def configure_train(
-        self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid,
+        self,
+        server_round: int,
+        arrays: ArrayRecord,
+        config: ConfigRecord,
+        grid: Grid,
     ) -> Iterable[Message]:
         self._current_arrays = arrays
         remaining_rdp_by_client = self._remaining_rdp_map()
@@ -681,8 +728,7 @@ class SafeFedAvg(MetricLoggingMixin, FedAvg):
             )
         )
         self._bytes_sent_round = sum(
-            self._array_bytes(m.content.array_records.get(self.arrayrecord_key))
-            for m in messages
+            self._array_bytes(m.content.array_records.get(self.arrayrecord_key)) for m in messages
         )
         return messages
 
@@ -706,7 +752,9 @@ class SafeFedAvg(MetricLoggingMixin, FedAvg):
             scaled: dict[str, Array] = {}
             for k in global_keys:
                 delta = result_arrays[k].numpy() - self._current_arrays[k].numpy()
-                scaled[k] = Array(self._current_arrays[k].numpy() + self._server_learning_rate * delta)
+                scaled[k] = Array(
+                    self._current_arrays[k].numpy() + self._server_learning_rate * delta,
+                )
             result_arrays = ArrayRecord(scaled)
 
         return result_arrays, metrics
@@ -733,7 +781,11 @@ class SafeFedProx(MetricLoggingMixin, FedProx):
         self._init_spec_state()
 
     def configure_train(
-        self, server_round: int, arrays: ArrayRecord, config: ConfigRecord, grid: Grid,
+        self,
+        server_round: int,
+        arrays: ArrayRecord,
+        config: ConfigRecord,
+        grid: Grid,
     ) -> Iterable[Message]:
         self._current_arrays = arrays
         remaining_rdp_by_client = self._remaining_rdp_map()
@@ -748,8 +800,7 @@ class SafeFedProx(MetricLoggingMixin, FedProx):
             )
         )
         self._bytes_sent_round = sum(
-            self._array_bytes(m.content.array_records.get(self.arrayrecord_key))
-            for m in messages
+            self._array_bytes(m.content.array_records.get(self.arrayrecord_key)) for m in messages
         )
         return messages
 
@@ -773,7 +824,9 @@ class SafeFedProx(MetricLoggingMixin, FedProx):
             scaled: dict[str, Array] = {}
             for k in global_keys:
                 delta = result_arrays[k].numpy() - self._current_arrays[k].numpy()
-                scaled[k] = Array(self._current_arrays[k].numpy() + self._server_learning_rate * delta)
+                scaled[k] = Array(
+                    self._current_arrays[k].numpy() + self._server_learning_rate * delta,
+                )
             result_arrays = ArrayRecord(scaled)
 
         return result_arrays, metrics

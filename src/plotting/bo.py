@@ -52,21 +52,29 @@ def plot_metric_vs_epsilon(
 
     if warmup_rounds is not None:
         warmup_idx = (
-            rds_arr <= warmup_rounds
-            if warmup_rounds > 0
-            else np.zeros_like(rds_arr, dtype=bool)
+            rds_arr <= warmup_rounds if warmup_rounds > 0 else np.zeros_like(rds_arr, dtype=bool)
         )
 
         if warmup_idx.any():
             ax.scatter(
-                eps_arr[warmup_idx], met_arr[warmup_idx],
-                c=rds_arr[warmup_idx], cmap="Blues", marker="o", s=50, alpha=0.7,
+                eps_arr[warmup_idx],
+                met_arr[warmup_idx],
+                c=rds_arr[warmup_idx],
+                cmap="Blues",
+                marker="o",
+                s=50,
+                alpha=0.7,
                 label="Warm-up",
             )
         if (~warmup_idx).any():
             ax.scatter(
-                eps_arr[~warmup_idx], met_arr[~warmup_idx],
-                c=rds_arr[~warmup_idx], cmap="Reds", marker="s", s=50, alpha=0.7,
+                eps_arr[~warmup_idx],
+                met_arr[~warmup_idx],
+                c=rds_arr[~warmup_idx],
+                cmap="Reds",
+                marker="s",
+                s=50,
+                alpha=0.7,
                 label="BO",
             )
 

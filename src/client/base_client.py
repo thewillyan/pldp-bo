@@ -27,7 +27,11 @@ def _get_optimizer(
             weight_decay=config.optimizer.weight_decay,
         )
     if config.optimizer.name == "adam":
-        return torch.optim.Adam(model.parameters(), lr=lr, weight_decay=config.optimizer.weight_decay)
+        return torch.optim.Adam(
+            model.parameters(),
+            lr=lr,
+            weight_decay=config.optimizer.weight_decay,
+        )
     raise ValueError(f"Unknown optimizer: {config.optimizer.name}")
 
 
@@ -65,7 +69,9 @@ class FlowerClient(fl.client.NumPyClient):
         return max(self._remaining_rdp, 0.0)
 
     def fit(
-        self, parameters: list[Any], config: dict[str, Any],
+        self,
+        parameters: list[Any],
+        config: dict[str, Any],
     ) -> tuple[list[Any], int, dict[str, Any]]:
         if len(self.trainloader) == 0:
             return parameters, 0, {}
@@ -104,7 +110,9 @@ class FlowerClient(fl.client.NumPyClient):
         return self.model.get_weights(), len(self.trainloader.dataset), {}
 
     def evaluate(
-        self, parameters: list[Any], config: dict[str, Any],  # noqa: ARG002
+        self,
+        parameters: list[Any],
+        config: dict[str, Any],  # noqa: ARG002
     ) -> tuple[float, int, dict[str, Any]]:
         self.model.set_weights(parameters)
         net = self.model.get_model().to(get_device())

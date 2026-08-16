@@ -9,23 +9,21 @@ from src.utils import deserialize_rng, serialize_rng
 
 class EpsilonScheduler(ABC):
     @abstractmethod
-    def get_epsilon(self) -> float:
-        ...
+    def get_epsilon(self) -> float: ...
 
     def step(self, epsilon: float, metric: float) -> None:  # noqa: B027
         pass
 
+    @abstractmethod
     def set_remaining_budget(self, remaining: float | None) -> None:
         pass
 
     @abstractmethod
-    def get_state(self) -> dict:
-        ...
+    def get_state(self) -> dict: ...
 
     @classmethod
     @abstractmethod
-    def from_state(cls, state: dict) -> EpsilonScheduler:
-        ...
+    def from_state(cls, state: dict) -> EpsilonScheduler: ...
 
 
 class FixedEpsilonScheduler(EpsilonScheduler):
@@ -33,6 +31,9 @@ class FixedEpsilonScheduler(EpsilonScheduler):
         if epsilon <= 0:
             raise ValueError("epsilon must be positive")
         self._epsilon = epsilon
+
+    def set_remaining_budget(self, remaining: float | None) -> None:
+        pass
 
     def get_epsilon(self) -> float:
         return self._epsilon
@@ -58,6 +59,9 @@ class UniformRandomEpsilonScheduler(EpsilonScheduler):
         self._epsilon_max = epsilon_max
         self._seed = seed
         self._rng = np.random.RandomState(seed)
+
+    def set_remaining_budget(self, remaining: float | None) -> None:
+        pass
 
     def get_epsilon(self) -> float:
         return float(
@@ -94,23 +98,21 @@ class RDPNativeScheduler(ABC):
     """Abstract base for RDP-native schedulers (analogous to EpsilonScheduler)."""
 
     @abstractmethod
-    def get_rdp(self) -> float:
-        ...
+    def get_rdp(self) -> float: ...
 
     def step(self, rdp: float, metric: float) -> None:  # noqa: B027
         pass
 
+    @abstractmethod
     def set_remaining_budget(self, remaining: float | None) -> None:
         pass
 
     @abstractmethod
-    def get_state(self) -> dict:
-        ...
+    def get_state(self) -> dict: ...
 
     @classmethod
     @abstractmethod
-    def from_state(cls, state: dict) -> RDPNativeScheduler:
-        ...
+    def from_state(cls, state: dict) -> RDPNativeScheduler: ...
 
 
 class FixedRDPScheduler(RDPNativeScheduler):
@@ -118,6 +120,9 @@ class FixedRDPScheduler(RDPNativeScheduler):
         if rdp_target <= 0:
             raise ValueError("rdp_target must be positive")
         self._rdp_target = rdp_target
+
+    def set_remaining_budget(self, remaining: float | None) -> None:
+        pass
 
     def get_rdp(self) -> float:
         return self._rdp_target
@@ -143,6 +148,9 @@ class UniformRandomRDPScheduler(RDPNativeScheduler):
         self._rdp_max = rdp_max
         self._seed = seed
         self._rng = np.random.RandomState(seed)
+
+    def set_remaining_budget(self, remaining: float | None) -> None:
+        pass
 
     def get_rdp(self) -> float:
         return float(self._rng.uniform(self._rdp_min, self._rdp_max))

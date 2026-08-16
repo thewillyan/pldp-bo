@@ -69,7 +69,9 @@ class PerUpdateDPClient(FlowerClient):
         if self._rdp_native:
             return {
                 "rdp_cost": 0.0,
-                "cumulative_rdp": self._accountant.get_rdp_at_alpha(self._rdp_alpha) if self._accountant else 0.0,
+                "cumulative_rdp": (
+                    self._accountant.get_rdp_at_alpha(self._rdp_alpha) if self._accountant else 0.0
+                ),
                 "client_rdp": self._client_epsilon or 0.0,
                 "update_norm": 0.0,
                 "update_norm_clean": 0.0,
@@ -101,8 +103,11 @@ class PerUpdateDPClient(FlowerClient):
         }
 
     def fit(
-        self, parameters: list[Any], config: dict[str, Any],
+        self,
+        parameters: list[Any],
+        config: dict[str, Any],
     ) -> tuple[list[Any], int, dict[str, Any]]:
+        del config
         if self._check_budget():
             return parameters, 0, self._make_empty_metrics(budget_exhausted=True)
 
@@ -157,18 +162,24 @@ class PerUpdateDPClient(FlowerClient):
         local_weights = self.model.get_weights()
         net = self.model.get_model().to(get_device())
         utility_loss_clean, clean_logits = compute_validation_stats(
-            net, self.valloader, criterion,
+            net,
+            self.valloader,
+            criterion,
         )
 
         delta = [lw - gw for lw, gw in zip(local_weights, global_weights, strict=True)]
 
         flat_delta = np.concatenate([d.ravel() for d in delta])
-        noisy_flat, sigma = self._mechanism.apply(flat_delta, privacy_param, sigma=self._computed_sigma)
+        noisy_flat, sigma = self._mechanism.apply(
+            flat_delta,
+            privacy_param,
+            sigma=self._computed_sigma,
+        )
 
         delta_norm = float(np.linalg.norm(flat_delta))
         # m_snr = ||Delta||_2^2 / sigma^2 with the clean unclipped update
         # (spec §9.12); delta_norm is the raw update norm, never clipped.
-        snr = (delta_norm ** 2) / max(sigma ** 2, 1e-12)
+        snr = (delta_norm**2) / max(sigma**2, 1e-12)
 
         if self._accountant is not None:
             self._accountant.step(
@@ -197,7 +208,9 @@ class PerUpdateDPClient(FlowerClient):
 
         self.model.set_weights(noisy_weights)
         utility_loss_noisy, noisy_logits = compute_validation_stats(
-            self.model.get_model(), self.valloader, criterion,
+            self.model.get_model(),
+            self.valloader,
+            criterion,
         )
 
         loss_degradation = max(0.0, utility_loss_noisy - utility_loss_clean)
@@ -222,7 +235,9 @@ class PerUpdateDPClient(FlowerClient):
                 "rdp_cost": privacy_param,
                 "r_t_final": privacy_param,
                 "acct_cost": compute_rdp_cost(
-                    self._rdp_alpha, sigma, self._mechanism.clipping_norm,
+                    self._rdp_alpha,
+                    sigma,
+                    self._mechanism.clipping_norm,
                 ),
                 "cumulative_rdp": cumulative_privacy,
                 "client_rdp": self._client_epsilon or 0.0,

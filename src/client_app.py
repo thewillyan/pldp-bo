@@ -28,8 +28,10 @@ from src.privacy.epsilon_scheduler import (
     UniformRandomRDPScheduler,
 )
 from src.privacy.per_update_dp import (
-    enforce_epsilon_budget, enforce_rdp_budget,
-    _sigma_for_rdp_target, _sigma_for_rdp_target_dp_sgd,
+    _sigma_for_rdp_target,
+    _sigma_for_rdp_target_dp_sgd,
+    enforce_epsilon_budget,
+    enforce_rdp_budget,
 )
 from src.privacy.personalization import assign_epsilon_bounds, compute_budget_weight
 from src.utils import set_seed
@@ -47,10 +49,8 @@ AnyScheduler = Union[EpsilonScheduler, RDPNativeScheduler]
 def _prepare_metric_record(metrics: dict) -> dict:
     # Flower's MetricRecord does not accept native Python bools,
     # so they are converted to int (0/1).
-    return {
-        k: (int(v) if isinstance(v, bool) else v)
-        for k, v in metrics.items()
-    }
+    return {k: (int(v) if isinstance(v, bool) else v) for k, v in metrics.items()}
+
 
 SCHEDULER_STATE_KEY = "pldp_scheduler_state"
 
@@ -71,20 +71,24 @@ def _is_rdp_native(config: ExperimentConfig) -> bool:
 
 def _make_scheduler(
     partition_id: int,
-    train_dataset: object,
+    _train_dataset: object,
     config: ExperimentConfig,
     _num_partitions: int,
     eps_min: float | None = None,
     eps_max: float | None = None,
     warmup_rounds: int | None = None,
-    total_train_size: int | None = None,
+    _total_train_size: int | None = None,
 ) -> AnyScheduler | None:
     if not config.privacy.enabled:
         return None
 
     if _is_rdp_native(config):
         return _make_rdp_native_scheduler(
-            partition_id, config, eps_min, eps_max, warmup_rounds,
+            partition_id,
+            config,
+            eps_min,
+            eps_max,
+            warmup_rounds,
         )
 
     if config.bo.enabled:
@@ -195,9 +199,14 @@ def _restore_or_create_scheduler(
             return PLDPBORDPScheduler.from_state(state)
         raise ValueError(f"Unknown scheduler type: {stype}")
     return _make_scheduler(
-        partition_id, train_dataset, config, num_partitions,
-        eps_min=eps_min, eps_max=eps_max, warmup_rounds=warmup_rounds,
-        total_train_size=total_train_size,
+        partition_id,
+        train_dataset,
+        config,
+        num_partitions,
+        eps_min=eps_min,
+        eps_max=eps_max,
+        warmup_rounds=warmup_rounds,
+        _total_train_size=total_train_size,
     )
 
 
@@ -205,7 +214,8 @@ def _restore_or_create_scheduler(
 def train(msg: Message, context: Context) -> Message:
     config_path = str(context.run_config.get("config-path", "config/default.yaml"))
     overrides = {
-        k: v for k, v in context.run_config.items()
+        k: v
+        for k, v in context.run_config.items()
         if k not in ("config-path", "app_config_overrides")
     }
     config = load_config(config_path, overrides=overrides)
@@ -214,8 +224,13 @@ def train(msg: Message, context: Context) -> Message:
 
     if config.bo.enabled:
         _VALID_BO_METRICS = {
-            "nun", "utility", "utility_efficiency", "snr",
-            "utility_retention", "utility_per_remaining", "logit_disagreement",
+            "nun",
+            "utility",
+            "utility_efficiency",
+            "snr",
+            "utility_retention",
+            "utility_per_remaining",
+            "logit_disagreement",
         }
         if config.bo.optimization_metric not in _VALID_BO_METRICS:
             raise ValueError(
@@ -230,7 +245,10 @@ def train(msg: Message, context: Context) -> Message:
     client_seed = config.seed + partition_id
 
     trainloader, valloader, client_subset, _, total_train_size = create_client_dataloader(
-        config.data, partition_id, num_partitions, config.seed,
+        config.data,
+        partition_id,
+        num_partitions,
+        config.seed,
     )
 
     accountant: RDPAccountant | None = None
@@ -249,8 +267,11 @@ def train(msg: Message, context: Context) -> Message:
             if rdp_native:
                 if config.bo.bounds_strategy == "from_rdp":
                     bounds_min, bounds_max, warmup = assign_epsilon_bounds(
-                        partition_id, client_subset,
-                        config.personalization, config.bo, config.data.num_clients,
+                        partition_id,
+                        client_subset,
+                        config.personalization,
+                        config.bo,
+                        config.data.num_clients,
                         total_train_size=total_train_size,
                         num_rounds=config.federated.num_rounds,
                         total_num_classes=config.model.num_classes,
@@ -261,8 +282,11 @@ def train(msg: Message, context: Context) -> Message:
                     warmup = config.bo.min_warmup
             else:
                 bounds_min, bounds_max, warmup = assign_epsilon_bounds(
-                    partition_id, client_subset,
-                    config.personalization, config.bo, config.data.num_clients,
+                    partition_id,
+                    client_subset,
+                    config.personalization,
+                    config.bo,
+                    config.data.num_clients,
                     total_train_size=total_train_size,
                     num_rounds=config.federated.num_rounds,
                     total_num_classes=config.model.num_classes,
@@ -275,8 +299,14 @@ def train(msg: Message, context: Context) -> Message:
             accountant = RDPAccountant(delta=config.privacy.delta)
 
         scheduler = _restore_or_create_scheduler(
-            context, partition_id, client_subset, config, num_partitions,
-            eps_min=bounds_min, eps_max=bounds_max, warmup_rounds=warmup,
+            context,
+            partition_id,
+            client_subset,
+            config,
+            num_partitions,
+            eps_min=bounds_min,
+            eps_max=bounds_max,
+            warmup_rounds=warmup,
             total_train_size=total_train_size,
         )
         if scheduler is not None:
@@ -296,7 +326,9 @@ def train(msg: Message, context: Context) -> Message:
         total_budget = config.bo.epsilon_budget
 
     # Server-assigned per-client budget overrides the config-derived value
-    server_budget = (msg.content.config_records.get("config") or ConfigRecord()).get("per_client_budget")
+    server_budget = (msg.content.config_records.get("config") or ConfigRecord()).get(
+        "per_client_budget"
+    )
     if server_budget is not None:
         total_budget = float(server_budget)
 
@@ -318,13 +350,17 @@ def train(msg: Message, context: Context) -> Message:
     r_t_candidate: float = 0.0
     if rdp_native:
         rdp_cost, computed_sigma, r_t_candidate, bo_time, acct_time = _resolve_rdp(
-            scheduler, accountant, config, total_budget,
+            scheduler,
+            accountant,
+            config,
+            total_budget,
             local_train_size=len(client_subset),
         )
         if rdp_cost < 0:
             logger.info(
                 "Client %d privacy budget exhausted (rdp_cost=%.6f), ceasing participation",
-                partition_id, rdp_cost,
+                partition_id,
+                rdp_cost,
             )
             rdp_cost = 0.0
             computed_sigma = 0.0
@@ -349,13 +385,17 @@ def train(msg: Message, context: Context) -> Message:
         )
     else:
         epsilon, computed_sigma, eps_candidate, bo_time, acct_time = _resolve_epsilon(
-            scheduler, accountant, config, total_budget,
+            scheduler,
+            accountant,
+            config,
+            total_budget,
             local_train_size=len(client_subset),
         )
         if epsilon < 0:
             logger.info(
                 "Client %d privacy budget exhausted (epsilon=%.4f), ceasing participation",
-                partition_id, epsilon,
+                partition_id,
+                epsilon,
             )
             epsilon = 0.0
             computed_sigma = 0.0
@@ -384,7 +424,12 @@ def train(msg: Message, context: Context) -> Message:
     parameters = arrays.to_numpy_ndarrays()
     num_examples, fit_metrics = client.fit(parameters, {})[1:]
 
-    if config.bo.enabled and scheduler is not None and accountant is not None and not fit_metrics.get("budget_exhausted", False):
+    if (
+        config.bo.enabled
+        and scheduler is not None
+        and accountant is not None
+        and not fit_metrics.get("budget_exhausted", False)
+    ):
         metric_key = _OPTIMIZATION_METRIC_KEY_MAP[config.bo.optimization_metric]
         metric_value = fit_metrics.get(metric_key)
         if metric_value is not None:
@@ -501,16 +546,25 @@ def _resolve_epsilon(
             # One communication round = one Gaussian release: keep the epsilon
             # path in sync with the per-round RDP accounting convention.
             candidate, computed_sigma = enforce_epsilon_budget(
-                candidate, accountant.rdp_per_alpha, total_budget,
-                lower_bound, 0.0, delta,
-                clipping_mode="per_example", num_steps=1,
+                candidate,
+                accountant.rdp_per_alpha,
+                total_budget,
+                lower_bound,
+                0.0,
+                delta,
+                clipping_mode="per_example",
+                num_steps=1,
                 sampling_rate=sampling_rate,
             )
         else:
             c = config.privacy.update_clip_norm
             candidate, computed_sigma = enforce_epsilon_budget(
-                candidate, accountant.rdp_per_alpha, total_budget,
-                lower_bound, c, delta,
+                candidate,
+                accountant.rdp_per_alpha,
+                total_budget,
+                lower_bound,
+                c,
+                delta,
             )
         acct_time = perf_counter() - t0
         return candidate, computed_sigma, eps_candidate, bo_time, acct_time
@@ -558,24 +612,31 @@ def _resolve_rdp(
 
         if clipping_mode == "per_example":
             if local_train_size is None:
-                raise ValueError(
-                    "clipping_mode='per_example' requires local_train_size."
-                )
+                raise ValueError("clipping_mode='per_example' requires local_train_size.")
             sampling_rate = config.data.batch_size / local_train_size
             # One communication round = one Gaussian release (spec §2): the
             # scheduler's candidate is the per-round RDP cost R_t and sigma is
             # calibrated per-round, sigma_t = sqrt(alpha * q^2 / (2 * R_t)).
             candidate, computed_sigma = enforce_rdp_budget(
-                candidate, current_rdp, total_budget,
-                lower_bound, alpha, config.privacy.update_clip_norm,
-                clipping_mode="per_example", num_steps=1,
+                candidate,
+                current_rdp,
+                total_budget,
+                lower_bound,
+                alpha,
+                config.privacy.update_clip_norm,
+                clipping_mode="per_example",
+                num_steps=1,
                 sampling_rate=sampling_rate,
             )
         else:
             c = config.privacy.update_clip_norm
             candidate, computed_sigma = enforce_rdp_budget(
-                candidate, current_rdp, total_budget,
-                lower_bound, alpha, c,
+                candidate,
+                current_rdp,
+                total_budget,
+                lower_bound,
+                alpha,
+                c,
             )
         acct_time = perf_counter() - t0
         return candidate, computed_sigma, r_t_candidate, bo_time, acct_time
@@ -600,7 +661,8 @@ def _resolve_rdp(
 def query(msg: Message, context: Context) -> Message:
     config_path = str(context.run_config.get("config-path", "config/default.yaml"))
     overrides = {
-        k: v for k, v in context.run_config.items()
+        k: v
+        for k, v in context.run_config.items()
         if k not in ("config-path", "app_config_overrides")
     }
     config = load_config(config_path, overrides=overrides)
@@ -610,11 +672,16 @@ def query(msg: Message, context: Context) -> Message:
         partition_id = int(context.node_config["partition-id"])
         num_partitions = int(context.node_config["num-partitions"])
         _, _, client_subset, _, total_train_size = create_client_dataloader(
-            config.data, partition_id, num_partitions, config.seed,
+            config.data,
+            partition_id,
+            num_partitions,
+            config.seed,
         )
 
         weight = compute_budget_weight(
-            partition_id, client_subset, config.personalization,
+            partition_id,
+            client_subset,
+            config.personalization,
             num_clients=config.data.num_clients,
             total_train_size=total_train_size,
             rng=np.random.RandomState(config.seed + partition_id),
@@ -622,12 +689,16 @@ def query(msg: Message, context: Context) -> Message:
         )
 
         return Message(
-            content=RecordDict({
-                "config": ConfigRecord({
-                    "partition_id": partition_id,
-                    "budget_weight": weight,
-                }),
-            }),
+            content=RecordDict(
+                {
+                    "config": ConfigRecord(
+                        {
+                            "partition_id": partition_id,
+                            "budget_weight": weight,
+                        }
+                    ),
+                }
+            ),
             reply_to=msg,
         )
 
@@ -643,7 +714,10 @@ def query(msg: Message, context: Context) -> Message:
         num_partitions = int(context.node_config["num-partitions"])
 
         _, _, client_subset, _, _ = create_client_dataloader(
-            config.data, partition_id, num_partitions, config.seed,
+            config.data,
+            partition_id,
+            num_partitions,
+            config.seed,
         )
         train_dataset = create_dataset(config.data)
         writer_set = set(
@@ -652,8 +726,7 @@ def query(msg: Message, context: Context) -> Message:
 
         test_dataset = create_test_dataset(config.data)
         test_idx = [
-            i for i, u in enumerate(cast(Any, test_dataset).users.tolist())
-            if u in writer_set
+            i for i, u in enumerate(cast(Any, test_dataset).users.tolist()) if u in writer_set
         ]
 
         client_model = create_model(config.model, dataset_name=config.data.name)
@@ -678,13 +751,17 @@ def query(msg: Message, context: Context) -> Message:
 
         test_accuracy = correct / total if total > 0 else 0.0
         return Message(
-            content=RecordDict({
-                "config": ConfigRecord({
-                    "partition_id": partition_id,
-                    "test_accuracy": test_accuracy,
-                    "n_test": total,
-                }),
-            }),
+            content=RecordDict(
+                {
+                    "config": ConfigRecord(
+                        {
+                            "partition_id": partition_id,
+                            "test_accuracy": test_accuracy,
+                            "n_test": total,
+                        }
+                    ),
+                }
+            ),
             reply_to=msg,
         )
 
@@ -695,11 +772,11 @@ def query(msg: Message, context: Context) -> Message:
 def evaluate(msg: Message, context: Context) -> Message:
     config_path = str(context.run_config.get("config-path", "config/default.yaml"))
     overrides = {
-        k: v for k, v in context.run_config.items()
+        k: v
+        for k, v in context.run_config.items()
         if k not in ("config-path", "app_config_overrides")
     }
     config = load_config(config_path, overrides=overrides)
-
 
     set_seed(config.seed, deterministic=config.deterministic)
 
@@ -707,7 +784,10 @@ def evaluate(msg: Message, context: Context) -> Message:
     num_partitions = int(context.node_config["num-partitions"])
 
     trainloader, valloader, *_ = create_client_dataloader(
-        config.data, partition_id, num_partitions, config.seed,
+        config.data,
+        partition_id,
+        num_partitions,
+        config.seed,
     )
 
     client_epsilon = None
@@ -716,14 +796,14 @@ def evaluate(msg: Message, context: Context) -> Message:
     rdp_native = _is_rdp_native(config)
 
     if config.privacy.enabled and ACCOUNTANT_STATE_KEY in context.state:
-            state = context.state[ACCOUNTANT_STATE_KEY]
-            accountant = RDPAccountant.from_state(state)
-            if rdp_native:
-                client_epsilon = accountant.get_rdp_at_alpha(config.privacy.rdp_alpha)
-            else:
-                client_epsilon = accountant.get_epsilon()
+        state = context.state[ACCOUNTANT_STATE_KEY]
+        accountant = RDPAccountant.from_state(state)
+        if rdp_native:
+            client_epsilon = accountant.get_rdp_at_alpha(config.privacy.rdp_alpha)
+        else:
+            client_epsilon = accountant.get_epsilon()
     if config.privacy.enabled and MECHANISM_STATE_KEY in context.state:
-            mechanism_state = context.state[MECHANISM_STATE_KEY]
+        mechanism_state = context.state[MECHANISM_STATE_KEY]
 
     client_model = create_model(config.model, dataset_name=config.data.name)
     client = create_client(

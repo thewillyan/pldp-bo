@@ -26,13 +26,15 @@ logger = logging.getLogger(__name__)
 # Reference variants compute their clean statistics from a locally-trained
 # no-DP model (spec §9.6). NUN/Utility (and the fixed baselines) use only the
 # privatized model, so they skip the clean pass (≈2x local cost saving).
-CLEAN_PASS_METHODS = frozenset({
-    "pldpbo_retention",
-    "pldpbo_efficiency",
-    "pldpbo_perremaining",
-    "pldpbo_snr",
-    "pldpbo_agreement",
-})
+CLEAN_PASS_METHODS = frozenset(
+    {
+        "pldpbo_retention",
+        "pldpbo_efficiency",
+        "pldpbo_perremaining",
+        "pldpbo_snr",
+        "pldpbo_agreement",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -186,9 +188,7 @@ class PerExampleDPClient(FlowerClient):
 
         total_samples = len(trainloader.dataset)  # type: ignore[arg-type]
         self._sampling_rate = config.data.batch_size / total_samples
-        self._total_steps_per_round = (
-            config.federated.local_epochs * len(trainloader)
-        )
+        self._total_steps_per_round = config.federated.local_epochs * len(trainloader)
 
     def _check_budget(self) -> bool:
         if self._client_epsilon is not None and self._client_epsilon == 0:
@@ -203,7 +203,9 @@ class PerExampleDPClient(FlowerClient):
         if self._rdp_native:
             return {
                 "rdp_cost": 0.0,
-                "cumulative_rdp": self._accountant.get_rdp_at_alpha(self._rdp_alpha) if self._accountant else 0.0,
+                "cumulative_rdp": (
+                    self._accountant.get_rdp_at_alpha(self._rdp_alpha) if self._accountant else 0.0
+                ),
                 "client_rdp": self._client_epsilon or 0.0,
                 "update_norm": 0.0,
                 "update_norm_clean": 0.0,
@@ -243,8 +245,11 @@ class PerExampleDPClient(FlowerClient):
         }
 
     def fit(
-        self, parameters: list[Any], config: dict[str, Any],
+        self,
+        parameters: list[Any],
+        config: dict[str, Any],
     ) -> tuple[list[Any], int, dict[str, Any]]:
+        del config
         if self._check_budget():
             return parameters, 0, self._make_empty_metrics(budget_exhausted=True)
 
@@ -302,7 +307,10 @@ class PerExampleDPClient(FlowerClient):
                 images, labels = to_device(batch)
 
                 per_example_grads = _compute_per_example_grads(
-                    net, images, labels, criterion,
+                    net,
+                    images,
+                    labels,
+                    criterion,
                 )
 
                 if proximal_mu > 0:
@@ -328,7 +336,8 @@ class PerExampleDPClient(FlowerClient):
 
                 avg_clipped = _average_grads(clipped)
                 flat_after = torch.cat(
-                    [v.reshape(1, -1) for v in avg_clipped.values()], dim=1,
+                    [v.reshape(1, -1) for v in avg_clipped.values()],
+                    dim=1,
                 )
                 grad_norms_after.append(flat_after.detach().norm().item())
 
@@ -380,17 +389,24 @@ class PerExampleDPClient(FlowerClient):
         noisy_weights = local_weights
 
         utility_loss_noisy, noisy_logits = compute_validation_stats(
-            self.model.get_model(), self.valloader, criterion,
+            self.model.get_model(),
+            self.valloader,
+            criterion,
         )
 
         if clean_pass:
             assert clean_net_ref is not None
             clean_net, update_norm_clean = _run_clean_pass(
-                clean_net_ref, self.trainloader, self.config, criterion,
+                clean_net_ref,
+                self.trainloader,
+                self.config,
+                criterion,
             )
             clean_net.eval()
             utility_loss_clean, clean_logits = compute_validation_stats(
-                clean_net, self.valloader, criterion,
+                clean_net,
+                self.valloader,
+                criterion,
             )
         else:
             utility_loss_clean = 0.0
@@ -405,14 +421,16 @@ class PerExampleDPClient(FlowerClient):
 
             privacy_remaining = self._resolve_remaining_rdp()
             utility_per_remaining = (
-            -loss_degradation * inv_loss_clean / max(privacy_remaining, 1e-12)
-        )
+                -loss_degradation * inv_loss_clean / max(privacy_remaining, 1e-12)
+            )
 
             assert clean_logits is not None
             clean_flat = clean_logits.view(clean_logits.size(0), -1)
             noisy_flat_logits = noisy_logits.view(noisy_logits.size(0), -1)
             cos_sim = torch.nn.functional.cosine_similarity(
-                clean_flat, noisy_flat_logits, dim=1,
+                clean_flat,
+                noisy_flat_logits,
+                dim=1,
             )
             # logit_disagreement = 1 - mean(cos_sim) is the minimization-equivalent
             # complement of the paper's m_agr (maximized logit agreement): minimizing
@@ -430,11 +448,7 @@ class PerExampleDPClient(FlowerClient):
         # m_snr = ||Delta_clean||_2^2 / sigma^2 with the clean unclipped update
         # (spec §9.12); clean-pass methods get the clean-pass update norm,
         # others report 0.0 (clean-derived metrics are N/A for them).
-        snr = (
-            (update_norm_clean ** 2) / max(sigma ** 2, 1e-12)
-            if clean_pass
-            else 0.0
-        )
+        snr = (update_norm_clean**2) / max(sigma**2, 1e-12) if clean_pass else 0.0
 
         clipped_fraction = float(np.mean(clip_fractions)) if clip_fractions else 0.0
 
@@ -443,7 +457,9 @@ class PerExampleDPClient(FlowerClient):
                 "rdp_cost": privacy_param,
                 "r_t_final": privacy_param,
                 "acct_cost": compute_rdp_cost_dp_sgd(
-                    self._rdp_alpha, sigma, self._sampling_rate,
+                    self._rdp_alpha,
+                    sigma,
+                    self._sampling_rate,
                 ),
                 "cumulative_rdp": cumulative_privacy,
                 "client_rdp": self._client_epsilon or 0.0,

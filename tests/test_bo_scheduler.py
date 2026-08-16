@@ -378,10 +378,14 @@ class TestWarmupGrid:
         assert len(WARMUP_GRID) == 10
 
     def test_exact_values(self) -> None:
-        assert pytest.approx(
-            (0.01, 0.0154, 0.0239, 0.0368, 0.0569, 0.0879, 0.1357, 0.2095, 0.3236, 0.4998),
-            rel=0.0, abs=1e-12,
-        ) == WARMUP_GRID
+        assert (
+            pytest.approx(
+                (0.01, 0.0154, 0.0239, 0.0368, 0.0569, 0.0879, 0.1357, 0.2095, 0.3236, 0.4998),
+                rel=0.0,
+                abs=1e-12,
+            )
+            == WARMUP_GRID
+        )
 
     def test_sum_nominal(self) -> None:
         assert pytest.approx(1.3995, rel=1e-12) == WARMUP_SUM_NOMINAL

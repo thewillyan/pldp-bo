@@ -162,6 +162,7 @@ class TestTrackerTags:
 
     def test_config_version_is_stable(self) -> None:
         from src.config.locked import config_version as locked_version
+
         config = ExperimentConfig()
         assert run_name(config)  # sanity: config loads
         assert locked_version() == locked_version()
@@ -177,7 +178,8 @@ class TestTrackerTags:
 
 class TestDataHash:
     def test_digest_over_sorted_files_with_relpaths(
-        self, tmp_path: pytest.TempPathFactory,
+        self,
+        tmp_path: pytest.TempPathFactory,
     ) -> None:
         root = tmp_path / "MNIST"
         root.mkdir()
@@ -221,7 +223,9 @@ class TestDatasetSizes:
         assert dataset_sizes(config) == {"train": 50000, "test": 10000, "writers": None}
 
     def test_femnist_reads_processed_files(
-        self, tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: pytest.TempPathFactory,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         processed = tmp_path / "FEMNIST" / "processed"
         processed.mkdir(parents=True)
@@ -237,7 +241,8 @@ class TestDatasetSizes:
         assert dataset_sizes(config) == {"train": 10, "test": 5, "writers": 3}
 
     def test_femnist_missing_files_none(
-        self, tmp_path: pytest.TempPathFactory,
+        self,
+        tmp_path: pytest.TempPathFactory,
     ) -> None:
         config = ExperimentConfig()
         config.data.name = "femnist"
@@ -252,12 +257,34 @@ class TestDatasetSizes:
 
 class TestSpecParams:
     SECTION42_KEYS = {
-        "T", "K", "rho", "E", "B", "eta_server", "local_opt",
-        "clip_norm", "alpha0", "B_RDP", "R_min", "R_max",
-        "warmup_points", "warmup_sum_nominal", "lambda_aq", "kernel", "G",
-        "N", "mu_fedprox", "model", "dataset_sizes", "partition_kwargs",
-        "seeds", "validation_frac", "aggregation", "enforce_budget",
-        "dataset_root", "data_hash",
+        "T",
+        "K",
+        "rho",
+        "E",
+        "B",
+        "eta_server",
+        "local_opt",
+        "clip_norm",
+        "alpha0",
+        "B_RDP",
+        "R_min",
+        "R_max",
+        "warmup_points",
+        "warmup_sum_nominal",
+        "lambda_aq",
+        "kernel",
+        "G",
+        "N",
+        "mu_fedprox",
+        "model",
+        "dataset_sizes",
+        "partition_kwargs",
+        "seeds",
+        "validation_frac",
+        "aggregation",
+        "enforce_budget",
+        "dataset_root",
+        "data_hash",
     }
 
     def _make_bo_config(self) -> ExperimentConfig:
@@ -293,7 +320,8 @@ class TestSpecParams:
         return params
 
     def test_all_section42_params_logged_for_bo_method(
-        self, tmp_path: pytest.TempPathFactory,
+        self,
+        tmp_path: pytest.TempPathFactory,
     ) -> None:
         config = self._make_bo_config()
         params = self._params_for(config, tmp_path)
@@ -335,10 +363,13 @@ class TestSpecParams:
         assert params["mu_fedprox"] == "0.0"
         assert params["model"] == "cnn"
         assert json.loads(params["dataset_sizes"]) == {
-            "train": 60000, "test": 10000, "writers": None,
+            "train": 60000,
+            "test": 10000,
+            "writers": None,
         }
         assert json.loads(params["partition_kwargs"]) == {
-            "type": "dirichlet", "alpha": 0.5,
+            "type": "dirichlet",
+            "alpha": 0.5,
         }
         assert json.loads(params["seeds"]) == {"global": 3, "numpy": 3, "torch": 3}
         assert params["validation_frac"] == "0.1"
@@ -348,7 +379,8 @@ class TestSpecParams:
         assert len(params["data_hash"]) == 64
 
     def test_privacy_params_absent_for_nonprivate(
-        self, tmp_path: pytest.TempPathFactory,
+        self,
+        tmp_path: pytest.TempPathFactory,
     ) -> None:
         config = self._make_bo_config()
         config.method = "nonprivate"

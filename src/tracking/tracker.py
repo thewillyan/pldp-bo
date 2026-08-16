@@ -60,9 +60,12 @@ def git_hash() -> str:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
-            capture_output=True, text=True, check=True, timeout=5,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
         )
-    except (subprocess.SubprocessError, OSError):
+    except subprocess.SubprocessError, OSError:
         return "unknown"
     return result.stdout.strip()
 
@@ -190,11 +193,13 @@ class ExperimentTracker:
         params["partition_kwargs"] = json.dumps(
             build_partition_kwargs(data.partition_type, data.partition_alpha),
         )
-        params["seeds"] = json.dumps({
-            "global": config.seed,
-            "numpy": config.seed,
-            "torch": config.seed,
-        })
+        params["seeds"] = json.dumps(
+            {
+                "global": config.seed,
+                "numpy": config.seed,
+                "torch": config.seed,
+            }
+        )
         digest = data_hash(config)
         if digest is not None:
             params["data_hash"] = digest

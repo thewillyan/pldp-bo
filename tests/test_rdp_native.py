@@ -107,8 +107,12 @@ class TestEnforceRDPBudget:
     def test_candidate_fits(self) -> None:
         candidate, budget, current = 0.1, 1.0, 0.0
         rdp_cost, sigma = enforce_rdp_budget(
-            candidate, current, budget, rdp_min=0.01,
-            alpha=10.0, clipping_norm=1.0,
+            candidate,
+            current,
+            budget,
+            rdp_min=0.01,
+            alpha=10.0,
+            clipping_norm=1.0,
         )
         assert rdp_cost == pytest.approx(candidate)
         assert sigma > 0
@@ -116,39 +120,60 @@ class TestEnforceRDPBudget:
     def test_candidate_exceeds_budget_reduces(self) -> None:
         candidate, budget, current = 0.5, 0.3, 0.0
         rdp_cost, sigma = enforce_rdp_budget(
-            candidate, current, budget, rdp_min=0.01,
-            alpha=10.0, clipping_norm=1.0,
+            candidate,
+            current,
+            budget,
+            rdp_min=0.01,
+            alpha=10.0,
+            clipping_norm=1.0,
         )
         assert rdp_cost < candidate
         assert rdp_cost * 1 <= budget  # num_steps=1
 
     def test_budget_exhausted(self) -> None:
         rdp_cost, sigma = enforce_rdp_budget(
-            0.1, 1.0, 0.5, rdp_min=0.01,
-            alpha=10.0, clipping_norm=1.0,
+            0.1,
+            1.0,
+            0.5,
+            rdp_min=0.01,
+            alpha=10.0,
+            clipping_norm=1.0,
         )
         assert rdp_cost == -1.0
         assert sigma == 0.0
 
     def test_negative_candidate(self) -> None:
         rdp_cost, sigma = enforce_rdp_budget(
-            -0.1, 0.0, 1.0, rdp_min=0.01,
-            alpha=10.0, clipping_norm=1.0,
+            -0.1,
+            0.0,
+            1.0,
+            rdp_min=0.01,
+            alpha=10.0,
+            clipping_norm=1.0,
         )
         assert rdp_cost == -1.0
 
     def test_zero_remaining(self) -> None:
         rdp_cost, sigma = enforce_rdp_budget(
-            0.1, 1.0, 1.0, rdp_min=0.01,
-            alpha=10.0, clipping_norm=1.0,
+            0.1,
+            1.0,
+            1.0,
+            rdp_min=0.01,
+            alpha=10.0,
+            clipping_norm=1.0,
         )
         assert rdp_cost == -1.0
 
     def test_per_example_mode(self) -> None:
         rdp_cost, sigma = enforce_rdp_budget(
-            0.1, 0.0, 1.0, rdp_min=0.01,
-            alpha=10.0, clipping_norm=0.01,
-            clipping_mode="per_example", num_steps=1,
+            0.1,
+            0.0,
+            1.0,
+            rdp_min=0.01,
+            alpha=10.0,
+            clipping_norm=0.01,
+            clipping_mode="per_example",
+            num_steps=1,
             sampling_rate=0.01,
         )
         assert rdp_cost == pytest.approx(0.1)
@@ -157,8 +182,13 @@ class TestEnforceRDPBudget:
     def test_num_steps_multiplied(self) -> None:
         # With num_steps=5, the effective cost is 5x the per-step cost
         rdp_cost, sigma = enforce_rdp_budget(
-            0.1, 0.0, 0.4, rdp_min=0.01,
-            alpha=10.0, clipping_norm=1.0, num_steps=5,
+            0.1,
+            0.0,
+            0.4,
+            rdp_min=0.01,
+            alpha=10.0,
+            clipping_norm=1.0,
+            num_steps=5,
         )
         # 0.1 * 5 = 0.5 > 0.4, so it should be reduced
         assert rdp_cost < 0.1
@@ -221,16 +251,19 @@ class TestAccountantGetRDPAtAlpha:
 class TestFixedRDPScheduler:
     def test_basic(self) -> None:
         from src.privacy.epsilon_scheduler import FixedRDPScheduler
+
         s = FixedRDPScheduler(rdp_target=0.5)
         assert s.get_rdp() == 0.5
 
     def test_invalid_target_raises(self) -> None:
         from src.privacy.epsilon_scheduler import FixedRDPScheduler
+
         with pytest.raises(ValueError, match="rdp_target must be positive"):
             FixedRDPScheduler(rdp_target=0.0)
 
     def test_serialization(self) -> None:
         from src.privacy.epsilon_scheduler import FixedRDPScheduler
+
         s = FixedRDPScheduler(rdp_target=0.5)
         state = s.get_state()
         restored = FixedRDPScheduler.from_state(state)
@@ -238,6 +271,7 @@ class TestFixedRDPScheduler:
 
     def test_repr(self) -> None:
         from src.privacy.epsilon_scheduler import FixedRDPScheduler
+
         s = FixedRDPScheduler(rdp_target=0.5)
         assert "0.5" in repr(s)
 
@@ -245,6 +279,7 @@ class TestFixedRDPScheduler:
 class TestUniformRandomRDPScheduler:
     def test_values_in_range(self) -> None:
         from src.privacy.epsilon_scheduler import UniformRandomRDPScheduler
+
         s = UniformRandomRDPScheduler(rdp_min=0.1, rdp_max=1.0, seed=42)
         for _ in range(50):
             rdp = s.get_rdp()
@@ -252,6 +287,7 @@ class TestUniformRandomRDPScheduler:
 
     def test_deterministic_with_seed(self) -> None:
         from src.privacy.epsilon_scheduler import UniformRandomRDPScheduler
+
         s1 = UniformRandomRDPScheduler(rdp_min=0.1, rdp_max=1.0, seed=42)
         s2 = UniformRandomRDPScheduler(rdp_min=0.1, rdp_max=1.0, seed=42)
         for _ in range(10):
@@ -259,6 +295,7 @@ class TestUniformRandomRDPScheduler:
 
     def test_serialization(self) -> None:
         from src.privacy.epsilon_scheduler import UniformRandomRDPScheduler
+
         s = UniformRandomRDPScheduler(rdp_min=0.1, rdp_max=1.0, seed=42)
         s.get_rdp()  # advance RNG
         state = s.get_state()
@@ -267,6 +304,7 @@ class TestUniformRandomRDPScheduler:
 
     def test_invalid_range_raises(self) -> None:
         from src.privacy.epsilon_scheduler import UniformRandomRDPScheduler
+
         with pytest.raises(ValueError, match="rdp_min must be positive"):
             UniformRandomRDPScheduler(rdp_min=0.0, rdp_max=1.0)
 
@@ -274,8 +312,12 @@ class TestUniformRandomRDPScheduler:
 class TestPLDPBORDPScheduler:
     def test_warmup(self) -> None:
         from src.privacy.bo_scheduler import WARMUP_GRID, PLDPBORDPScheduler
+
         s = PLDPBORDPScheduler(
-            rdp_min=0.1, rdp_max=1.0, warmup_rounds=5, seed=42,
+            rdp_min=0.1,
+            rdp_max=1.0,
+            warmup_rounds=5,
+            seed=42,
         )
         values = []
         for _ in range(5):
@@ -290,8 +332,12 @@ class TestPLDPBORDPScheduler:
 
     def test_bo_phase(self) -> None:
         from src.privacy.bo_scheduler import PLDPBORDPScheduler
+
         s = PLDPBORDPScheduler(
-            rdp_min=0.1, rdp_max=1.0, warmup_rounds=3, seed=42,
+            rdp_min=0.1,
+            rdp_max=1.0,
+            warmup_rounds=3,
+            seed=42,
         )
         for _ in range(3):
             rdp = s.get_rdp()
@@ -302,8 +348,12 @@ class TestPLDPBORDPScheduler:
 
     def test_serialization(self) -> None:
         from src.privacy.bo_scheduler import PLDPBORDPScheduler
+
         s = PLDPBORDPScheduler(
-            rdp_min=0.1, rdp_max=1.0, warmup_rounds=3, seed=42,
+            rdp_min=0.1,
+            rdp_max=1.0,
+            warmup_rounds=3,
+            seed=42,
         )
         for _ in range(5):
             rdp = s.get_rdp()
@@ -315,8 +365,12 @@ class TestPLDPBORDPScheduler:
 
     def test_remaining_budget(self) -> None:
         from src.privacy.bo_scheduler import PLDPBORDPScheduler
+
         s = PLDPBORDPScheduler(
-            rdp_min=0.1, rdp_max=1.0, warmup_rounds=3, seed=42,
+            rdp_min=0.1,
+            rdp_max=1.0,
+            warmup_rounds=3,
+            seed=42,
         )
         s.set_remaining_budget(0.2)
         # After warmup, values should be masked to <= 0.2
@@ -328,6 +382,7 @@ class TestPLDPBORDPScheduler:
 
     def test_invalid_params_raise(self) -> None:
         from src.privacy.bo_scheduler import PLDPBORDPScheduler
+
         with pytest.raises(ValueError, match="rdp_min must be positive"):
             PLDPBORDPScheduler(rdp_min=0.0, rdp_max=1.0)
         with pytest.raises(ValueError, match="rdp_max must be greater"):
@@ -342,6 +397,7 @@ class TestPLDPBORDPScheduler:
 class TestConfigIntegration:
     def test_rdp_native_config_fields(self) -> None:
         from src.config.loader import BOConfig, PrivacyConfig
+
         pc = PrivacyConfig(accountant_mode="rdp_native", rdp_alpha=12.0)
         assert pc.accountant_mode == "rdp_native"
         assert pc.rdp_alpha == 12.0
@@ -352,6 +408,7 @@ class TestConfigIntegration:
 
     def test_default_config_backward_compatible(self) -> None:
         from src.config.loader import BOConfig, PrivacyConfig
+
         pc = PrivacyConfig()
         assert pc.accountant_mode == "epsilon"
         assert pc.rdp_alpha == 10.0
@@ -373,7 +430,8 @@ class TestPerRoundRDPCalibration:
         sigma = _sigma_for_rdp_target_dp_sgd(r_t, alpha, q)
         # sigma_t = sqrt(alpha * q^2 / (2 * R_t)) — the paper's closed form
         assert sigma == pytest.approx(
-            math.sqrt(alpha * q**2 / (2.0 * r_t)), rel=1e-12,
+            math.sqrt(alpha * q**2 / (2.0 * r_t)),
+            rel=1e-12,
         )
         rdp = compute_rdp_cost_dp_sgd(alpha, sigma, q)
         assert rdp == pytest.approx(r_t, rel=1e-9)
@@ -383,7 +441,10 @@ class TestPerRoundRDPCalibration:
         sigma = _sigma_for_rdp_target_dp_sgd(r_t, alpha, q)
         accountant = RDPAccountant(delta=1e-5)
         accountant.step(
-            sigma=sigma, clipping_norm=q, num_steps=1, mode="per_example",
+            sigma=sigma,
+            clipping_norm=q,
+            num_steps=1,
+            mode="per_example",
         )
         cost = accountant.get_rdp_at_alpha(alpha)
         assert cost == pytest.approx(r_t, rel=1e-6)
@@ -395,6 +456,7 @@ class TestResolveRDPerRound:
     @staticmethod
     def _make_config():
         from src.config.loader import ExperimentConfig
+
         cfg = ExperimentConfig()
         cfg.privacy.enabled = True
         cfg.privacy.accountant_mode = "rdp_native"
@@ -411,13 +473,18 @@ class TestResolveRDPerRound:
     def test_candidate_fits_uses_per_round_sigma(self) -> None:
         from src.client_app import _resolve_rdp
         from src.privacy.epsilon_scheduler import FixedRDPScheduler
+
         config = self._make_config()
         accountant = RDPAccountant(delta=1e-5)
         q = 64 / 1000
         r_t = 0.5
         rdp_cost, sigma, _candidate, _bo, _acct = _resolve_rdp(
-            FixedRDPScheduler(rdp_target=r_t), accountant, config,
-            total_budget=10.0, eps_min=0.01, local_train_size=1000,
+            FixedRDPScheduler(rdp_target=r_t),
+            accountant,
+            config,
+            total_budget=10.0,
+            eps_min=0.01,
+            local_train_size=1000,
         )
         assert rdp_cost == pytest.approx(r_t, rel=1e-9)
         assert sigma == pytest.approx(self._expected_sigma(r_t, q), rel=1e-9)
@@ -425,6 +492,7 @@ class TestResolveRDPerRound:
     def test_candidate_reduced_to_fit_budget(self) -> None:
         from src.client_app import _resolve_rdp
         from src.privacy.epsilon_scheduler import FixedRDPScheduler
+
         config = self._make_config()
         alpha = config.privacy.rdp_alpha
         q = 64 / 1000
@@ -432,34 +500,49 @@ class TestResolveRDPerRound:
         accountant = RDPAccountant(delta=1e-5)
         sigma_current = _sigma_for_rdp_target_dp_sgd(current, alpha, q)
         accountant.step(
-            sigma=sigma_current, clipping_norm=q, num_steps=1,
+            sigma=sigma_current,
+            clipping_norm=q,
+            num_steps=1,
             mode="per_example",
         )
         rdp_cost, sigma, _candidate, _bo, _acct = _resolve_rdp(
-            FixedRDPScheduler(rdp_target=0.5), accountant, config,
-            total_budget=1.0, eps_min=0.01, local_train_size=1000,
+            FixedRDPScheduler(rdp_target=0.5),
+            accountant,
+            config,
+            total_budget=1.0,
+            eps_min=0.01,
+            local_train_size=1000,
         )
         assert 0.01 <= rdp_cost < 0.5
         assert current + rdp_cost <= 1.0 + 1e-9
         # sigma must be consistent with the enforced per-round cost
         assert compute_rdp_cost_dp_sgd(alpha, sigma, q) == pytest.approx(
-            rdp_cost, rel=1e-9,
+            rdp_cost,
+            rel=1e-9,
         )
 
     def test_budget_exhausted_returns_minus_one(self) -> None:
         from src.client_app import _resolve_rdp
         from src.privacy.epsilon_scheduler import FixedRDPScheduler
+
         config = self._make_config()
         alpha = config.privacy.rdp_alpha
         q = 64 / 1000
         accountant = RDPAccountant(delta=1e-5)
         sigma_used = _sigma_for_rdp_target_dp_sgd(0.995, alpha, q)
         accountant.step(
-            sigma=sigma_used, clipping_norm=q, num_steps=1, mode="per_example",
+            sigma=sigma_used,
+            clipping_norm=q,
+            num_steps=1,
+            mode="per_example",
         )
         rdp_cost, sigma, _candidate, _bo, _acct = _resolve_rdp(
-            FixedRDPScheduler(rdp_target=0.5), accountant, config,
-            total_budget=1.0, eps_min=0.01, local_train_size=1000,
+            FixedRDPScheduler(rdp_target=0.5),
+            accountant,
+            config,
+            total_budget=1.0,
+            eps_min=0.01,
+            local_train_size=1000,
         )
         assert rdp_cost == -1.0
         assert sigma == 0.0
@@ -467,11 +550,14 @@ class TestResolveRDPerRound:
     def test_no_budget_direct_calibration(self) -> None:
         from src.client_app import _resolve_rdp
         from src.privacy.epsilon_scheduler import FixedRDPScheduler
+
         config = self._make_config()
         q = 64 / 1000
         r_t = 0.5
         rdp_cost, sigma, _candidate, _bo, _acct = _resolve_rdp(
-            FixedRDPScheduler(rdp_target=r_t), None, config,
+            FixedRDPScheduler(rdp_target=r_t),
+            None,
+            config,
             local_train_size=1000,
         )
         assert rdp_cost == pytest.approx(r_t, rel=1e-9)
@@ -484,6 +570,7 @@ class TestResolveRDPSpecFields:
     @staticmethod
     def _make_config():
         from src.config.loader import ExperimentConfig
+
         cfg = ExperimentConfig()
         cfg.privacy.enabled = True
         cfg.privacy.accountant_mode = "rdp_native"
@@ -496,9 +583,12 @@ class TestResolveRDPSpecFields:
     def test_no_enforcement_reports_candidate_and_timings(self) -> None:
         from src.client_app import _resolve_rdp
         from src.privacy.epsilon_scheduler import FixedRDPScheduler
+
         config = self._make_config()
         rdp_cost, sigma, candidate, bo_time, acct_time = _resolve_rdp(
-            FixedRDPScheduler(rdp_target=0.5), None, config,
+            FixedRDPScheduler(rdp_target=0.5),
+            None,
+            config,
             local_train_size=1000,
         )
         assert rdp_cost == pytest.approx(0.5)
@@ -510,41 +600,57 @@ class TestResolveRDPSpecFields:
     def test_candidate_is_pre_enforcement_value(self) -> None:
         from src.client_app import _resolve_rdp
         from src.privacy.epsilon_scheduler import FixedRDPScheduler
+
         config = self._make_config()
         alpha = config.privacy.rdp_alpha
         q = 64 / 1000
         accountant = RDPAccountant(delta=1e-5)
         sigma_current = _sigma_for_rdp_target_dp_sgd(0.9, alpha, q)
         accountant.step(
-            sigma=sigma_current, clipping_norm=q, num_steps=1,
+            sigma=sigma_current,
+            clipping_norm=q,
+            num_steps=1,
             mode="per_example",
         )
         rdp_cost, sigma, candidate, _bo, _acct = _resolve_rdp(
-            FixedRDPScheduler(rdp_target=0.5), accountant, config,
-            total_budget=1.0, eps_min=0.01, local_train_size=1000,
+            FixedRDPScheduler(rdp_target=0.5),
+            accountant,
+            config,
+            total_budget=1.0,
+            eps_min=0.01,
+            local_train_size=1000,
         )
         # The candidate is the scheduler's proposed 0.5 before enforcement;
         # the enforced rdp_cost is reduced to fit the remaining budget.
         assert candidate == pytest.approx(0.5)
         assert 0.01 <= rdp_cost < 0.5
         assert compute_rdp_cost_dp_sgd(alpha, sigma, q) == pytest.approx(
-            rdp_cost, rel=1e-9,
+            rdp_cost,
+            rel=1e-9,
         )
 
     def test_exhausted_reports_pre_enforcement_candidate(self) -> None:
         from src.client_app import _resolve_rdp
         from src.privacy.epsilon_scheduler import FixedRDPScheduler
+
         config = self._make_config()
         alpha = config.privacy.rdp_alpha
         q = 64 / 1000
         accountant = RDPAccountant(delta=1e-5)
         sigma_used = _sigma_for_rdp_target_dp_sgd(0.995, alpha, q)
         accountant.step(
-            sigma=sigma_used, clipping_norm=q, num_steps=1, mode="per_example",
+            sigma=sigma_used,
+            clipping_norm=q,
+            num_steps=1,
+            mode="per_example",
         )
         rdp_cost, sigma, candidate, _bo, _acct = _resolve_rdp(
-            FixedRDPScheduler(rdp_target=0.5), accountant, config,
-            total_budget=1.0, eps_min=0.01, local_train_size=1000,
+            FixedRDPScheduler(rdp_target=0.5),
+            accountant,
+            config,
+            total_budget=1.0,
+            eps_min=0.01,
+            local_train_size=1000,
         )
         assert rdp_cost == -1.0
         assert sigma == 0.0
@@ -554,9 +660,12 @@ class TestResolveRDPSpecFields:
         """§4.4 N/A rule: fixed baselines report bo_time_round = 0."""
         from src.client_app import _resolve_rdp
         from src.privacy.epsilon_scheduler import FixedRDPScheduler
+
         config = self._make_config()
         rdp_cost, sigma, candidate, bo_time, acct_time = _resolve_rdp(
-            FixedRDPScheduler(rdp_target=0.5), None, config,
+            FixedRDPScheduler(rdp_target=0.5),
+            None,
+            config,
             local_train_size=1000,
         )
         assert rdp_cost == pytest.approx(0.5)
@@ -599,22 +708,29 @@ class TestPerExampleClientRoundParity:
         sigma = _sigma_for_rdp_target_dp_sgd(r_t, alpha, q)
 
         client = PerExampleDPClient(
-            _TinyModel(), loader, loader, config,
-            client_epsilon=r_t, computed_sigma=sigma,
+            _TinyModel(),
+            loader,
+            loader,
+            config,
+            client_epsilon=r_t,
+            computed_sigma=sigma,
             accountant=RDPAccountant(delta=1e-5),
         )
         weights, num_examples, metrics = client.fit(
-            client.get_parameters({}), {},
+            client.get_parameters({}),
+            {},
         )
         assert isinstance(weights, list)
         assert num_examples == 4
         assert metrics["r_t_final"] == pytest.approx(r_t, rel=1e-6)
         assert metrics["rdp_cost"] == pytest.approx(r_t, rel=1e-6)
         assert metrics["acct_cost"] == pytest.approx(
-            metrics["r_t_final"], rel=1e-6,
+            metrics["r_t_final"],
+            rel=1e-6,
         )
         assert metrics["cumulative_rdp"] == pytest.approx(
-            metrics["acct_cost"], rel=1e-6,
+            metrics["acct_cost"],
+            rel=1e-6,
         )
 
 
