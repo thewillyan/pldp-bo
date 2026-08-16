@@ -777,3 +777,65 @@ class TestVerifyCli:
         assert args.dataset == ["mnist"]
         assert args.method == ["pldpbo_snr"]
         assert args.seeds == "0-3"
+
+
+def _vr(
+    method: str = "pldpbo_snr",
+    state: dict | None = None,
+    params: dict[str, str] | None = None,
+) -> object:
+    return _verify.VerifyRun("mnist_iid", method, "runid", 0, params or {}, state)
+
+
+class TestVerifyWarmup:
+    def test_passes_with_grid_values(self) -> None:
+        from src.privacy.bo_scheduler import WARMUP_GRID
+
+        grid = list(WARMUP_GRID)
+        state = {
+            "0": {"acct_cost": grid, "r_t_final": grid},
+            "1": {"acct_cost": grid, "r_t_final": grid},
+        }
+        result = _verify._check_warmup(_vr(state=state))
+        assert result["pass"] is True
+        assert result["n"] == 2
+        assert abs(result["sum_mean"] - _verify.WARMUP_SUM_NOMINAL) < 1e-9
+        assert result["parity_median"] == 0.0
+        assert result["parity_max"] == 0.0
+
+    def test_fails_out_of_tolerance(self) -> None:
+        state = {"0": {"acct_cost": [0.2] * 10, "r_t_final": [0.2] * 10}}
+        result = _verify._check_warmup(_vr(state=state))
+        assert result["pass"] is False
+
+    def test_uses_first_ten_participations_only(self) -> None:
+        from src.privacy.bo_scheduler import WARMUP_GRID
+
+        grid = list(WARMUP_GRID)
+        state = {"0": {"acct_cost": grid + [5.0, 5.0], "r_t_final": grid + [5.0, 5.0]}}
+        result = _verify._check_warmup(_vr(state=state))
+        assert abs(result["sum_mean"] - _verify.WARMUP_SUM_NOMINAL) < 1e-9
+
+    def test_sums_available_participations_when_fewer_than_ten(self) -> None:
+        state = {"0": {"acct_cost": [0.1, 0.2, 0.3], "r_t_final": [0.1, 0.2, 0.3]}}
+        result = _verify._check_warmup(_vr(state=state))
+        assert result["n"] == 1
+        assert abs(result["sum_mean"] - 0.6) < 1e-9
+
+    def test_parity_excludes_refused_rounds(self) -> None:
+        # r_t_final == 0.0 marks a refused round; excluded from parity.
+        state = {
+            "0": {
+                "acct_cost": [1.0, 1.0, 0.0],
+                "r_t_final": [1.5, 0.5, 0.0],
+            },
+        }
+        result = _verify._check_warmup(_vr(state=state))
+        # relative errors: |1-1.5|/1.5 = 1/3, |1-0.5|/0.5 = 1
+        assert result["parity_median"] == pytest.approx(2 / 3)
+        assert result["parity_max"] == pytest.approx(1.0)
+
+    def test_no_data_gives_none(self) -> None:
+        result = _verify._check_warmup(_vr(state=None))
+        assert result["pass"] is None
+        assert result["n"] == 0

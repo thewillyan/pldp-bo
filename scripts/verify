@@ -22,14 +22,17 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import statistics
 import sys
 from dataclasses import dataclass, field
 
 import mlflow
 
 from src.config.locked import config_version as locked_config_version
+from src.privacy.bo_scheduler import WARMUP_SUM_NOMINAL
 
 CLIENT_STATE_ARTIFACT = "client_state.json"
+WARMUP_PASS_TOLERANCE = 0.05  # ±5% of the nominal sum
 
 
 @dataclass
@@ -118,6 +121,48 @@ def _parse_seeds(spec: str) -> list[int]:
         start, end = (int(p) for p in spec.split("-", 1))
         return list(range(start, end + 1))
     return [int(spec)]
+
+
+def _client_state_entries(run: VerifyRun) -> list[dict]:
+    """Per-client participation records of *run* ([] when the artifact is absent)."""
+    if run.client_state is None:
+        return []
+    return [state for state in run.client_state.values() if isinstance(state, dict)]
+
+
+def _check_warmup(run: VerifyRun) -> dict:
+    """§5.1 check 1: warm-up sum + per-round accountant-cost parity.
+
+    Per run × client: Σ over the client's first 10 participations of
+    ``acct_cost`` (fewer participations → sum what exists). Parity excludes
+    refused rounds (``r_t_final`` == 0.0).
+    """
+    sums: list[float] = []
+    parities: list[float] = []
+    for state in _client_state_entries(run):
+        acct = [float(v) for v in state.get("acct_cost", []) if v is not None]
+        if acct:
+            sums.append(sum(acct[:10]))
+        finals = [float(v) for v in state.get("r_t_final", [])]
+        for cost, final in zip(acct, finals, strict=False):
+            if final > 0:
+                parities.append(abs(cost - final) / final)
+    n = len(sums)
+    if n == 0:
+        return {"n": 0, "sum_mean": 0.0, "sum_sd": 0.0, "pass": None,
+                "parity_median": 0.0, "parity_max": 0.0}
+    mean = statistics.fmean(sums)
+    sd = statistics.stdev(sums) if n > 1 else 0.0
+    lo = WARMUP_SUM_NOMINAL * (1 - WARMUP_PASS_TOLERANCE)
+    hi = WARMUP_SUM_NOMINAL * (1 + WARMUP_PASS_TOLERANCE)
+    return {
+        "n": n,
+        "sum_mean": mean,
+        "sum_sd": sd,
+        "pass": lo <= mean <= hi,
+        "parity_median": statistics.median(parities) if parities else 0.0,
+        "parity_max": max(parities) if parities else 0.0,
+    }
 
 
 def build_parser() -> argparse.ArgumentParser:
