@@ -870,6 +870,13 @@ class TestVerifyBudget:
         assert result["pass"] is None
         assert result["n"] == 0
 
+    def test_nonprivate_reports_zero_with_pass(self) -> None:
+        result = _verify._check_budget(_vr(method="nonprivate", state=None))
+        assert result["pass"] is True
+        assert result["final_rdp_mean"] == 0.0
+        assert result["utilization_mean"] == 0.0
+        assert "nonprivate" in result["note"]
+
 
 class TestVerifyDropout:
     def test_never_drops_reports_t_plus_one(self) -> None:
@@ -982,6 +989,41 @@ class TestVerifyFemnistCounts:
         result = _verify._check_femnist_counts(run)
         assert result["pass"] is None
         assert "SKIP" in result["note"]
+
+
+class TestVerifyAggregate:
+    def test_dropout_pass_true_with_data(self) -> None:
+        from src.privacy.bo_scheduler import WARMUP_GRID
+
+        grid = list(WARMUP_GRID)
+        run = _vr(
+            state={
+                "0": {"acct_cost": grid, "r_t_final": grid,
+                      "cum_rdp": [10.0], "dropout_round": None},
+            },
+            params={"T": "200"},
+        )
+        aggregated = _verify._aggregate(
+            [{"method": "pldpbo_snr", **_verify.verify_run(run)}],
+        )
+        assert aggregated["pldpbo_snr"]["dropout"]["pass"] is True
+        assert aggregated["pldpbo_snr"]["dropout"]["fraction_never"] == pytest.approx(1.0)
+
+    def test_nonprivate_budget_aggregates_pass(self) -> None:
+        run = _vr(method="nonprivate", state=None)
+        aggregated = _verify._aggregate(
+            [{"method": "nonprivate", **_verify.verify_run(run)}],
+        )
+        assert aggregated["nonprivate"]["budget_match"]["pass"] is True
+        assert aggregated["nonprivate"]["budget_match"]["final_rdp_mean"] == 0.0
+
+    def test_artifact_less_private_run_stays_skip(self) -> None:
+        run = _vr(method="pldpbo_snr", state=None)
+        aggregated = _verify._aggregate(
+            [{"method": "pldpbo_snr", **_verify.verify_run(run)}],
+        )
+        assert aggregated["pldpbo_snr"]["warmup"]["pass"] is None
+        assert aggregated["pldpbo_snr"]["budget_match"]["pass"] is None
 
 
 class TestVerifyOutput:

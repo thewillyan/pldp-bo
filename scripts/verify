@@ -171,7 +171,13 @@ def _check_warmup(run: VerifyRun) -> dict:
 
 
 def _check_budget(run: VerifyRun) -> dict:
-    """§5.1 check 2: mean final cumulative RDP per method ≈ B_RDP."""
+    """§5.1 check 2: mean final cumulative RDP per method ≈ B_RDP.
+
+    Nonprivate logs no privacy fields (§4.4 N/A rule) → reported as 0.
+    """
+    if run.method == "nonprivate":
+        return {"n": 0, "final_rdp_mean": 0.0, "utilization_mean": 0.0,
+                "pass": True, "note": "nonprivate"}
     finals: list[float] = []
     for state in _client_state_entries(run):
         cum = [float(v) for v in state.get("cum_rdp", []) if v is not None]
@@ -179,13 +185,15 @@ def _check_budget(run: VerifyRun) -> dict:
             finals.append(cum[-1])
     n = len(finals)
     if n == 0:
-        return {"n": 0, "final_rdp_mean": 0.0, "utilization_mean": 0.0, "pass": None}
+        return {"n": 0, "final_rdp_mean": 0.0, "utilization_mean": 0.0,
+                "pass": None, "note": ""}
     mean = statistics.fmean(finals)
     return {
         "n": n,
         "final_rdp_mean": mean,
         "utilization_mean": mean / BUDGET_TARGET,
         "pass": abs(mean / BUDGET_TARGET - 1.0) <= UTILIZATION_TOLERANCE,
+        "note": "",
     }
 
 
@@ -272,10 +280,13 @@ def _aggregate(results: list[dict]) -> dict:
         methods.setdefault(result["method"], []).append(result)
     out: dict[str, dict] = {}
     for method, entries in sorted(methods.items()):
-        warmups = [e["warmup"] for e in entries if e["warmup"].get("n")]
-        budgets = [e["budget_match"] for e in entries if e["budget_match"].get("n")]
-        dropouts = [e["dropout"] for e in entries if e["dropout"].get("n")]
-        femnists = [e["femnist_counts"] for e in entries if e["femnist_counts"].get("n")]
+        warmups = [e["warmup"] for e in entries if e["warmup"].get("pass") is not None]
+        budgets = [e["budget_match"] for e in entries if e["budget_match"].get("pass") is not None]
+        dropouts = [e["dropout"] for e in entries if e["dropout"].get("pass") is not None]
+        femnists = [
+            e["femnist_counts"] for e in entries
+            if e["femnist_counts"].get("pass") is not None
+        ]
         enforced = [
             e["enforcement"] for e in entries
             if e["enforcement"]["mean_count_per_client"] > 0
@@ -284,6 +295,12 @@ def _aggregate(results: list[dict]) -> dict:
 
         def _mean(values: list[float]) -> float:
             return statistics.fmean(values) if values else 0.0
+
+        def _note(entries_: list[dict]) -> str:
+            for entry in entries_:
+                if entry.get("note"):
+                    return entry["note"]
+            return ""
 
         out[method] = {
             "warmup": {
@@ -299,6 +316,7 @@ def _aggregate(results: list[dict]) -> dict:
                 "final_rdp_mean": _mean([e["final_rdp_mean"] for e in budgets]),
                 "utilization_mean": _mean([e["utilization_mean"] for e in budgets]),
                 "pass": all(e["pass"] for e in budgets) if budgets else None,
+                "note": _note(budgets),
             },
             "dropout": {
                 "n": sum(e["n"] for e in dropouts),
@@ -306,7 +324,7 @@ def _aggregate(results: list[dict]) -> dict:
                 "dropout_round_mean": _mean([e["dropout_round_mean"] for e in dropouts]),
                 "dropout_round_sd": _mean([e["dropout_round_sd"] for e in dropouts]),
                 "final_rdp_mean": _mean([e["final_rdp_mean"] for e in dropouts]),
-                "pass": None,
+                "pass": all(e["pass"] for e in dropouts) if dropouts else None,
             },
             "femnist_counts": {
                 "n": sum(e["n"] for e in femnists),
@@ -314,6 +332,7 @@ def _aggregate(results: list[dict]) -> dict:
                 "test": femnists[0]["test"] if femnists else 0,
                 "writers": femnists[0]["writers"] if femnists else 0,
                 "pass": all(e["pass"] for e in femnists) if femnists else None,
+                "note": _note(femnists),
             },
             "enforcement": {
                 "mean_count_per_client": _mean(
@@ -411,6 +430,8 @@ def cmd_verify(args: argparse.Namespace) -> int:
                     f" {check['train']}/{check['test']}/{check['writers']}"
                     f" expected {FEMNIST_EXPECTED[0]}/{FEMNIST_EXPECTED[1]}/{FEMNIST_EXPECTED[2]}"
                 )
+            if check.get("note"):
+                detail += f" ({check['note']})"
             _print_check(method, name, check["pass"], detail)
             if check["pass"] is False:
                 failures += 1
