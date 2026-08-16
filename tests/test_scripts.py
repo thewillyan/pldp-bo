@@ -943,7 +943,7 @@ class TestVerifyFemnistCounts:
         root = tmp_path / "data"
         (root / "FEMNIST").mkdir(parents=True)
         monkeypatch.setattr(
-            _verify, "femnist_counts", lambda r: (654_281, 163_570, 3_598),
+            _verify, "femnist_counts", lambda _root: (654_281, 163_570, 3_598),
         )
         run = _verify.VerifyRun(
             "femnist_natural", "pldpbo_nun", "rid", 0,
@@ -958,7 +958,7 @@ class TestVerifyFemnistCounts:
     ) -> None:
         root = tmp_path / "data"
         (root / "FEMNIST").mkdir(parents=True)
-        monkeypatch.setattr(_verify, "femnist_counts", lambda r: (1, 2, 3))
+        monkeypatch.setattr(_verify, "femnist_counts", lambda _root: (1, 2, 3))
         run = _verify.VerifyRun(
             "femnist_natural", "pldpbo_nun", "rid", 0,
             {"dataset_root": str(root)}, None,

@@ -28,9 +28,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import mlflow
+from src.data.femnist import femnist_counts
 
 from src.config.locked import config_version as locked_config_version
-from src.data.femnist import femnist_counts
 from src.privacy.bo_scheduler import WARMUP_SUM_NOMINAL
 
 CLIENT_STATE_ARTIFACT = "client_state.json"
@@ -281,27 +281,31 @@ def _aggregate(results: list[dict]) -> dict:
             if e["enforcement"]["mean_count_per_client"] > 0
             or e["enforcement"]["fraction_reduced_rounds"] > 0
         ]
+
+        def _mean(values: list[float]) -> float:
+            return statistics.fmean(values) if values else 0.0
+
         out[method] = {
             "warmup": {
                 "n": sum(e["n"] for e in warmups),
-                "sum_mean": statistics.fmean([e["sum_mean"] for e in warmups]) if warmups else 0.0,
-                "sum_sd": statistics.fmean([e["sum_sd"] for e in warmups]) if warmups else 0.0,
+                "sum_mean": _mean([e["sum_mean"] for e in warmups]),
+                "sum_sd": _mean([e["sum_sd"] for e in warmups]),
                 "parity_median": max((e["parity_median"] for e in warmups), default=0.0),
                 "parity_max": max((e["parity_max"] for e in warmups), default=0.0),
                 "pass": all(e["pass"] for e in warmups) if warmups else None,
             },
             "budget_match": {
                 "n": sum(e["n"] for e in budgets),
-                "final_rdp_mean": statistics.fmean([e["final_rdp_mean"] for e in budgets]) if budgets else 0.0,
-                "utilization_mean": statistics.fmean([e["utilization_mean"] for e in budgets]) if budgets else 0.0,
+                "final_rdp_mean": _mean([e["final_rdp_mean"] for e in budgets]),
+                "utilization_mean": _mean([e["utilization_mean"] for e in budgets]),
                 "pass": all(e["pass"] for e in budgets) if budgets else None,
             },
             "dropout": {
                 "n": sum(e["n"] for e in dropouts),
-                "fraction_never": statistics.fmean([e["fraction_never"] for e in dropouts]) if dropouts else 0.0,
-                "dropout_round_mean": statistics.fmean([e["dropout_round_mean"] for e in dropouts]) if dropouts else 0.0,
-                "dropout_round_sd": statistics.fmean([e["dropout_round_sd"] for e in dropouts]) if dropouts else 0.0,
-                "final_rdp_mean": statistics.fmean([e["final_rdp_mean"] for e in dropouts]) if dropouts else 0.0,
+                "fraction_never": _mean([e["fraction_never"] for e in dropouts]),
+                "dropout_round_mean": _mean([e["dropout_round_mean"] for e in dropouts]),
+                "dropout_round_sd": _mean([e["dropout_round_sd"] for e in dropouts]),
+                "final_rdp_mean": _mean([e["final_rdp_mean"] for e in dropouts]),
                 "pass": None,
             },
             "femnist_counts": {
@@ -312,12 +316,12 @@ def _aggregate(results: list[dict]) -> dict:
                 "pass": all(e["pass"] for e in femnists) if femnists else None,
             },
             "enforcement": {
-                "mean_count_per_client": statistics.fmean(
+                "mean_count_per_client": _mean(
                     [e["mean_count_per_client"] for e in enforced],
-                ) if enforced else 0.0,
-                "fraction_reduced_rounds": statistics.fmean(
+                ),
+                "fraction_reduced_rounds": _mean(
                     [e["fraction_reduced_rounds"] for e in enforced],
-                ) if enforced else 0.0,
+                ),
             },
         }
     return out
