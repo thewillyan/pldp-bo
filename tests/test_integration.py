@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 
 import pytest
 
@@ -515,3 +516,15 @@ class TestFourCellMatrixSmoke:
             )
             assert isinstance(scheduler, expected_cls)
             assert isinstance(_make_strategy(cfg, None, None, None), MedianRobustAggregation)
+
+
+class TestFemnistDataLessLoader:
+    """IMPL-14: FEMNIST loader fails cleanly without processed data."""
+
+    def test_missing_processed_dir_raises_clean_error(self, tmp_path: Path) -> None:
+        from src.data.femnist import FEMNISTDataset
+
+        empty_root = tmp_path / "no_femnist"
+        empty_root.mkdir()
+        with pytest.raises(FileNotFoundError, match="FEMNIST/processed"):
+            FEMNISTDataset(root=str(empty_root), train=True, transform=None)

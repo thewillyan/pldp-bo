@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import cast
 
+import pytest
 import yaml
 
 from src.config.loader import ExperimentConfig, load_config
@@ -161,3 +162,29 @@ def test_locked_layer_fields_from_override() -> None:
     assert config.federated.aggregation == "plain"
     assert config.privacy.enforce_budget is False
     assert config.privacy.fixed_rdp_target == 1.0
+
+
+class TestSmokeConfigs:
+    """IMPL-14: smoke configs load and satisfy the method contract."""
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "nonprivate",
+            "dpfedavg_fixed",
+            "fedprox_fixed",
+            "pldpbo_nun",
+        ],
+    )
+    def test_smoke_cell_loads_and_contract_clean(self, name: str) -> None:
+        from src.config.locked import collect_violations
+
+        cfg = load_config(f"config/smoke/{name}.yaml")
+        violations = collect_violations(cfg)
+        assert not any(v.startswith("method") for v in violations), violations
+        assert cfg.federated.num_rounds == 20
+        assert cfg.data.num_clients == 4
+
+    def test_femnist_loader_config_loads(self) -> None:
+        cfg = load_config("config/smoke/femnist_loader.yaml")
+        assert cfg.data.name == "femnist"
