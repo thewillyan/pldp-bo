@@ -855,3 +855,26 @@ Everything below is the repo-side subset of `EXPERIMENTS-TODO.md` §8:
    binding on the source. 50 new/updated tests (tracker 28, client 6, strategy 12, artifact 4);
    569 tests green; ruff/mypy zero new errors vs git HEAD (ruff 53 = 53; mypy 174 = 174; only
    line-shifted pre-existing notes). `src/data/` still untracked/gitignored.
+- 2026-08-15: **IMPL-09 closed.** Fixed baselines + aggregation routing (spec §9.5; §2 contract).
+  Client (`client_app.py`): `_make_rdp_native_scheduler` routes `method in FIXED_METHODS`
+  (`dpfedavg_fixed`, `fedprox_fixed`) → `FixedRDPScheduler(rdp_target=privacy.fixed_rdp_target)`
+  (asserted = B_RDP/(ρ·T) = 0.5 by IMPL-01) before the personalization guard; BO methods →
+  `PLDPBORDPScheduler`; `bo_time` measured only when `getattr(scheduler, "_phase", None)` is not
+  None, so fixed baselines log `bo_time_round = 0` (§4.4 N/A rule); removed the personalization
+  divide-by-T fallback in `_resolve_rdp`/`_resolve_epsilon` (the scheduler-None path now raises
+  ValueError). Server (`server_app.py`): new `_make_strategy(config, tracker, budgets,
+  node_to_partition)` helper routes on `federated.aggregation` — `attenuation` →
+  `MedianRobustAggregation` (all private methods incl. fixed baselines), `plain` → `SafeFedAvg`
+  (nonprivate); `fedprox_fixed` no longer uses the `SafeFedProx` server class (proximal term is
+  client-side, IMPL-04; class kept in strategy.py for legacy); `_compute_per_client_budgets` is
+  now flat — `{nid: total_budget}` for all K clients — dropping the QUERY round and
+  data-proportional weights; `_discover_node_to_partition` removed (dead). Tests: new
+  `TestSchedulerRouting` (5), `TestStrategyRouting` (3), `TestFourCellMatrixSmoke` (4-cell:
+  nonprivate→SafeFedAvg/None scheduler, dpfedavg_fixed+fedprox_fixed→Median/FixedRDPScheduler,
+  pldpbo_nun→Median/PLDPBORDPScheduler, assertion off), `TestFixedBaselineBudgetMatch` (20
+  participations × 0.5 = 10.0 = B_RDP; 21st refused); `test_bo_time_zero_without_scheduler`
+  rewritten as `test_bo_time_zero_for_fixed_scheduler`; budget tests updated to flat semantics
+  (custom/data_proportional/QUERY-branch tests deleted per user decision). 575 tests green;
+  ruff/mypy zero new errors vs git HEAD (ruff 38 = 38; mypy zero new, net −9 lines from deleted
+  legacy tests). Client `personalization_metadata` query handler kept for legacy (personalization
+  module remains), now unreachable from the server.

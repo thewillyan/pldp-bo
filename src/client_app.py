@@ -12,7 +12,7 @@ from torch.utils.data import Subset
 
 from src.client import create_client
 from src.config.loader import ExperimentConfig, load_config
-from src.config.locked import assert_locked_config
+from src.config.locked import FIXED_METHODS, assert_locked_config
 from src.data import create_client_dataloader, create_dataset, create_test_dataset
 from src.data.dataloaders import create_dataloaders
 from src.device import get_device, to_device
@@ -139,6 +139,10 @@ def _make_rdp_native_scheduler(
             ema_alpha=config.bo.ema_alpha,
             seed=config.seed + partition_id,
         )
+    if config.method in FIXED_METHODS:
+        # Fixed baselines (§9.5): R = B_RDP/(rho*T) = 0.5 per round, from the
+        # locked privacy.fixed_rdp_target.
+        return FixedRDPScheduler(rdp_target=config.privacy.fixed_rdp_target)
     if config.personalization.enabled:
         return None
     # For non-BO RDP-native mode, use uniform random over rdp range
@@ -462,20 +466,18 @@ def _resolve_epsilon(
     """Return (epsilon, sigma, eps_candidate, bo_time, acct_time)."""
     bo_time = 0.0
     if scheduler is not None:
-        t0 = perf_counter()
-        candidate = scheduler.get_epsilon()
-        bo_time = perf_counter() - t0
-    elif config.personalization.enabled:
-        if total_budget is not None and total_budget > 0:
-            candidate = total_budget / config.federated.num_rounds
+        if getattr(scheduler, "_phase", None) is not None:
+            t0 = perf_counter()
+            candidate = scheduler.get_epsilon()
+            bo_time = perf_counter() - t0
         else:
-            return 0.0, 0.0, 0.0, 0.0, 0.0
+            candidate = scheduler.get_epsilon()
     elif config.privacy.target_epsilon is not None:
         candidate = config.privacy.target_epsilon
     elif config.privacy.enabled:
         raise ValueError(
             "Privacy enabled but no epsilon source available. "
-            "Set privacy.target_epsilon, enable a scheduler (bo/personalization), "
+            "Set privacy.target_epsilon, enable a scheduler (bo), "
             "or disable privacy."
         )
     else:
@@ -535,14 +537,12 @@ def _resolve_rdp(
 
     bo_time = 0.0
     if scheduler is not None:
-        t0 = perf_counter()
-        candidate = scheduler.get_rdp()
-        bo_time = perf_counter() - t0
-    elif config.personalization.enabled:
-        if total_budget is not None and total_budget > 0:
-            candidate = total_budget / config.federated.num_rounds
+        if getattr(scheduler, "_phase", None) is not None:
+            t0 = perf_counter()
+            candidate = scheduler.get_rdp()
+            bo_time = perf_counter() - t0
         else:
-            return 0.0, 0.0, 0.0, 0.0, 0.0
+            candidate = scheduler.get_rdp()
     else:
         raise ValueError(
             "RDP-native mode requires a scheduler (bo) or personalization with total_budget."

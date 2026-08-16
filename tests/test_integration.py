@@ -377,3 +377,96 @@ class TestFullRoundLifecycle:
 
         assert scheduler._round == round_before, "scheduler._round should not increment"
         assert len(scheduler._observations) == n_obs_before, "should not add observation"
+
+
+class TestFixedBaselineBudgetMatch:
+    """IMPL-09 §9.5: FixedRDPScheduler(0.5) fills B_RDP=10.0 in exactly
+    20 participations; the 21st is refused (cumulative 10.0 + 0.5 > 10.0)."""
+
+    BUDGET = 10.0
+    CANDIDATE = 0.5
+    ALPHA = 10.0
+
+    def test_accepts_20_participations_then_refuses(self) -> None:
+        from src.privacy.epsilon_scheduler import FixedRDPScheduler
+        from src.privacy.per_update_dp import enforce_rdp_budget
+
+        scheduler = FixedRDPScheduler(rdp_target=self.CANDIDATE)
+        assert scheduler.get_rdp() == pytest.approx(self.CANDIDATE)
+        assert getattr(scheduler, "_phase", None) is None
+
+        current = 0.0
+        accepted = 0
+        for _ in range(40):
+            rdp_cost, sigma = enforce_rdp_budget(
+                scheduler.get_rdp(), current, self.BUDGET, 1e-6,
+                self.ALPHA, 1.0, clipping_mode="per_update", num_steps=1,
+            )
+            if rdp_cost < 0:
+                break
+            assert rdp_cost == pytest.approx(self.CANDIDATE)
+            assert sigma > 0
+            current += rdp_cost
+            accepted += 1
+
+        assert accepted == 20
+        assert current == pytest.approx(self.BUDGET)
+        rdp_cost, _ = enforce_rdp_budget(
+            self.CANDIDATE, current, self.BUDGET, 1e-6,
+            self.ALPHA, 1.0, clipping_mode="per_update", num_steps=1,
+        )
+        assert rdp_cost < 0
+
+
+class TestFourCellMatrixSmoke:
+    """IMPL-09 §9.5: the 4-cell method/aggregation matrix wires to the right
+    client scheduler and server strategy."""
+
+    CELLS = [
+        ("nonprivate", "plain", None, "SafeFedAvg"),
+        ("dpfedavg_fixed", "attenuation", "FixedRDPScheduler", "MedianRobustAggregation"),
+        ("fedprox_fixed", "attenuation", "FixedRDPScheduler", "MedianRobustAggregation"),
+        ("pldpbo_nun", "attenuation", "PLDPBORDPScheduler", "MedianRobustAggregation"),
+    ]
+    METHOD_OVERRIDES: dict[str, dict[str, bool | float]] = {
+        "nonprivate": {"privacy.enabled": False, "bo.enabled": False},
+        "dpfedavg_fixed": {"privacy.enabled": True, "bo.enabled": False},
+        "fedprox_fixed": {"privacy.enabled": True, "bo.enabled": False,
+                          "federated.proximal_mu": 0.01},
+        "pldpbo_nun": {"privacy.enabled": True, "bo.enabled": True},
+    }
+
+    @pytest.mark.parametrize(("method", "aggregation", "scheduler_cls", "strategy_cls"), CELLS)
+    def test_cell_wiring(
+        self, method: str, aggregation: str,
+        scheduler_cls: str | None, strategy_cls: str,
+    ) -> None:
+        from src.config.locked import collect_violations
+        from src.server.strategy import MedianRobustAggregation, SafeFedAvg
+        from src.server_app import _make_strategy
+
+        cfg = load_config("config/default.yaml", overrides={
+            "method": method,
+            "federated.aggregation": aggregation,
+            "assert_locked_config": False,
+            **self.METHOD_OVERRIDES[method],
+        })
+
+        assert all(
+            not v.startswith("method") for v in collect_violations(cfg)
+        ), collect_violations(cfg)
+
+        if method == "nonprivate":
+            from src.client_app import _make_scheduler
+
+            assert _make_scheduler(0, object(), cfg, 1) is None
+            assert isinstance(_make_strategy(cfg, None, None, None), SafeFedAvg)
+        else:
+            from src.client_app import _make_rdp_native_scheduler
+            from src.privacy.bo_scheduler import PLDPBORDPScheduler
+            from src.privacy.epsilon_scheduler import FixedRDPScheduler
+
+            scheduler = _make_rdp_native_scheduler(0, cfg)
+            expected_cls = FixedRDPScheduler if scheduler_cls == "FixedRDPScheduler" else PLDPBORDPScheduler
+            assert isinstance(scheduler, expected_cls)
+            assert isinstance(_make_strategy(cfg, None, None, None), MedianRobustAggregation)

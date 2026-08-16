@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import pytest
 
@@ -549,17 +550,17 @@ class TestResolveRDPSpecFields:
         assert sigma == 0.0
         assert candidate == pytest.approx(0.5)
 
-    def test_bo_time_zero_without_scheduler(self) -> None:
+    def test_bo_time_zero_for_fixed_scheduler(self) -> None:
+        """§4.4 N/A rule: fixed baselines report bo_time_round = 0."""
         from src.client_app import _resolve_rdp
+        from src.privacy.epsilon_scheduler import FixedRDPScheduler
         config = self._make_config()
-        config.personalization.enabled = True
-        config.personalization.strategy = "uniform"
         rdp_cost, sigma, candidate, bo_time, acct_time = _resolve_rdp(
-            None, None, config, total_budget=10.0, local_train_size=1000,
+            FixedRDPScheduler(rdp_target=0.5), None, config,
+            local_train_size=1000,
         )
-        expected = 10.0 / config.federated.num_rounds
-        assert rdp_cost == pytest.approx(expected)
-        assert candidate == pytest.approx(expected)
+        assert rdp_cost == pytest.approx(0.5)
+        assert candidate == pytest.approx(0.5)
         assert bo_time == 0.0
         assert isinstance(acct_time, float) and acct_time >= 0.0
 
@@ -615,3 +616,63 @@ class TestPerExampleClientRoundParity:
         assert metrics["cumulative_rdp"] == pytest.approx(
             metrics["acct_cost"], rel=1e-6,
         )
+
+
+class TestSchedulerRouting:
+    """IMPL-09 §9.5: method-based scheduler selection in the RDP-native path."""
+
+    @staticmethod
+    def _make_config() -> Any:
+        from src.config.loader import ExperimentConfig
+
+        cfg = ExperimentConfig()
+        cfg.privacy.enabled = True
+        cfg.privacy.accountant_mode = "rdp_native"
+        cfg.privacy.fixed_rdp_target = 0.5
+        cfg.method = "dpfedavg_fixed"
+        return cfg
+
+    def test_fixed_method_gets_fixed_rdp_scheduler(self) -> None:
+        from src.client_app import _make_rdp_native_scheduler
+        from src.privacy.epsilon_scheduler import FixedRDPScheduler
+
+        scheduler = _make_rdp_native_scheduler(0, self._make_config())
+        assert isinstance(scheduler, FixedRDPScheduler)
+        assert scheduler.get_rdp() == pytest.approx(0.5)
+
+    def test_fedprox_fixed_gets_fixed_rdp_scheduler(self) -> None:
+        from src.client_app import _make_rdp_native_scheduler
+        from src.privacy.epsilon_scheduler import FixedRDPScheduler
+
+        cfg = self._make_config()
+        cfg.method = "fedprox_fixed"
+        scheduler = _make_rdp_native_scheduler(0, cfg)
+        assert isinstance(scheduler, FixedRDPScheduler)
+        assert scheduler.get_rdp() == pytest.approx(0.5)
+
+    def test_bo_method_gets_pldp_bo_rdp_scheduler(self) -> None:
+        from src.client_app import _make_rdp_native_scheduler
+        from src.privacy.bo_scheduler import PLDPBORDPScheduler
+
+        cfg = self._make_config()
+        cfg.method = "pldpbo_nun"
+        cfg.bo.enabled = True
+        scheduler = _make_rdp_native_scheduler(0, cfg)
+        assert isinstance(scheduler, PLDPBORDPScheduler)
+
+    def test_bo_method_without_bo_gets_uniform_random(self) -> None:
+        from src.client_app import _make_rdp_native_scheduler
+        from src.privacy.epsilon_scheduler import UniformRandomRDPScheduler
+
+        cfg = self._make_config()
+        cfg.method = "pldpbo_nun"
+        scheduler = _make_rdp_native_scheduler(0, cfg)
+        assert isinstance(scheduler, UniformRandomRDPScheduler)
+
+    def test_nonprivate_returns_none(self) -> None:
+        from src.client_app import _make_scheduler
+
+        cfg = self._make_config()
+        cfg.privacy.enabled = False
+        cfg.method = "nonprivate"
+        assert _make_scheduler(0, None, cfg, 0) is None

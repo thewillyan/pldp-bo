@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from src.config.loader import ExperimentConfig
 from src.server.strategy import _EPS, _MIN_VALUES_FOR_STATS
+from src.tracking.tracker import ExperimentTracker
 
 
 def _median_weights(norms: list[float]) -> np.ndarray:
@@ -760,3 +761,41 @@ class TestClientStateArtifact:
         _write_client_state_artifact(strategy, self._config(), tracker, 10.0, 3)
         assert tracker.artifacts == []
         assert tracker.metrics == []
+
+
+class TestStrategyRouting:
+    """IMPL-09 §9.5: server strategy selected from federated.aggregation."""
+
+    @staticmethod
+    def _config(aggregation: str, method: str) -> ExperimentConfig:
+        cfg = ExperimentConfig()
+        cfg.federated.aggregation = aggregation
+        cfg.method = method
+        return cfg
+
+    def test_plain_gets_safe_fed_avg(self) -> None:
+        from src.server.strategy import SafeFedAvg
+        from src.server_app import _make_strategy
+
+        strategy = _make_strategy(self._config("plain", "nonprivate"), None, None, None)
+        assert isinstance(strategy, SafeFedAvg)
+
+    def test_attenuation_gets_median_for_all_private_methods(self) -> None:
+        from src.server.strategy import MedianRobustAggregation
+        from src.server_app import _make_strategy
+
+        for method in ("dpfedavg_fixed", "fedprox_fixed", "pldpbo_nun"):
+            strategy = _make_strategy(self._config("attenuation", method), None, None, None)
+            assert isinstance(strategy, MedianRobustAggregation), method
+
+    def test_median_strategy_uses_tracker_and_budgets(self) -> None:
+        from src.server.strategy import MedianRobustAggregation
+        from src.server_app import _make_strategy
+
+        strategy = _make_strategy(
+            self._config("attenuation", "pldpbo_nun"),
+            cast("ExperimentTracker | None", _RecordingTracker()), {0: 10.0}, {0: 0},
+        )
+        assert isinstance(strategy, MedianRobustAggregation)
+        assert strategy._tracker is not None
+        assert strategy._per_client_budgets == {0: 10.0}

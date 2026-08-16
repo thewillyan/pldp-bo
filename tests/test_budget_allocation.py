@@ -43,47 +43,6 @@ class TestComputePerClientBudgets:
         budgets = self._compute_equal(10.0, 1)
         assert budgets[0] == pytest.approx(10.0)
 
-    def test_custom_proportional_division(self) -> None:
-        eps_map = {"0": 1.0, "1": 2.0, "2": 3.0, "3": 4.0}
-        total_budget = 20.0
-        total_weight = sum(eps_map.values())
-        budgets = {int(k): total_budget * v / total_weight for k, v in eps_map.items()}
-
-        assert budgets[0] == pytest.approx(2.0)
-        assert budgets[1] == pytest.approx(4.0)
-        assert budgets[2] == pytest.approx(6.0)
-        assert budgets[3] == pytest.approx(8.0)
-        assert sum(budgets.values()) == pytest.approx(20.0)
-
-    def test_custom_proportional_from_config(self) -> None:
-        config = self._make_config({
-            "privacy.enabled": True,
-            "privacy.total_budget": 10.0,
-            "personalization.enabled": True,
-            "personalization.strategy": "custom",
-            "personalization.client_epsilon_map": {"0": 1.0, "1": 3.0},
-        })
-        assert config.privacy.total_budget == 10.0
-        eps_map = config.personalization.client_epsilon_map
-        total_weight = sum(eps_map.values())
-        budgets = {int(k): 10.0 * v / total_weight for k, v in eps_map.items()}
-        assert budgets[0] == pytest.approx(2.5)
-        assert budgets[1] == pytest.approx(7.5)
-        assert sum(budgets.values()) == pytest.approx(10.0)
-
-    def test_equal_division_custom_zero_weight(self) -> None:
-        cfg = {
-            "privacy.enabled": True,
-            "privacy.total_budget": 10.0,
-            "personalization.enabled": True,
-            "personalization.strategy": "custom",
-            "personalization.client_epsilon_map": {"0": 0.0, "1": 0.0},
-            "data.num_clients": 2,
-        }
-        config = self._make_config(cfg)
-        per_client = config.privacy.total_budget / config.data.num_clients
-        assert per_client == 5.0
-
 
 class TestAddBudgetsToMessages:
     def _make_train_message(self, dst: int) -> Message:
@@ -209,14 +168,6 @@ class TestIsBudgetExhausted:
 class TestComputePerClientBudgetsIntegration:
     """Integration tests for _compute_per_client_budgets with mocked Grid."""
 
-    def _make_query_reply(self, node_id: int, **config_kwargs: object) -> MagicMock:
-        reply = MagicMock()
-        reply.metadata.src_node_id = node_id
-        reply.content.config_records = RecordDict({
-            "config": ConfigRecord(config_kwargs),
-        })
-        return reply
-
     def test_none_when_no_budget(self) -> None:
         grid = MagicMock()
         grid.get_node_ids.return_value = [1001]
@@ -239,7 +190,8 @@ class TestComputePerClientBudgetsIntegration:
         assert budgets is None
         assert n2p is None
 
-    def test_equal_division(self) -> None:
+    def test_flat_budget_for_all_clients(self) -> None:
+        """IMPL-09 §9.5: every client gets the full B_RDP (flat, not divided by K)."""
         grid = MagicMock()
         grid.get_node_ids.return_value = [1001, 1002, 1003]
         config = load_config("config/default.yaml", overrides={
@@ -250,42 +202,7 @@ class TestComputePerClientBudgetsIntegration:
         assert budgets is not None
         assert len(budgets) == 3
         for nid in [1001, 1002, 1003]:
-            assert budgets[nid] == pytest.approx(3.0)
-        assert n2p is None
-
-    def test_custom_strategy_path(self) -> None:
-        grid = MagicMock()
-        grid.get_node_ids.return_value = [1001, 1002]
-        grid.send_and_receive.return_value = [
-            self._make_query_reply(1001, partition_id=0),
-            self._make_query_reply(1002, partition_id=1),
-        ]
-        config = load_config("config/default.yaml", overrides={
-            "privacy.enabled": True,
-            "privacy.total_budget": 8.0,
-            "personalization.enabled": True,
-            "personalization.strategy": "custom",
-            "personalization.client_epsilon_map": {"0": 1.0, "3": 3.0},
-        })
-        budgets, n2p = _compute_per_client_budgets(grid, config)
-        assert budgets == {0: 2.0, 3: 6.0, 1: 0.0}
-        assert n2p == {1001: 0, 1002: 1}
-
-    def test_custom_fallback_equal_on_zero_weight(self) -> None:
-        grid = MagicMock()
-        grid.get_node_ids.return_value = [1001, 1002]
-        config = load_config("config/default.yaml", overrides={
-            "privacy.enabled": True,
-            "privacy.total_budget": 10.0,
-            "personalization.enabled": True,
-            "personalization.strategy": "custom",
-            "personalization.client_epsilon_map": {"0": 0.0, "1": 0.0},
-        })
-        budgets, n2p = _compute_per_client_budgets(grid, config)
-        assert budgets is not None
-        assert len(budgets) == 2
-        for nid in [1001, 1002]:
-            assert budgets[nid] == pytest.approx(5.0)
+            assert budgets[nid] == pytest.approx(9.0)
         assert n2p is None
 
 
@@ -377,72 +294,3 @@ class TestStrategyConfigureTrain:
 
         assert len(result) == 1
         assert result[0].content.config_records["config"]["per_client_budget"] == pytest.approx(3.0)
-
-
-class TestBudgetOverflowPrevention:
-    """Tests that fallback budget assignments never cause total > total_budget."""
-
-    def test_custom_strategy_no_overflow_with_missing_partition(self) -> None:
-        grid = MagicMock()
-        grid.get_node_ids.return_value = [1001, 1002, 1003]
-        grid.send_and_receive.return_value = [
-            MagicMock(
-                metadata=MagicMock(src_node_id=1001),
-                content=RecordDict({"config": ConfigRecord({"partition_id": 0})}),
-            ),
-            MagicMock(
-                metadata=MagicMock(src_node_id=1002),
-                content=RecordDict({"config": ConfigRecord({"partition_id": 1})}),
-            ),
-            MagicMock(
-                metadata=MagicMock(src_node_id=1003),
-                content=RecordDict({"config": ConfigRecord({"partition_id": 2})}),
-            ),
-        ]
-        config = load_config("config/default.yaml", overrides={
-            "privacy.enabled": True,
-            "privacy.total_budget": 10.0,
-            "personalization.enabled": True,
-            "personalization.strategy": "custom",
-            "personalization.client_epsilon_map": {"0": 3.0, "1": 7.0},
-        })
-        budgets, _ = _compute_per_client_budgets(grid, config)
-        assert budgets is not None
-        total = sum(budgets.values())
-        assert total == pytest.approx(10.0)
-        assert budgets[2] == 0.0
-
-    def test_noncustom_strategy_no_overflow_with_missing_weight(self) -> None:
-        grid = MagicMock()
-        grid.get_node_ids.return_value = [1001, 1002, 1003]
-        grid.send_and_receive.return_value = [
-            MagicMock(
-                metadata=MagicMock(src_node_id=1001),
-                content=RecordDict({"config": ConfigRecord({
-                    "partition_id": 0, "budget_weight": 2.0,
-                })}),
-            ),
-            MagicMock(
-                metadata=MagicMock(src_node_id=1002),
-                content=RecordDict({"config": ConfigRecord({
-                    "partition_id": 1, "budget_weight": 3.0,
-                })}),
-            ),
-            MagicMock(
-                metadata=MagicMock(src_node_id=1003),
-                content=RecordDict({"config": ConfigRecord({
-                    "partition_id": 2,
-                })}),
-            ),
-        ]
-        config = load_config("config/default.yaml", overrides={
-            "privacy.enabled": True,
-            "privacy.total_budget": 10.0,
-            "personalization.enabled": True,
-            "personalization.strategy": "data_proportional",
-        })
-        budgets, _ = _compute_per_client_budgets(grid, config)
-        assert budgets is not None
-        total = sum(budgets.values())
-        assert total <= 10.0 + 1e-9
-        assert budgets[2] == 0.0
