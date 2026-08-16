@@ -77,12 +77,12 @@ def create_client_dataloader(
     )
 
     train_subset, val_subset = split_holdout(
-        client_subset, config.val_split, seed + partition_id,
+        client_subset,
+        config.val_split,
+        seed + partition_id,
     )
 
-    train_loader = create_dataloaders(
-        train_subset, config.batch_size, shuffle=True, seed=seed
-    )
+    train_loader = create_dataloaders(train_subset, config.batch_size, shuffle=True, seed=seed)
     val_loader = create_dataloaders(val_subset, config.batch_size, shuffle=False)
 
     total_train_size = len(cast(Sized, full_dataset))

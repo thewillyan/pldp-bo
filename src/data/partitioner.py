@@ -19,16 +19,13 @@ def _extract_targets(dataset: Dataset[Any]) -> torch.Tensor:
         if hasattr(dataset.dataset, "tensors"):
             return cast(torch.Tensor, dataset.dataset.tensors[1][dataset.indices])
         raise ValueError(
-            "Underlying dataset must have .targets or .tensors attribute "
-            "for label-based partition"
+            "Underlying dataset must have .targets or .tensors attribute for label-based partition"
         )
     if hasattr(dataset, "targets"):
         return torch.as_tensor(dataset.targets)
     if hasattr(dataset, "tensors"):
         return cast(torch.Tensor, dataset.tensors[1])
-    raise ValueError(
-        "Dataset must have .targets or .tensors attribute for label-based partition"
-    )
+    raise ValueError("Dataset must have .targets or .tensors attribute for label-based partition")
 
 
 def _extract_users(dataset: Dataset[Any]) -> torch.Tensor:
@@ -36,14 +33,10 @@ def _extract_users(dataset: Dataset[Any]) -> torch.Tensor:
     if isinstance(dataset, Subset):
         if hasattr(dataset.dataset, "users"):
             return torch.as_tensor(cast(Any, dataset.dataset).users)[dataset.indices]
-        raise ValueError(
-            "Underlying dataset must have a .users attribute for writer partition"
-        )
+        raise ValueError("Underlying dataset must have a .users attribute for writer partition")
     if hasattr(dataset, "users"):
         return torch.as_tensor(cast(Any, dataset).users)
-    raise ValueError(
-        "Dataset must have a .users attribute for writer partition"
-    )
+    raise ValueError("Dataset must have a .users attribute for writer partition")
 
 
 def _kl(a: np.ndarray, b: np.ndarray) -> float:
@@ -103,14 +96,18 @@ def _plan_writer_partition(
     client_hist = [histogram(users == w) for w in clients]
 
     small = sorted(
-        (w for w in range(n_writers)
-         if writer_sizes[w] < WRITER_MERGE_THRESHOLD and client_of[w] is None),
+        (
+            w
+            for w in range(n_writers)
+            if writer_sizes[w] < WRITER_MERGE_THRESHOLD and client_of[w] is None
+        ),
         key=lambda w: (writer_sizes[w], w),
     )
     for writer in small:
         hist = histogram(users == writer)
         best = min(
-            range(num_clients), key=lambda c: _js_divergence(client_hist[c], hist),
+            range(num_clients),
+            key=lambda c: _js_divergence(client_hist[c], hist),
         )
         client_of[writer] = best
 
@@ -166,9 +163,7 @@ def _plan_dirichlet_partition(
         offset = 0
         for i in range(num_clients):
             if sizes[i] > 0:
-                client_indices[i].extend(
-                    class_indices[c][offset:offset + sizes[i]].tolist()
-                )
+                client_indices[i].extend(class_indices[c][offset : offset + sizes[i]].tolist())
             offset += sizes[i]
 
     empty = [i for i in range(num_clients) if len(client_indices[i]) == 0]
@@ -344,9 +339,7 @@ def partition_single(
     requested client's Subset is materialized.
     """
     if partition_id < 0 or partition_id >= num_clients:
-        raise ValueError(
-            f"partition_id {partition_id} out of range [0, {num_clients})"
-        )
+        raise ValueError(f"partition_id {partition_id} out of range [0, {num_clients})")
     client_indices = _plan_partition(dataset, num_clients, partition_type, alpha, seed)
     if partition_type != "writer":
         client_indices = _enforce_min_samples(client_indices, min_samples)

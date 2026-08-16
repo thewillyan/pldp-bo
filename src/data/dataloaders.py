@@ -16,24 +16,32 @@ DATASET_REGISTRY: dict[str, type[Dataset[Any]]] = {
     "femnist": FEMNISTDataset,
 }
 
-CIFAR10_TRANSFORMS = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)),
-])
+CIFAR10_TRANSFORMS = transforms.Compose(
+    [
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)),
+    ]
+)
 
-CIFAR100_TRANSFORMS = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761)),
-])
+CIFAR100_TRANSFORMS = transforms.Compose(
+    [
+        transforms.ToTensor(),
+        transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761)),
+    ]
+)
 
-MNIST_TRANSFORMS = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.1307,), (0.3081,)),
-])
+MNIST_TRANSFORMS = transforms.Compose(
+    [
+        transforms.ToTensor(),
+        transforms.Normalize((0.1307,), (0.3081,)),
+    ]
+)
 
-FEMNIST_TRANSFORMS = transforms.Compose([
-    transforms.Normalize((0.1307,), (0.3081,)),
-])
+FEMNIST_TRANSFORMS = transforms.Compose(
+    [
+        transforms.Normalize((0.1307,), (0.3081,)),
+    ]
+)
 
 TRANSFORMS_MAP = {
     "cifar10": CIFAR10_TRANSFORMS,
