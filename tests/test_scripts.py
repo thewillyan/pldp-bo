@@ -913,3 +913,150 @@ class TestVerifyDropout:
         result = _verify._check_dropout(_vr(state=None))
         assert result["pass"] is None
         assert result["n"] == 0
+
+
+class TestVerifyFemnistCounts:
+    def test_non_femnist_cell_skips(self) -> None:
+        result = _verify._check_femnist_counts(_vr(state=None))
+        assert result["pass"] is None
+        assert "non-FEMNIST" in result["note"]
+
+    def test_skips_when_data_absent(self, tmp_path: Path) -> None:
+        run = _verify.VerifyRun(
+            "femnist_natural", "pldpbo_nun", "rid", 0,
+            {"dataset_root": str(tmp_path / "missing")}, None,
+        )
+        result = _verify._check_femnist_counts(run)
+        assert result["pass"] is None
+        assert "SKIP" in result["note"]
+
+    def test_skips_without_dataset_root_param(self) -> None:
+        result = _verify._check_femnist_counts(
+            _verify.VerifyRun("femnist_natural", "pldpbo_nun", "rid", 0, {}, None),
+        )
+        assert result["pass"] is None
+        assert "SKIP" in result["note"]
+
+    def test_passes_when_counts_match(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        root = tmp_path / "data"
+        (root / "FEMNIST").mkdir(parents=True)
+        monkeypatch.setattr(
+            _verify, "femnist_counts", lambda r: (654_281, 163_570, 3_598),
+        )
+        run = _verify.VerifyRun(
+            "femnist_natural", "pldpbo_nun", "rid", 0,
+            {"dataset_root": str(root)}, None,
+        )
+        result = _verify._check_femnist_counts(run)
+        assert result["pass"] is True
+        assert result["train"] == 654_281
+
+    def test_fails_on_mismatch(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        root = tmp_path / "data"
+        (root / "FEMNIST").mkdir(parents=True)
+        monkeypatch.setattr(_verify, "femnist_counts", lambda r: (1, 2, 3))
+        run = _verify.VerifyRun(
+            "femnist_natural", "pldpbo_nun", "rid", 0,
+            {"dataset_root": str(root)}, None,
+        )
+        assert _verify._check_femnist_counts(run)["pass"] is False
+
+    def test_skips_on_read_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        root = tmp_path / "data"
+        (root / "FEMNIST").mkdir(parents=True)
+
+        def _boom(_root: str) -> tuple[int, int, int]:
+            raise FileNotFoundError("no .pt")
+
+        monkeypatch.setattr(_verify, "femnist_counts", _boom)
+        run = _verify.VerifyRun(
+            "femnist_natural", "pldpbo_nun", "rid", 0,
+            {"dataset_root": str(root)}, None,
+        )
+        result = _verify._check_femnist_counts(run)
+        assert result["pass"] is None
+        assert "SKIP" in result["note"]
+
+
+class TestVerifyOutput:
+    @pytest.fixture(autouse=True)
+    def _tmp_cwd(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        self.mlflow_uri = f"sqlite:///{tmp_path}/mlflow.db"
+
+    def _seed_pass_run(self) -> str:
+        from src.privacy.bo_scheduler import WARMUP_GRID
+
+        grid = list(WARMUP_GRID)
+        state = {
+            "0": {
+                "acct_cost": grid,
+                "r_t_final": grid,
+                "cum_rdp": [10.0],
+                "dropout_round": None,
+            },
+        }
+        return _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+            params={"T": "200", "B_RDP": "10.0"},
+            state=state,
+        )
+
+    def test_no_runs_exits_zero(self, capsys: pytest.CaptureFixture) -> None:
+        code = _verify.cmd_verify(
+            SimpleNamespace(tracking_uri=self.mlflow_uri, dataset=[], partition=[],
+                            method=[], seeds=None, json=False),
+        )
+        assert code == 0
+        assert "no §4-schema runs" in capsys.readouterr().out
+
+    def test_pass_run_exits_zero(self, capsys: pytest.CaptureFixture) -> None:
+        self._seed_pass_run()
+        code = _verify.cmd_verify(
+            SimpleNamespace(tracking_uri=self.mlflow_uri, dataset=[], partition=[],
+                            method=[], seeds=None, json=False),
+        )
+        out = capsys.readouterr().out
+        assert code == 0
+        assert "PASS  pldpbo_snr" in out
+        assert "warm-up" in out
+        assert "budget" in out
+        assert "failed_checks: 0" in out
+
+    def test_budget_failure_exits_one(self, capsys: pytest.CaptureFixture) -> None:
+        _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+            params={"T": "200", "B_RDP": "10.0"},
+            state={"0": {"cum_rdp": [9.0]}},
+        )
+        code = _verify.cmd_verify(
+            SimpleNamespace(tracking_uri=self.mlflow_uri, dataset=[], partition=[],
+                            method=[], seeds=None, json=False),
+        )
+        out = capsys.readouterr().out
+        assert code == 1
+        assert "FAIL  pldpbo_snr" in out
+        assert "budget" in out
+
+    def test_json_output_shape(self, capsys: pytest.CaptureFixture) -> None:
+        self._seed_pass_run()
+        code = _verify.cmd_verify(
+            SimpleNamespace(tracking_uri=self.mlflow_uri, dataset=[], partition=[],
+                            method=[], seeds=None, json=True),
+        )
+        payload = json.loads(capsys.readouterr().out)
+        assert code == 0
+        assert "verification" in payload
+        checks = payload["verification"]["pldpbo_snr"]
+        assert set(checks) == {"warmup", "budget_match", "dropout",
+                               "enforcement", "femnist_counts"}
+        assert checks["warmup"]["pass"] is True
+        assert checks["budget_match"]["utilization_mean"] == pytest.approx(1.0)

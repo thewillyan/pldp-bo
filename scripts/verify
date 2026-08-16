@@ -25,16 +25,19 @@ import os
 import statistics
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import mlflow
 
 from src.config.locked import config_version as locked_config_version
+from src.data.femnist import femnist_counts
 from src.privacy.bo_scheduler import WARMUP_SUM_NOMINAL
 
 CLIENT_STATE_ARTIFACT = "client_state.json"
 WARMUP_PASS_TOLERANCE = 0.05  # ±5% of the nominal sum
 UTILIZATION_TOLERANCE = 0.02  # ±0.02 around 1.00
 BUDGET_TARGET = 10.0  # B_RDP, locked §2 constant
+FEMNIST_EXPECTED = (654_281, 163_570, 3_598)  # (train, test, writers)
 
 
 @dataclass
@@ -212,6 +215,114 @@ def _check_dropout(run: VerifyRun) -> dict:
     }
 
 
+def _check_femnist_counts(run: VerifyRun) -> dict:
+    """§5.1 check 4: FEMNIST .pt counts vs expected (SKIP when data absent)."""
+    if "femnist" not in run.experiment:
+        return {"n": 0, "train": 0, "test": 0, "writers": 0, "pass": None,
+                "note": "non-FEMNIST cell"}
+    root = run.params.get("dataset_root", "")
+    if not root or not (Path(root) / "FEMNIST").exists():
+        return {"n": 0, "train": 0, "test": 0, "writers": 0, "pass": None,
+                "note": "SKIP: FEMNIST data absent"}
+    try:
+        counts = femnist_counts(root)
+    except (FileNotFoundError, OSError) as exc:
+        return {"n": 0, "train": 0, "test": 0, "writers": 0, "pass": None,
+                "note": f"SKIP: {exc}"}
+    return {
+        "n": 1,
+        "train": counts[0],
+        "test": counts[1],
+        "writers": counts[2],
+        "pass": counts == FEMNIST_EXPECTED,
+    }
+
+
+def _check_enforcement(run: VerifyRun) -> dict:
+    """Enforcement stats (reported, not a pass/fail check)."""
+    counts: list[int] = []
+    participations = 0
+    for state in _client_state_entries(run):
+        counts.append(int(state.get("enforcement_count", 0)))
+        acct = [v for v in state.get("acct_cost", []) if v is not None]
+        participations += len(acct)
+    if not counts:
+        return {"mean_count_per_client": 0.0, "fraction_reduced_rounds": 0.0}
+    return {
+        "mean_count_per_client": statistics.fmean(counts),
+        "fraction_reduced_rounds": (sum(counts) / participations) if participations else 0.0,
+    }
+
+
+def verify_run(run: VerifyRun) -> dict:
+    """All §5.1 checks for one run → the §6.1-verification-block shape."""
+    return {
+        "warmup": _check_warmup(run),
+        "budget_match": _check_budget(run),
+        "dropout": _check_dropout(run),
+        "enforcement": _check_enforcement(run),
+        "femnist_counts": _check_femnist_counts(run),
+    }
+
+
+def _aggregate(results: list[dict]) -> dict:
+    """Per-method aggregation of per-run check results."""
+    methods: dict[str, list[dict]] = {}
+    for result in results:
+        methods.setdefault(result["method"], []).append(result)
+    out: dict[str, dict] = {}
+    for method, entries in sorted(methods.items()):
+        warmups = [e["warmup"] for e in entries if e["warmup"].get("n")]
+        budgets = [e["budget_match"] for e in entries if e["budget_match"].get("n")]
+        dropouts = [e["dropout"] for e in entries if e["dropout"].get("n")]
+        femnists = [e["femnist_counts"] for e in entries if e["femnist_counts"].get("n")]
+        enforced = [
+            e["enforcement"] for e in entries
+            if e["enforcement"]["mean_count_per_client"] > 0
+            or e["enforcement"]["fraction_reduced_rounds"] > 0
+        ]
+        out[method] = {
+            "warmup": {
+                "n": sum(e["n"] for e in warmups),
+                "sum_mean": statistics.fmean([e["sum_mean"] for e in warmups]) if warmups else 0.0,
+                "sum_sd": statistics.fmean([e["sum_sd"] for e in warmups]) if warmups else 0.0,
+                "parity_median": max((e["parity_median"] for e in warmups), default=0.0),
+                "parity_max": max((e["parity_max"] for e in warmups), default=0.0),
+                "pass": all(e["pass"] for e in warmups) if warmups else None,
+            },
+            "budget_match": {
+                "n": sum(e["n"] for e in budgets),
+                "final_rdp_mean": statistics.fmean([e["final_rdp_mean"] for e in budgets]) if budgets else 0.0,
+                "utilization_mean": statistics.fmean([e["utilization_mean"] for e in budgets]) if budgets else 0.0,
+                "pass": all(e["pass"] for e in budgets) if budgets else None,
+            },
+            "dropout": {
+                "n": sum(e["n"] for e in dropouts),
+                "fraction_never": statistics.fmean([e["fraction_never"] for e in dropouts]) if dropouts else 0.0,
+                "dropout_round_mean": statistics.fmean([e["dropout_round_mean"] for e in dropouts]) if dropouts else 0.0,
+                "dropout_round_sd": statistics.fmean([e["dropout_round_sd"] for e in dropouts]) if dropouts else 0.0,
+                "final_rdp_mean": statistics.fmean([e["final_rdp_mean"] for e in dropouts]) if dropouts else 0.0,
+                "pass": None,
+            },
+            "femnist_counts": {
+                "n": sum(e["n"] for e in femnists),
+                "train": femnists[0]["train"] if femnists else 0,
+                "test": femnists[0]["test"] if femnists else 0,
+                "writers": femnists[0]["writers"] if femnists else 0,
+                "pass": all(e["pass"] for e in femnists) if femnists else None,
+            },
+            "enforcement": {
+                "mean_count_per_client": statistics.fmean(
+                    [e["mean_count_per_client"] for e in enforced],
+                ) if enforced else 0.0,
+                "fraction_reduced_rounds": statistics.fmean(
+                    [e["fraction_reduced_rounds"] for e in enforced],
+                ) if enforced else 0.0,
+            },
+        }
+    return out
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="PLDP-BO §5.1 verification checks")
     parser.add_argument(
@@ -232,6 +343,16 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _print_check(method: str, name: str, verdict: bool | None, detail: str) -> None:
+    if verdict is True:
+        label = "PASS"
+    elif verdict is False:
+        label = "FAIL"
+    else:
+        label = "SKIP"
+    print(f"{label}  {method:18s} {name:12s} {detail}")
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     tracking_uri = (
         args.tracking_uri
@@ -246,11 +367,52 @@ def cmd_verify(args: argparse.Namespace) -> int:
         methods=args.method or None,
         seeds=seeds,
     )
+    results = [{"method": run.method, **verify_run(run)} for run in runs]
+    aggregated = _aggregate(results)
+
+    if args.json:
+        print(json.dumps({"verification": aggregated}, indent=2))
+        return 0
+
     if not runs:
         print("verify: no §4-schema runs found")
-    else:
-        print(f"verify: {len(runs)} §4-schema run(s) found")
-    return 0
+        return 0
+
+    failures = 0
+    for method, checks in aggregated.items():
+        for name, key in (("warm-up", "warmup"), ("budget", "budget_match"),
+                          ("drop-out", "dropout"), ("femnist", "femnist_counts")):
+            check = checks[key]
+            detail = f"n={check['n']}"
+            if key == "warmup":
+                detail += (
+                    f" mean={check['sum_mean']:.4f}±{check['sum_sd']:.4f}"
+                    f" (nominal {WARMUP_SUM_NOMINAL:.4f}±5%)"
+                    f" parity_med={check['parity_median']:.4f}"
+                    f" parity_max={check['parity_max']:.4f}"
+                )
+            elif key == "budget_match":
+                detail += (
+                    f" final_rdp={check['final_rdp_mean']:.4f}"
+                    f" utilization={check['utilization_mean']:.4f}"
+                )
+            elif key == "dropout":
+                detail += (
+                    f" never={check['fraction_never']:.2%}"
+                    f" round={check['dropout_round_mean']:.1f}±{check['dropout_round_sd']:.1f}"
+                    f" final_rdp={check['final_rdp_mean']:.4f}"
+                )
+            elif key == "femnist_counts":
+                detail += (
+                    f" {check['train']}/{check['test']}/{check['writers']}"
+                    f" expected {FEMNIST_EXPECTED[0]}/{FEMNIST_EXPECTED[1]}/{FEMNIST_EXPECTED[2]}"
+                )
+            _print_check(method, name, check["pass"], detail)
+            if check["pass"] is False:
+                failures += 1
+
+    print(f"\n=== totals === runs: {len(runs)}  failed_checks: {failures}")
+    return 1 if failures else 0
 
 
 def main() -> None:
