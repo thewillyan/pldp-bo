@@ -24,7 +24,7 @@ _OPTIMIZATION_METRIC_KEY_MAP: dict[str, str] = {
 
 class TestConfigLoading:
     def test_pldp_bo_nun_config_loads(self) -> None:
-        config = load_config("config/experiments/pldp_bo_mnist_iid_logit_disagreement.yaml")
+        config = load_config("config/experiments/archive/pldp_bo_mnist_iid_logit_disagreement.yaml")
         assert config.federated.strategy == "pldp_bo"
         assert config.bo.enabled
         assert config.bo.optimization_metric == "logit_disagreement"
@@ -35,34 +35,34 @@ class TestConfigLoading:
         assert config.model.name == "mlp"
 
     def test_pldp_bo_utility_config_loads(self) -> None:
-        config = load_config("config/experiments/pldp_bo_mnist_iid_utility_retention.yaml")
+        config = load_config("config/experiments/archive/pldp_bo_mnist_iid_utility_retention.yaml")
         assert config.federated.strategy == "pldp_bo"
         assert config.bo.enabled
         assert config.bo.optimization_metric == "utility_retention"
 
     def test_pldp_bo_noniid_config_loads(self) -> None:
-        config = load_config("config/experiments/pldp_bo_cifar100_noniid_logit_disagreement.yaml")
+        config = load_config("config/experiments/archive/pldp_bo_cifar100_noniid_logit_disagreement.yaml")
         assert config.data.partition_type == "noniid"
         assert config.data.partition_alpha == 0.5
         assert config.model.name == "cnn"
         assert config.model.num_classes == 100
 
     def test_fedavg_dp_config_loads(self) -> None:
-        config = load_config("config/experiments/fedavg_mnist_iid.yaml")
+        config = load_config("config/experiments/archive/fedavg_mnist_iid.yaml")
         assert config.federated.strategy == "fedavg"
         assert not config.bo.enabled
         assert config.personalization.enabled
 
     def test_all_pldp_bo_configs_load(self) -> None:
         paths = [
-            "config/experiments/pldp_bo_mnist_iid_logit_disagreement.yaml",
-            "config/experiments/pldp_bo_mnist_noniid_logit_disagreement.yaml",
-            "config/experiments/pldp_bo_cifar100_iid_logit_disagreement.yaml",
-            "config/experiments/pldp_bo_cifar100_noniid_logit_disagreement.yaml",
-            "config/experiments/pldp_bo_mnist_iid_utility_retention.yaml",
-            "config/experiments/pldp_bo_mnist_noniid_utility_retention.yaml",
-            "config/experiments/pldp_bo_cifar100_iid_utility_retention.yaml",
-            "config/experiments/pldp_bo_cifar100_noniid_utility_retention.yaml",
+            "config/experiments/archive/pldp_bo_mnist_iid_logit_disagreement.yaml",
+            "config/experiments/archive/pldp_bo_mnist_noniid_logit_disagreement.yaml",
+            "config/experiments/archive/pldp_bo_cifar100_iid_logit_disagreement.yaml",
+            "config/experiments/archive/pldp_bo_cifar100_noniid_logit_disagreement.yaml",
+            "config/experiments/archive/pldp_bo_mnist_iid_utility_retention.yaml",
+            "config/experiments/archive/pldp_bo_mnist_noniid_utility_retention.yaml",
+            "config/experiments/archive/pldp_bo_cifar100_iid_utility_retention.yaml",
+            "config/experiments/archive/pldp_bo_cifar100_noniid_utility_retention.yaml",
         ]
         for path in paths:
             config = load_config(path)
@@ -86,7 +86,7 @@ class TestFullRoundLifecycle:
 
     @pytest.fixture
     def config(self) -> object:
-        return load_config("config/experiments/pldp_bo_mnist_iid_logit_disagreement.yaml")
+        return load_config("config/experiments/archive/pldp_bo_mnist_iid_logit_disagreement.yaml")
 
     @pytest.fixture
     def accountant(self) -> RDPAccountant:
