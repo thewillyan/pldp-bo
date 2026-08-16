@@ -26,6 +26,7 @@ import statistics
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, cast
 
 import mlflow
 from src.data.femnist import femnist_counts
@@ -49,7 +50,8 @@ class VerifyRun:
     run_id: str
     seed: int
     params: dict[str, str] = field(default_factory=dict)
-    client_state: dict | None = None
+    client_state: dict[str, Any] | None = None
+
 
     def param_float(self, key: str, default: float) -> float:
         try:
@@ -58,7 +60,7 @@ class VerifyRun:
             return default
 
 
-def _load_client_state(client: mlflow.tracking.MlflowClient, run_id: str) -> dict | None:
+def _load_client_state(client: mlflow.tracking.MlflowClient, run_id: str) -> dict[str, Any] | None:
     try:
         names = {f.path for f in client.list_artifacts(run_id)}
     except mlflow.exceptions.MlflowException:
@@ -67,7 +69,7 @@ def _load_client_state(client: mlflow.tracking.MlflowClient, run_id: str) -> dic
         return None
     path = client.download_artifacts(run_id, CLIENT_STATE_ARTIFACT)
     with open(path) as f:
-        return json.load(f)
+        return cast(dict[str, object], json.load(f))
 
 
 def _discover_runs(
@@ -128,14 +130,14 @@ def _parse_seeds(spec: str) -> list[int]:
     return [int(spec)]
 
 
-def _client_state_entries(run: VerifyRun) -> list[dict]:
+def _client_state_entries(run: VerifyRun) -> list[dict[str, Any]]:
     """Per-client participation records of *run* ([] when the artifact is absent)."""
     if run.client_state is None:
         return []
     return [state for state in run.client_state.values() if isinstance(state, dict)]
 
 
-def _check_warmup(run: VerifyRun) -> dict:
+def _check_warmup(run: VerifyRun) -> dict[str, float | int | bool | None]:
     """§5.1 check 1: warm-up sum + per-round accountant-cost parity.
 
     Per run × client: Σ over the client's first 10 participations of
@@ -170,7 +172,7 @@ def _check_warmup(run: VerifyRun) -> dict:
     }
 
 
-def _check_budget(run: VerifyRun) -> dict:
+def _check_budget(run: VerifyRun) -> dict[str, float | int | bool | str | None]:
     """§5.1 check 2: mean final cumulative RDP per method ≈ B_RDP.
 
     Nonprivate logs no privacy fields (§4.4 N/A rule) → reported as 0.
@@ -197,7 +199,7 @@ def _check_budget(run: VerifyRun) -> dict:
     }
 
 
-def _check_dropout(run: VerifyRun) -> dict:
+def _check_dropout(run: VerifyRun) -> dict[str, float | int | bool | None]:
     """§5.1 check 3: drop-out distribution (never = T+1; descriptive)."""
     t = int(run.param_float("T", 0))
     never = t + 1
@@ -223,7 +225,7 @@ def _check_dropout(run: VerifyRun) -> dict:
     }
 
 
-def _check_femnist_counts(run: VerifyRun) -> dict:
+def _check_femnist_counts(run: VerifyRun) -> dict[str, float | int | bool | str | None]:
     """§5.1 check 4: FEMNIST .pt counts vs expected (SKIP when data absent)."""
     if "femnist" not in run.experiment:
         return {"n": 0, "train": 0, "test": 0, "writers": 0, "pass": None,
@@ -246,7 +248,7 @@ def _check_femnist_counts(run: VerifyRun) -> dict:
     }
 
 
-def _check_enforcement(run: VerifyRun) -> dict:
+def _check_enforcement(run: VerifyRun) -> dict[str, float]:
     """Enforcement stats (reported, not a pass/fail check)."""
     counts: list[int] = []
     participations = 0
@@ -262,7 +264,7 @@ def _check_enforcement(run: VerifyRun) -> dict:
     }
 
 
-def verify_run(run: VerifyRun) -> dict:
+def verify_run(run: VerifyRun) -> dict[str, dict[str, Any]]:
     """All §5.1 checks for one run → the §6.1-verification-block shape."""
     return {
         "warmup": _check_warmup(run),
@@ -273,12 +275,12 @@ def verify_run(run: VerifyRun) -> dict:
     }
 
 
-def _aggregate(results: list[dict]) -> dict:
+def _aggregate(results: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Per-method aggregation of per-run check results."""
-    methods: dict[str, list[dict]] = {}
+    methods: dict[str, list[dict[str, Any]]] = {}
     for result in results:
         methods.setdefault(result["method"], []).append(result)
-    out: dict[str, dict] = {}
+    out: dict[str, dict[str, Any]] = {}
     for method, entries in sorted(methods.items()):
         warmups = [e["warmup"] for e in entries if e["warmup"].get("pass") is not None]
         budgets = [e["budget_match"] for e in entries if e["budget_match"].get("pass") is not None]
@@ -296,10 +298,11 @@ def _aggregate(results: list[dict]) -> dict:
         def _mean(values: list[float]) -> float:
             return statistics.fmean(values) if values else 0.0
 
-        def _note(entries_: list[dict]) -> str:
+        def _note(entries_: list[dict[str, Any]]) -> str:
             for entry in entries_:
-                if entry.get("note"):
-                    return entry["note"]
+                note = entry.get("note")
+                if isinstance(note, str) and note:
+                    return note
             return ""
 
         out[method] = {

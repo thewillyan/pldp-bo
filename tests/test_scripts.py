@@ -7,6 +7,7 @@ import tempfile
 import types
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock
 
 import mlflow
@@ -79,7 +80,7 @@ def _make_verify_run(
     status: str = "FINISHED",
     tag: str | None = None,
     params: dict[str, str] | None = None,
-    state: dict | None = None,
+    state: dict[str, Any] | None = None,
 ) -> str:
     """Create a §4-schema run; optionally log a client_state.json artifact.
 
@@ -111,7 +112,8 @@ def _make_verify_run(
             finally:
                 os.unlink(tmp)
         client.set_terminated(run_id, status=status)
-        return run_id
+        run_id_str: str = run_id
+        return run_id_str
     finally:
         mlflow.set_tracking_uri(prev)
 
@@ -782,7 +784,7 @@ class TestVerifyCli:
 
 def _vr(
     method: str = "pldpbo_snr",
-    state: dict | None = None,
+    state: dict[str, Any] | None = None,
     params: dict[str, str] | None = None,
 ) -> object:
     return _verify.VerifyRun("mnist_iid", method, "runid", 0, params or {}, state)
@@ -1051,7 +1053,7 @@ class TestVerifyOutput:
             state=state,
         )
 
-    def test_no_runs_exits_zero(self, capsys: pytest.CaptureFixture) -> None:
+    def test_no_runs_exits_zero(self, capsys: pytest.CaptureFixture[str]) -> None:
         code = _verify.cmd_verify(
             SimpleNamespace(tracking_uri=self.mlflow_uri, dataset=[], partition=[],
                             method=[], seeds=None, json=False),
@@ -1059,7 +1061,7 @@ class TestVerifyOutput:
         assert code == 0
         assert "no §4-schema runs" in capsys.readouterr().out
 
-    def test_pass_run_exits_zero(self, capsys: pytest.CaptureFixture) -> None:
+    def test_pass_run_exits_zero(self, capsys: pytest.CaptureFixture[str]) -> None:
         self._seed_pass_run()
         code = _verify.cmd_verify(
             SimpleNamespace(tracking_uri=self.mlflow_uri, dataset=[], partition=[],
@@ -1072,7 +1074,7 @@ class TestVerifyOutput:
         assert "budget" in out
         assert "failed_checks: 0" in out
 
-    def test_budget_failure_exits_one(self, capsys: pytest.CaptureFixture) -> None:
+    def test_budget_failure_exits_one(self, capsys: pytest.CaptureFixture[str]) -> None:
         _make_verify_run(
             self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
             method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
@@ -1088,7 +1090,7 @@ class TestVerifyOutput:
         assert "FAIL  pldpbo_snr" in out
         assert "budget" in out
 
-    def test_json_output_shape(self, capsys: pytest.CaptureFixture) -> None:
+    def test_json_output_shape(self, capsys: pytest.CaptureFixture[str]) -> None:
         self._seed_pass_run()
         code = _verify.cmd_verify(
             SimpleNamespace(tracking_uri=self.mlflow_uri, dataset=[], partition=[],
