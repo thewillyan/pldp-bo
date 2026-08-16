@@ -878,3 +878,34 @@ Everything below is the repo-side subset of `EXPERIMENTS-TODO.md` §8:
   ruff/mypy zero new errors vs git HEAD (ruff 38 = 38; mypy zero new, net −9 lines from deleted
   legacy tests). Client `personalization_metadata` query handler kept for legacy (personalization
   module remains), now unreachable from the server.
+- 2026-08-15: **IMPL-12 closed.** Matrix configs + runner + run policy (spec §9.11, §3).
+  `scripts/gen_matrix_configs`: emits 100 deterministic self-contained YAMLs
+  (`config/experiments/<dataset>_<partition>_<method>.yaml`) from a shared `CELLS` table —
+  MNIST {iid, dirichlet_1.0, dirichlet_0.5, dirichlet_0.1, pathological} ×5, CIFAR-100
+  {iid, dirichlet_0.5, dirichlet_0.1, pathological} ×4, FEMNIST {natural} ×1 — × 10 methods
+  (`nonprivate`, `dpfedavg_fixed`, `fedprox_fixed`, `pldpbo_nun`, `pldpbo_utility`,
+  `pldpbo_retention`, `pldpbo_efficiency`, `pldpbo_perremaining`, `pldpbo_snr`,
+  `pldpbo_agreement`), each locked (§2 constants), `assert_locked_config: true`, `seed: 0`,
+  `aggregation: attenuation` (nonprivate: plain), and a stable `config_version` hash embedded
+  as YAML metadata (computed from the global §2 constants, matching the tracker tag; ignored
+  by `load_config`). `scripts/run matrix`: inventory (per experiment `<dataset>_<partition>`,
+  run `<method>_seed<NN>`, done = FINISHED **and** matching `config_version` tag, failed =
+  exists but not done, missing = absent) printed per cell×method with a totals line;
+  `--dry-run`/`--dataset`/`--partition`/`--method`/`--seeds` (default `0-11`)/`--tracking-uri`/
+  `--num-clients`. `run_matrix` (rerun policy): for each pending run, `mlflow.delete_run` the
+  stale run id, then relaunch via `cmd_single` with `seed=<N>` (client count from the config
+  unless overridden) with `MLFLOW_TRACKING_URI` exported; post-launch id resolution is
+  experiment-scoped (`_resolve_run_id(..., experiment=)`, `cmd_single` gained the kwarg) since
+  run names repeat across cells — the legacy all-experiments lookup returned None and
+  misreported launches as failed; final status printed per run. `--gpu-parallel` deferred
+  (user decision). Legacy `group`/`replot group` paths removed (cmd_group, cmd_replot_group,
+  argparse entries, dispatch branches); `list` now prints config filenames; 12 archive configs
+  moved to `config/experiments/archive/` (28 → 40 files, `git mv`; still usable via `single`).
+  Config generation rewritten from scratch for determinism (no env/BE name, fixed hash) so
+  inventory is reproducible across machines. 14 new tests (parse-seeds 2, inventory 5, scoped
+  resolve 2, run loop 5: delete-and-relaunch with new id verified against a real sqlite store,
+  done-runs skipped, num_clients from config and override, scoped experiment filtering);
+  581 tests green; ruff zero new findings (pre-existing 4 remain, all in untouched legacy
+  replot code; the removed group/replot code took its 10 findings with it); mypy zero new
+  errors (only pre-existing loader.py/test_server.py notes). Dry-run over an empty DB reports
+  1,200 missing. `src/data/` still untracked/gitignored.
