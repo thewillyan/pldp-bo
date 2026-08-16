@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import partial
+from typing import Any
 
 from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision import datasets, transforms
@@ -8,7 +9,7 @@ from torchvision import datasets, transforms
 from src.config.loader import DataConfig
 from src.data.femnist import FEMNISTDataset
 
-DATASET_REGISTRY: dict[str, type[Dataset]] = {
+DATASET_REGISTRY: dict[str, type[Dataset[Any]]] = {
     "cifar10": datasets.CIFAR10,
     "cifar100": datasets.CIFAR100,
     "mnist": datasets.MNIST,
@@ -49,7 +50,7 @@ NUM_CLASSES_MAP = {
 }
 
 
-def get_dataset_kwargs(config: DataConfig) -> dict:
+def get_dataset_kwargs(config: DataConfig) -> dict[str, object]:
     transform = TRANSFORMS_MAP.get(config.name, transforms.ToTensor())
     return {"root": config.data_dir, "transform": transform, "download": True}
 
@@ -64,12 +65,12 @@ def _worker_init_fn(worker_id: int, base_seed: int) -> None:
 
 
 def create_dataloaders(
-    subset: Dataset | Subset,
+    subset: Dataset[Any] | Subset[Any],
     batch_size: int,
     shuffle: bool = True,
     seed: int | None = None,
-) -> DataLoader:
-    kwargs: dict = {"batch_size": batch_size, "shuffle": shuffle}
+) -> DataLoader[Any]:
+    kwargs: dict[str, Any] = {"batch_size": batch_size, "shuffle": shuffle}
     if seed is not None and shuffle:
         kwargs["worker_init_fn"] = partial(_worker_init_fn, base_seed=seed)
     return DataLoader(subset, **kwargs)

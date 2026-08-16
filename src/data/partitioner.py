@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sized
 from typing import Any, cast
 
 import numpy as np
@@ -124,7 +125,7 @@ def partition_iid(
     dataset: Dataset[Any], num_clients: int, seed: int | None = None
 ) -> list[Subset[Any]]:
     rng = np.random.RandomState(seed)
-    indices = np.arange(len(dataset))
+    indices = np.arange(len(cast(Sized, dataset)))
     rng.shuffle(indices)
     splits = np.array_split(indices, num_clients)
     return [Subset(dataset, split.tolist()) for split in splits]
@@ -173,7 +174,7 @@ def _plan_dirichlet_partition(
     empty = [i for i in range(num_clients) if len(client_indices[i]) == 0]
     if empty:
         all_selected = set(idx for client in client_indices for idx in client)
-        all_indices = list(set(range(len(dataset))) - all_selected)
+        all_indices = list(set(range(len(cast(Sized, dataset)))) - all_selected)
         if not all_indices:
             for eid in empty:
                 donor = max(
@@ -298,7 +299,7 @@ def _plan_partition(
 ) -> list[list[int]]:
     if partition_type == "iid":
         rng = np.random.RandomState(seed)
-        indices = np.arange(len(dataset))
+        indices = np.arange(len(cast(Sized, dataset)))
         rng.shuffle(indices)
         return [split.tolist() for split in np.array_split(indices, num_clients)]
     if partition_type in ("dirichlet", "noniid"):
