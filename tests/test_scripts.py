@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import types
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import mlflow
 import pytest
 import yaml
 
@@ -14,17 +16,50 @@ from src.config.locked import config_version as locked_config_version
 
 def _load_script(path: str, module_name: str) -> types.ModuleType:
     import importlib.machinery
+    import sys
 
     loader = importlib.machinery.SourceFileLoader(module_name, path)
     mod = types.ModuleType(module_name)
     mod.__file__ = path
-    loader.exec_module(mod)
+    prev = sys.modules.get(module_name)
+    sys.modules[module_name] = mod
+    try:
+        loader.exec_module(mod)
+    finally:
+        if prev is None:
+            sys.modules.pop(module_name, None)
+        else:
+            sys.modules[module_name] = prev
     return mod
 
 
 _run = _load_script("scripts/run", "_run_script")
 _plot = _load_script("scripts/plot", "_plot_script")
 _gen = _load_script("scripts/gen_matrix_configs", "_gen_script")
+
+
+def _make_run(
+    tracking_uri: str,
+    experiment: str,
+    run_name: str,
+    status: str = "FINISHED",
+    tag: str | None = None,
+) -> str:
+    """Create a run directly in *tracking_uri* (real sqlite DB, no mocking)."""
+    prev = mlflow.get_tracking_uri()
+    mlflow.set_tracking_uri(tracking_uri)
+    try:
+        client = mlflow.tracking.MlflowClient()
+        exp = client.get_experiment_by_name(experiment)
+        exp_id = exp.experiment_id if exp else client.create_experiment(experiment)
+        run = client.create_run(exp_id, run_name=run_name)
+        run_id = run.info.run_id
+        if tag is not None:
+            client.set_tag(run_id, "config_version", tag)
+        client.set_terminated(run_id, status=status)
+        return run_id
+    finally:
+        mlflow.set_tracking_uri(prev)
 
 
 class TestNeedsQuoting:
@@ -332,3 +367,100 @@ class TestGenMatrixConfigs:
         paths = {p.name: p for p in self._write()}
         raw = yaml.safe_load(paths["femnist_natural_pldpbo_agreement.yaml"].read_text())
         assert raw["config_version"] == locked_config_version()
+
+
+class TestParseSeeds:
+    def test_range(self) -> None:
+        assert _run._parse_seeds("0-11") == list(range(12))
+
+    def test_single(self) -> None:
+        assert _run._parse_seeds("3") == [3]
+
+    def test_partial_range(self) -> None:
+        assert _run._parse_seeds("2-4") == [2, 3, 4]
+
+
+class TestMatrixInventory:
+    @pytest.fixture(autouse=True)
+    def _cells_dir(self, tmp_path: Path) -> None:
+        self.cells_dir = tmp_path / "cells"
+        _gen.write_configs(self.cells_dir)
+
+    @pytest.fixture
+    def mlflow_uri(self, tmp_path: Path) -> str:
+        return f"sqlite:///{tmp_path}/mlflow.db"
+
+    def test_all_missing_on_empty_db(self, mlflow_uri: str) -> None:
+        inv = _run.matrix_inventory(mlflow_uri, self.cells_dir, [0, 1])
+        assert len(inv) == 200
+        assert all(r.status == "missing" for r in inv)
+        assert all(r.run_id is None for r in inv)
+
+    def test_done_when_finished_and_matching_tag(self, mlflow_uri: str) -> None:
+        run_id = _make_run(
+            mlflow_uri, "mnist_iid", "pldpbo_snr_seed0", tag=locked_config_version(),
+        )
+        by_cell = {
+            (r.cell, r.run_name): r
+            for r in _run.matrix_inventory(mlflow_uri, self.cells_dir, [0, 1])
+        }
+        done = by_cell[("mnist_iid", "pldpbo_snr_seed0")]
+        assert done.status == "done"
+        assert done.run_id == run_id
+        assert by_cell[("mnist_iid", "pldpbo_snr_seed1")].status == "missing"
+
+    def test_failed_when_crashed(self, mlflow_uri: str) -> None:
+        _make_run(mlflow_uri, "mnist_iid", "pldpbo_snr_seed0", status="FAILED")
+        by_cell = {
+            (r.cell, r.run_name): r
+            for r in _run.matrix_inventory(mlflow_uri, self.cells_dir, [0])
+        }
+        assert by_cell[("mnist_iid", "pldpbo_snr_seed0")].status == "failed"
+
+    def test_failed_when_stale_config_version(self, mlflow_uri: str) -> None:
+        _make_run(mlflow_uri, "mnist_iid", "pldpbo_snr_seed0", tag="deadbeef")
+        by_cell = {
+            (r.cell, r.run_name): r
+            for r in _run.matrix_inventory(mlflow_uri, self.cells_dir, [0])
+        }
+        assert by_cell[("mnist_iid", "pldpbo_snr_seed0")].status == "failed"
+
+    def test_experiment_scoped(self, mlflow_uri: str) -> None:
+        # A FINISHED matching run under a different experiment must not count.
+        _make_run(
+            mlflow_uri, "cifar100_iid", "pldpbo_snr_seed0", tag=locked_config_version(),
+        )
+        by_cell = {
+            (r.cell, r.run_name): r
+            for r in _run.matrix_inventory(mlflow_uri, self.cells_dir, [0])
+        }
+        assert by_cell[("mnist_iid", "pldpbo_snr_seed0")].status == "missing"
+        assert by_cell[("cifar100_iid", "pldpbo_snr_seed0")].status == "done"
+
+    def test_plan_excludes_done(self, mlflow_uri: str) -> None:
+        _make_run(
+            mlflow_uri, "mnist_iid", "pldpbo_snr_seed0", tag=locked_config_version(),
+        )
+        plan = _run.matrix_plan(_run.matrix_inventory(mlflow_uri, self.cells_dir, [0, 1]))
+        assert len(plan) == 199
+        assert ("mnist_iid", "pldpbo_snr_seed0") not in {
+            (r.cell, r.run_name) for r in plan
+        }
+
+    def test_dry_run_reports_1200_missing(
+        self, mlflow_uri: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
+    ) -> None:
+        monkeypatch.setattr(_run, "CONFIG_DIR", self.cells_dir)
+        args = SimpleNamespace(
+            dry_run=True,
+            dataset=[],
+            partition=[],
+            method=[],
+            seeds="0-11",
+            tracking_uri=mlflow_uri,
+            num_clients=None,
+        )
+        _run.cmd_matrix(args)
+        out = capsys.readouterr().out
+        assert "missing: 1200" in out
+        assert "done: 0" in out
