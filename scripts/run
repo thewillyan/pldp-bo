@@ -14,7 +14,8 @@ import mlflow
 import yaml
 
 from src.config.loader import ExperimentConfig, load_config
-from src.config.locked import METHOD_NAMES, config_version as locked_config_version
+from src.config.locked import METHOD_NAMES
+from src.config.locked import config_version as locked_config_version
 
 CONFIG_DIR = pathlib.Path("config/experiments")
 _PLOT_SCRIPT = str(pathlib.Path(__file__).resolve().parent / "plot")

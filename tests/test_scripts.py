@@ -519,7 +519,7 @@ class TestRunMatrix:
 
         def fake_cmd_single(
             config_path: str, num_clients: int, overrides: list[str],
-            experiment: str | None = None,
+            _experiment: str | None = None,
         ) -> tuple[str, str] | None:
             calls.append((config_path, num_clients, overrides))
             assert config_path == str(cell_config)
@@ -562,7 +562,7 @@ class TestRunMatrix:
 
         def fake_cmd_single(
             config_path: str, num_clients: int, overrides: list[str],
-            experiment: str | None = None,
+            _experiment: str | None = None,
         ) -> tuple[str, str] | None:
             calls.append((config_path, num_clients, overrides))
             return None
@@ -576,13 +576,13 @@ class TestRunMatrix:
         assert calls == []
 
     def test_num_clients_read_from_config(
-        self, mlflow_uri: str, cell_config: Path, monkeypatch: pytest.MonkeyPatch,
+        self, mlflow_uri: str, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         calls: list[tuple[str, int, list[str]]] = []
 
         def fake_cmd_single(
             config_path: str, num_clients: int, overrides: list[str],
-            experiment: str | None = None,
+            _experiment: str | None = None,
         ) -> tuple[str, str] | None:
             calls.append((config_path, num_clients, overrides))
             return None
@@ -596,13 +596,13 @@ class TestRunMatrix:
         assert calls and calls[0][1] == 100
 
     def test_num_clients_override_wins(
-        self, mlflow_uri: str, cell_config: Path, monkeypatch: pytest.MonkeyPatch,
+        self, mlflow_uri: str, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         calls: list[tuple[str, int, list[str]]] = []
 
         def fake_cmd_single(
             config_path: str, num_clients: int, overrides: list[str],
-            experiment: str | None = None,
+            _experiment: str | None = None,
         ) -> tuple[str, str] | None:
             calls.append((config_path, num_clients, overrides))
             return None
