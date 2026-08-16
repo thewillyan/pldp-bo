@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import json
+import os
+import statistics
+import tempfile
 import types
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock
 
 import mlflow
@@ -36,6 +41,7 @@ def _load_script(path: str, module_name: str) -> types.ModuleType:
 _run = _load_script("scripts/run", "_run_script")
 _plot = _load_script("scripts/plot", "_plot_script")
 _gen = _load_script("scripts/gen_matrix_configs", "_gen_script")
+_verify = _load_script("scripts/verify", "_verify_script")
 
 
 def _make_run(
@@ -58,6 +64,56 @@ def _make_run(
             client.set_tag(run_id, "config_version", tag)
         client.set_terminated(run_id, status=status)
         return run_id
+    finally:
+        mlflow.set_tracking_uri(prev)
+
+
+def _make_verify_run(
+    tracking_uri: str,
+    experiment: str,
+    run_name: str,
+    *,
+    method: str,
+    dataset: str,
+    partition: str,
+    seed: int,
+    status: str = "FINISHED",
+    tag: str | None = None,
+    params: dict[str, str] | None = None,
+    state: dict[str, Any] | None = None,
+) -> str:
+    """Create a §4-schema run; optionally log a client_state.json artifact.
+
+    Callers must chdir into a tmp dir first (artifact root resolves from CWD).
+    """
+    prev = mlflow.get_tracking_uri()
+    mlflow.set_tracking_uri(tracking_uri)
+    try:
+        client = mlflow.tracking.MlflowClient()
+        exp = client.get_experiment_by_name(experiment)
+        exp_id = exp.experiment_id if exp else client.create_experiment(experiment)
+        run_id = client.create_run(exp_id, run_name=run_name).info.run_id
+        for key, value in {
+            "dataset": dataset,
+            "partition": partition,
+            "method": method,
+            "seed": str(seed),
+            "config_version": tag or locked_config_version(),
+        }.items():
+            client.set_tag(run_id, key, value)
+        for key, value in (params or {}).items():
+            client.log_param(run_id, key, value)
+        if state is not None:
+            tmp = os.path.join(tempfile.mkdtemp(), "client_state.json")
+            with open(tmp, "w") as f:
+                json.dump(state, f)
+            try:
+                client.log_artifact(run_id, tmp, artifact_path="")
+            finally:
+                os.unlink(tmp)
+        client.set_terminated(run_id, status=status)
+        run_id_str: str = run_id
+        return run_id_str
     finally:
         mlflow.set_tracking_uri(prev)
 
@@ -622,3 +678,429 @@ class TestRunMatrix:
         )
         _run.run_matrix(mlflow_uri, _run.matrix_plan(inventory), num_clients=20)
         assert calls and calls[0][1] == 20
+
+
+class TestVerifyDiscovery:
+    @pytest.fixture(autouse=True)
+    def _tmp_cwd(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        self.mlflow_uri = f"sqlite:///{tmp_path}/mlflow.db"
+
+    def test_includes_only_finished_current_version(self) -> None:
+        good = _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+        )
+        _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed1",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=1,
+            status="FAILED",
+        )
+        _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed2",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=2,
+            tag="deadbeef",
+        )
+        runs = _verify._discover_runs(self.mlflow_uri)
+        assert [r.run_id for r in runs] == [good]
+
+    def test_spans_experiments(self) -> None:
+        _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+        )
+        _make_verify_run(
+            self.mlflow_uri, "cifar100_dirichlet_0.1", "pldpbo_nun_seed3",
+            method="pldpbo_nun", dataset="cifar100", partition="dirichlet_0.1", seed=3,
+        )
+        runs = _verify._discover_runs(self.mlflow_uri)
+        assert sorted(r.experiment for r in runs) == [
+            "cifar100_dirichlet_0.1", "mnist_iid",
+        ]
+
+    def test_filters_by_tags(self) -> None:
+        _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+        )
+        _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed7",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=7,
+        )
+        _make_verify_run(
+            self.mlflow_uri, "cifar100_iid", "pldpbo_snr_seed0",
+            method="pldpbo_snr", dataset="cifar100", partition="iid", seed=0,
+        )
+        runs = _verify._discover_runs(
+            self.mlflow_uri,
+            datasets=["mnist"], partitions=["iid"],
+            methods=["pldpbo_snr"], seeds=[0],
+        )
+        assert len(runs) == 1
+        assert runs[0].seed == 0
+        assert runs[0].experiment == "mnist_iid"
+
+    def test_carries_params(self) -> None:
+        _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+            params={"T": "200", "K": "100", "B_RDP": "10.0", "dataset_root": "/data"},
+        )
+        runs = _verify._discover_runs(self.mlflow_uri)
+        assert runs[0].params["T"] == "200"
+        assert runs[0].params["B_RDP"] == "10.0"
+
+    def test_loads_client_state_artifact(self) -> None:
+        state = {"0": {"acct_cost": [0.01, 0.02]}}
+        run_id = _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+            state=state,
+        )
+        runs = _verify._discover_runs(self.mlflow_uri)
+        assert runs[0].run_id == run_id
+        assert runs[0].client_state == state
+
+    def test_no_artifact_gives_none(self) -> None:
+        _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+        )
+        runs = _verify._discover_runs(self.mlflow_uri)
+        assert runs[0].client_state is None
+
+
+class TestVerifyCli:
+    def test_parser_exposes_matrix_style_flags(self) -> None:
+        args = _verify.build_parser().parse_args(
+            ["--tracking-uri", "sqlite:///x.db", "--dataset", "mnist",
+             "--method", "pldpbo_snr", "--seeds", "0-3"],
+        )
+        assert args.tracking_uri == "sqlite:///x.db"
+        assert args.dataset == ["mnist"]
+        assert args.method == ["pldpbo_snr"]
+        assert args.seeds == "0-3"
+
+
+def _vr(
+    method: str = "pldpbo_snr",
+    state: dict[str, Any] | None = None,
+    params: dict[str, str] | None = None,
+) -> object:
+    return _verify.VerifyRun("mnist_iid", method, "runid", 0, params or {}, state)
+
+
+class TestVerifyWarmup:
+    def test_passes_with_grid_values(self) -> None:
+        from src.privacy.bo_scheduler import WARMUP_GRID
+
+        grid = list(WARMUP_GRID)
+        state = {
+            "0": {"acct_cost": grid, "r_t_final": grid},
+            "1": {"acct_cost": grid, "r_t_final": grid},
+        }
+        result = _verify._check_warmup(_vr(state=state))
+        assert result["pass"] is True
+        assert result["n"] == 2
+        assert abs(result["sum_mean"] - _verify.WARMUP_SUM_NOMINAL) < 1e-9
+        assert result["parity_median"] == 0.0
+        assert result["parity_max"] == 0.0
+
+    def test_fails_out_of_tolerance(self) -> None:
+        state = {"0": {"acct_cost": [0.2] * 10, "r_t_final": [0.2] * 10}}
+        result = _verify._check_warmup(_vr(state=state))
+        assert result["pass"] is False
+
+    def test_uses_first_ten_participations_only(self) -> None:
+        from src.privacy.bo_scheduler import WARMUP_GRID
+
+        grid = list(WARMUP_GRID)
+        state = {"0": {"acct_cost": grid + [5.0, 5.0], "r_t_final": grid + [5.0, 5.0]}}
+        result = _verify._check_warmup(_vr(state=state))
+        assert abs(result["sum_mean"] - _verify.WARMUP_SUM_NOMINAL) < 1e-9
+
+    def test_sums_available_participations_when_fewer_than_ten(self) -> None:
+        state = {"0": {"acct_cost": [0.1, 0.2, 0.3], "r_t_final": [0.1, 0.2, 0.3]}}
+        result = _verify._check_warmup(_vr(state=state))
+        assert result["n"] == 1
+        assert abs(result["sum_mean"] - 0.6) < 1e-9
+
+    def test_parity_excludes_refused_rounds(self) -> None:
+        # r_t_final == 0.0 marks a refused round; excluded from parity.
+        state = {
+            "0": {
+                "acct_cost": [1.0, 1.0, 0.0],
+                "r_t_final": [1.5, 0.5, 0.0],
+            },
+        }
+        result = _verify._check_warmup(_vr(state=state))
+        # relative errors: |1-1.5|/1.5 = 1/3, |1-0.5|/0.5 = 1
+        assert result["parity_median"] == pytest.approx(2 / 3)
+        assert result["parity_max"] == pytest.approx(1.0)
+
+    def test_no_data_gives_none(self) -> None:
+        result = _verify._check_warmup(_vr(state=None))
+        assert result["pass"] is None
+        assert result["n"] == 0
+
+
+class TestVerifyBudget:
+    def test_passes_at_target(self) -> None:
+        state = {
+            "0": {"cum_rdp": [1.0, 5.0, 10.0]},
+            "1": {"cum_rdp": [1.0, 5.0, 10.0]},
+        }
+        result = _verify._check_budget(_vr(state=state))
+        assert result["pass"] is True
+        assert result["n"] == 2
+        assert result["final_rdp_mean"] == pytest.approx(10.0)
+        assert result["utilization_mean"] == pytest.approx(1.0)
+
+    def test_fails_out_of_tolerance(self) -> None:
+        state = {"0": {"cum_rdp": [9.0]}}
+        result = _verify._check_budget(_vr(state=state))
+        assert result["pass"] is False
+        assert result["utilization_mean"] == pytest.approx(0.9)
+
+    def test_uses_last_cumulative_value(self) -> None:
+        state = {"0": {"cum_rdp": [1.0, 5.0, 10.0, 10.4]}}
+        result = _verify._check_budget(_vr(state=state))
+        assert result["final_rdp_mean"] == pytest.approx(10.4)
+
+    def test_no_data_gives_none(self) -> None:
+        result = _verify._check_budget(_vr(state=None))
+        assert result["pass"] is None
+        assert result["n"] == 0
+
+    def test_nonprivate_reports_zero_with_pass(self) -> None:
+        result = _verify._check_budget(_vr(method="nonprivate", state=None))
+        assert result["pass"] is True
+        assert result["final_rdp_mean"] == 0.0
+        assert result["utilization_mean"] == 0.0
+        assert "nonprivate" in result["note"]
+
+
+class TestVerifyDropout:
+    def test_never_drops_reports_t_plus_one(self) -> None:
+        state = {
+            "0": {"dropout_round": None, "cum_rdp": [10.0]},
+            "1": {"dropout_round": None, "cum_rdp": [10.0]},
+        }
+        result = _verify._check_dropout(
+            _vr(state=state, params={"T": "200"}),
+        )
+        assert result["fraction_never"] == pytest.approx(1.0)
+        assert result["dropout_round_mean"] == pytest.approx(201.0)
+        assert result["dropout_round_sd"] == 0.0
+        assert result["final_rdp_mean"] == pytest.approx(10.0)
+        assert result["pass"] is True
+
+    def test_mixed_drops(self) -> None:
+        state = {
+            "0": {"dropout_round": 50, "cum_rdp": [10.0]},
+            "1": {"dropout_round": 100, "cum_rdp": [10.0]},
+            "2": {"dropout_round": None, "cum_rdp": [10.0]},
+        }
+        result = _verify._check_dropout(
+            _vr(state=state, params={"T": "200"}),
+        )
+        assert result["n"] == 3
+        assert result["fraction_never"] == pytest.approx(1 / 3)
+        assert result["dropout_round_mean"] == pytest.approx(117.0)  # (50+100+201)/3
+        assert result["dropout_round_sd"] == pytest.approx(
+            statistics.stdev([50, 100, 201]),
+        )
+
+    def test_t_from_params(self) -> None:
+        state = {"0": {"dropout_round": None, "cum_rdp": [10.0]}}
+        result = _verify._check_dropout(
+            _vr(state=state, params={"T": "5"}),
+        )
+        assert result["dropout_round_mean"] == pytest.approx(6.0)
+
+    def test_no_data_gives_none(self) -> None:
+        result = _verify._check_dropout(_vr(state=None))
+        assert result["pass"] is None
+        assert result["n"] == 0
+
+
+class TestVerifyFemnistCounts:
+    def test_non_femnist_cell_skips(self) -> None:
+        result = _verify._check_femnist_counts(_vr(state=None))
+        assert result["pass"] is None
+        assert "non-FEMNIST" in result["note"]
+
+    def test_skips_when_data_absent(self, tmp_path: Path) -> None:
+        run = _verify.VerifyRun(
+            "femnist_natural", "pldpbo_nun", "rid", 0,
+            {"dataset_root": str(tmp_path / "missing")}, None,
+        )
+        result = _verify._check_femnist_counts(run)
+        assert result["pass"] is None
+        assert "SKIP" in result["note"]
+
+    def test_skips_without_dataset_root_param(self) -> None:
+        result = _verify._check_femnist_counts(
+            _verify.VerifyRun("femnist_natural", "pldpbo_nun", "rid", 0, {}, None),
+        )
+        assert result["pass"] is None
+        assert "SKIP" in result["note"]
+
+    def test_passes_when_counts_match(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        root = tmp_path / "data"
+        (root / "FEMNIST").mkdir(parents=True)
+        monkeypatch.setattr(
+            _verify, "femnist_counts", lambda _root: (654_281, 163_570, 3_598),
+        )
+        run = _verify.VerifyRun(
+            "femnist_natural", "pldpbo_nun", "rid", 0,
+            {"dataset_root": str(root)}, None,
+        )
+        result = _verify._check_femnist_counts(run)
+        assert result["pass"] is True
+        assert result["train"] == 654_281
+
+    def test_fails_on_mismatch(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        root = tmp_path / "data"
+        (root / "FEMNIST").mkdir(parents=True)
+        monkeypatch.setattr(_verify, "femnist_counts", lambda _root: (1, 2, 3))
+        run = _verify.VerifyRun(
+            "femnist_natural", "pldpbo_nun", "rid", 0,
+            {"dataset_root": str(root)}, None,
+        )
+        assert _verify._check_femnist_counts(run)["pass"] is False
+
+    def test_skips_on_read_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        root = tmp_path / "data"
+        (root / "FEMNIST").mkdir(parents=True)
+
+        def _boom(_root: str) -> tuple[int, int, int]:
+            raise FileNotFoundError("no .pt")
+
+        monkeypatch.setattr(_verify, "femnist_counts", _boom)
+        run = _verify.VerifyRun(
+            "femnist_natural", "pldpbo_nun", "rid", 0,
+            {"dataset_root": str(root)}, None,
+        )
+        result = _verify._check_femnist_counts(run)
+        assert result["pass"] is None
+        assert "SKIP" in result["note"]
+
+
+class TestVerifyAggregate:
+    def test_dropout_pass_true_with_data(self) -> None:
+        from src.privacy.bo_scheduler import WARMUP_GRID
+
+        grid = list(WARMUP_GRID)
+        run = _vr(
+            state={
+                "0": {"acct_cost": grid, "r_t_final": grid,
+                      "cum_rdp": [10.0], "dropout_round": None},
+            },
+            params={"T": "200"},
+        )
+        aggregated = _verify._aggregate(
+            [{"method": "pldpbo_snr", **_verify.verify_run(run)}],
+        )
+        assert aggregated["pldpbo_snr"]["dropout"]["pass"] is True
+        assert aggregated["pldpbo_snr"]["dropout"]["fraction_never"] == pytest.approx(1.0)
+
+    def test_nonprivate_budget_aggregates_pass(self) -> None:
+        run = _vr(method="nonprivate", state=None)
+        aggregated = _verify._aggregate(
+            [{"method": "nonprivate", **_verify.verify_run(run)}],
+        )
+        assert aggregated["nonprivate"]["budget_match"]["pass"] is True
+        assert aggregated["nonprivate"]["budget_match"]["final_rdp_mean"] == 0.0
+
+    def test_artifact_less_private_run_stays_skip(self) -> None:
+        run = _vr(method="pldpbo_snr", state=None)
+        aggregated = _verify._aggregate(
+            [{"method": "pldpbo_snr", **_verify.verify_run(run)}],
+        )
+        assert aggregated["pldpbo_snr"]["warmup"]["pass"] is None
+        assert aggregated["pldpbo_snr"]["budget_match"]["pass"] is None
+
+
+class TestVerifyOutput:
+    @pytest.fixture(autouse=True)
+    def _tmp_cwd(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        self.mlflow_uri = f"sqlite:///{tmp_path}/mlflow.db"
+
+    def _seed_pass_run(self) -> str:
+        from src.privacy.bo_scheduler import WARMUP_GRID
+
+        grid = list(WARMUP_GRID)
+        state = {
+            "0": {
+                "acct_cost": grid,
+                "r_t_final": grid,
+                "cum_rdp": [10.0],
+                "dropout_round": None,
+            },
+        }
+        return _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+            params={"T": "200", "B_RDP": "10.0"},
+            state=state,
+        )
+
+    def test_no_runs_exits_zero(self, capsys: pytest.CaptureFixture[str]) -> None:
+        code = _verify.cmd_verify(
+            SimpleNamespace(tracking_uri=self.mlflow_uri, dataset=[], partition=[],
+                            method=[], seeds=None, json=False),
+        )
+        assert code == 0
+        assert "no §4-schema runs" in capsys.readouterr().out
+
+    def test_pass_run_exits_zero(self, capsys: pytest.CaptureFixture[str]) -> None:
+        self._seed_pass_run()
+        code = _verify.cmd_verify(
+            SimpleNamespace(tracking_uri=self.mlflow_uri, dataset=[], partition=[],
+                            method=[], seeds=None, json=False),
+        )
+        out = capsys.readouterr().out
+        assert code == 0
+        assert "PASS  pldpbo_snr" in out
+        assert "warm-up" in out
+        assert "budget" in out
+        assert "failed_checks: 0" in out
+
+    def test_budget_failure_exits_one(self, capsys: pytest.CaptureFixture[str]) -> None:
+        _make_verify_run(
+            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
+            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+            params={"T": "200", "B_RDP": "10.0"},
+            state={"0": {"cum_rdp": [9.0]}},
+        )
+        code = _verify.cmd_verify(
+            SimpleNamespace(tracking_uri=self.mlflow_uri, dataset=[], partition=[],
+                            method=[], seeds=None, json=False),
+        )
+        out = capsys.readouterr().out
+        assert code == 1
+        assert "FAIL  pldpbo_snr" in out
+        assert "budget" in out
+
+    def test_json_output_shape(self, capsys: pytest.CaptureFixture[str]) -> None:
+        self._seed_pass_run()
+        code = _verify.cmd_verify(
+            SimpleNamespace(tracking_uri=self.mlflow_uri, dataset=[], partition=[],
+                            method=[], seeds=None, json=True),
+        )
+        payload = json.loads(capsys.readouterr().out)
+        assert code == 0
+        assert "verification" in payload
+        checks = payload["verification"]["pldpbo_snr"]
+        assert set(checks) == {"warmup", "budget_match", "dropout",
+                               "enforcement", "femnist_counts"}
+        assert checks["warmup"]["pass"] is True
+        assert checks["budget_match"]["utilization_mean"] == pytest.approx(1.0)

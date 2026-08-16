@@ -1,0 +1,451 @@
+#!/usr/bin/env python3
+"""PLDP-BO §5.1 verification checks against MLflow runs (IMPL-13).
+
+Reads FINISHED §4-schema runs (matching ``config_version`` tag), loads each
+run's ``client_state.json`` artifact, and runs the §5.1 checks:
+  1. warm-up sum (mean ± SD over first-10-participation acct_cost sums,
+     nominal = WARMUP_SUM_NOMINAL, pass ±5%) + per-round acct_cost vs
+     r_t_final parity (median/max relative error);
+  2. budget matching (mean final cum_rdp vs B_RDP, utilization 1.00 ± 0.02;
+     nonprivate = 0);
+  3. drop-out distribution (never = T+1, fraction never, mean ± SD round,
+     mean final cum RDP);
+  4. FEMNIST counts (SKIP when the dataset dir is absent);
+  5. accounting convention (covered by check 1).
+
+Prints a PASS/FAIL list; exits 1 when any check FAILs. ``--json`` emits the
+§6.1 ``verification`` block (incl. enforcement stats) and nothing else.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import statistics
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, cast
+
+import mlflow
+from src.data.femnist import femnist_counts
+
+from src.config.locked import config_version as locked_config_version
+from src.privacy.bo_scheduler import WARMUP_SUM_NOMINAL
+
+CLIENT_STATE_ARTIFACT = "client_state.json"
+WARMUP_PASS_TOLERANCE = 0.05  # ±5% of the nominal sum
+UTILIZATION_TOLERANCE = 0.02  # ±0.02 around 1.00
+BUDGET_TARGET = 10.0  # B_RDP, locked §2 constant
+FEMNIST_EXPECTED = (654_281, 163_570, 3_598)  # (train, test, writers)
+
+
+@dataclass
+class VerifyRun:
+    """One FINISHED §4-schema run with its artifact loaded."""
+
+    experiment: str
+    method: str
+    run_id: str
+    seed: int
+    params: dict[str, str] = field(default_factory=dict)
+    client_state: dict[str, Any] | None = None
+
+
+    def param_float(self, key: str, default: float) -> float:
+        try:
+            return float(self.params.get(key, ""))
+        except (TypeError, ValueError):
+            return default
+
+
+def _load_client_state(client: mlflow.tracking.MlflowClient, run_id: str) -> dict[str, Any] | None:
+    try:
+        names = {f.path for f in client.list_artifacts(run_id)}
+    except mlflow.exceptions.MlflowException:
+        return None
+    if CLIENT_STATE_ARTIFACT not in names:
+        return None
+    path = client.download_artifacts(run_id, CLIENT_STATE_ARTIFACT)
+    with open(path) as f:
+        return cast(dict[str, object], json.load(f))
+
+
+def _discover_runs(
+    tracking_uri: str,
+    datasets: list[str] | None = None,
+    partitions: list[str] | None = None,
+    methods: list[str] | None = None,
+    seeds: list[int] | None = None,
+) -> list[VerifyRun]:
+    """All FINISHED runs whose ``config_version`` tag matches, filterable by tag."""
+    prev_uri = mlflow.get_tracking_uri()
+    mlflow.set_tracking_uri(tracking_uri)
+    try:
+        client = mlflow.tracking.MlflowClient()
+        runs: list[VerifyRun] = []
+        for exp in client.search_experiments():
+            for run in client.search_runs(
+                [exp.experiment_id],
+                filter_string="attributes.status = 'FINISHED'",
+                order_by=["start_time ASC"],
+                max_results=50_000,
+            ):
+                tags = run.data.tags or {}
+                if tags.get("config_version") != locked_config_version():
+                    continue
+                method = tags.get("method", "")
+                dataset = tags.get("dataset", "")
+                partition = tags.get("partition", "")
+                try:
+                    seed = int(tags.get("seed", ""))
+                except ValueError:
+                    continue
+                if datasets and dataset not in datasets:
+                    continue
+                if partitions and partition not in partitions:
+                    continue
+                if methods and method not in methods:
+                    continue
+                if seeds is not None and seed not in seeds:
+                    continue
+                state = _load_client_state(client, run.info.run_id)
+                runs.append(
+                    VerifyRun(
+                        exp.name, method, run.info.run_id, seed,
+                        dict(run.data.params), state,
+                    ),
+                )
+        return runs
+    finally:
+        mlflow.set_tracking_uri(prev_uri)
+
+
+def _parse_seeds(spec: str) -> list[int]:
+    """Parse 'A-B' (inclusive) or 'N' into a list of seed ints."""
+    if "-" in spec:
+        start, end = (int(p) for p in spec.split("-", 1))
+        return list(range(start, end + 1))
+    return [int(spec)]
+
+
+def _client_state_entries(run: VerifyRun) -> list[dict[str, Any]]:
+    """Per-client participation records of *run* ([] when the artifact is absent)."""
+    if run.client_state is None:
+        return []
+    return [state for state in run.client_state.values() if isinstance(state, dict)]
+
+
+def _check_warmup(run: VerifyRun) -> dict[str, float | int | bool | None]:
+    """§5.1 check 1: warm-up sum + per-round accountant-cost parity.
+
+    Per run × client: Σ over the client's first 10 participations of
+    ``acct_cost`` (fewer participations → sum what exists). Parity excludes
+    refused rounds (``r_t_final`` == 0.0).
+    """
+    sums: list[float] = []
+    parities: list[float] = []
+    for state in _client_state_entries(run):
+        acct = [float(v) for v in state.get("acct_cost", []) if v is not None]
+        if acct:
+            sums.append(sum(acct[:10]))
+        finals = [float(v) for v in state.get("r_t_final", [])]
+        for cost, final in zip(acct, finals, strict=False):
+            if final > 0:
+                parities.append(abs(cost - final) / final)
+    n = len(sums)
+    if n == 0:
+        return {"n": 0, "sum_mean": 0.0, "sum_sd": 0.0, "pass": None,
+                "parity_median": 0.0, "parity_max": 0.0}
+    mean = statistics.fmean(sums)
+    sd = statistics.stdev(sums) if n > 1 else 0.0
+    lo = WARMUP_SUM_NOMINAL * (1 - WARMUP_PASS_TOLERANCE)
+    hi = WARMUP_SUM_NOMINAL * (1 + WARMUP_PASS_TOLERANCE)
+    return {
+        "n": n,
+        "sum_mean": mean,
+        "sum_sd": sd,
+        "pass": lo <= mean <= hi,
+        "parity_median": statistics.median(parities) if parities else 0.0,
+        "parity_max": max(parities) if parities else 0.0,
+    }
+
+
+def _check_budget(run: VerifyRun) -> dict[str, float | int | bool | str | None]:
+    """§5.1 check 2: mean final cumulative RDP per method ≈ B_RDP.
+
+    Nonprivate logs no privacy fields (§4.4 N/A rule) → reported as 0.
+    """
+    if run.method == "nonprivate":
+        return {"n": 0, "final_rdp_mean": 0.0, "utilization_mean": 0.0,
+                "pass": True, "note": "nonprivate"}
+    finals: list[float] = []
+    for state in _client_state_entries(run):
+        cum = [float(v) for v in state.get("cum_rdp", []) if v is not None]
+        if cum:
+            finals.append(cum[-1])
+    n = len(finals)
+    if n == 0:
+        return {"n": 0, "final_rdp_mean": 0.0, "utilization_mean": 0.0,
+                "pass": None, "note": ""}
+    mean = statistics.fmean(finals)
+    return {
+        "n": n,
+        "final_rdp_mean": mean,
+        "utilization_mean": mean / BUDGET_TARGET,
+        "pass": abs(mean / BUDGET_TARGET - 1.0) <= UTILIZATION_TOLERANCE,
+        "note": "",
+    }
+
+
+def _check_dropout(run: VerifyRun) -> dict[str, float | int | bool | None]:
+    """§5.1 check 3: drop-out distribution (never = T+1; descriptive)."""
+    t = int(run.param_float("T", 0))
+    never = t + 1
+    rounds: list[int] = []
+    finals: list[float] = []
+    for state in _client_state_entries(run):
+        cum = [float(v) for v in state.get("cum_rdp", []) if v is not None]
+        if cum:
+            finals.append(cum[-1])
+        drop = state.get("dropout_round")
+        rounds.append(int(drop) if drop is not None else never)
+    n = len(rounds)
+    if n == 0:
+        return {"n": 0, "fraction_never": 0.0, "dropout_round_mean": 0.0,
+                "dropout_round_sd": 0.0, "final_rdp_mean": 0.0, "pass": None}
+    return {
+        "n": n,
+        "fraction_never": sum(1 for r in rounds if r == never) / n,
+        "dropout_round_mean": statistics.fmean(rounds),
+        "dropout_round_sd": statistics.stdev(rounds) if n > 1 else 0.0,
+        "final_rdp_mean": statistics.fmean(finals) if finals else 0.0,
+        "pass": True,
+    }
+
+
+def _check_femnist_counts(run: VerifyRun) -> dict[str, float | int | bool | str | None]:
+    """§5.1 check 4: FEMNIST .pt counts vs expected (SKIP when data absent)."""
+    if "femnist" not in run.experiment:
+        return {"n": 0, "train": 0, "test": 0, "writers": 0, "pass": None,
+                "note": "non-FEMNIST cell"}
+    root = run.params.get("dataset_root", "")
+    if not root or not (Path(root) / "FEMNIST").exists():
+        return {"n": 0, "train": 0, "test": 0, "writers": 0, "pass": None,
+                "note": "SKIP: FEMNIST data absent"}
+    try:
+        counts = femnist_counts(root)
+    except (FileNotFoundError, OSError) as exc:
+        return {"n": 0, "train": 0, "test": 0, "writers": 0, "pass": None,
+                "note": f"SKIP: {exc}"}
+    return {
+        "n": 1,
+        "train": counts[0],
+        "test": counts[1],
+        "writers": counts[2],
+        "pass": counts == FEMNIST_EXPECTED,
+    }
+
+
+def _check_enforcement(run: VerifyRun) -> dict[str, float]:
+    """Enforcement stats (reported, not a pass/fail check)."""
+    counts: list[int] = []
+    participations = 0
+    for state in _client_state_entries(run):
+        counts.append(int(state.get("enforcement_count", 0)))
+        acct = [v for v in state.get("acct_cost", []) if v is not None]
+        participations += len(acct)
+    if not counts:
+        return {"mean_count_per_client": 0.0, "fraction_reduced_rounds": 0.0}
+    return {
+        "mean_count_per_client": statistics.fmean(counts),
+        "fraction_reduced_rounds": (sum(counts) / participations) if participations else 0.0,
+    }
+
+
+def verify_run(run: VerifyRun) -> dict[str, dict[str, Any]]:
+    """All §5.1 checks for one run → the §6.1-verification-block shape."""
+    return {
+        "warmup": _check_warmup(run),
+        "budget_match": _check_budget(run),
+        "dropout": _check_dropout(run),
+        "enforcement": _check_enforcement(run),
+        "femnist_counts": _check_femnist_counts(run),
+    }
+
+
+def _aggregate(results: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Per-method aggregation of per-run check results."""
+    methods: dict[str, list[dict[str, Any]]] = {}
+    for result in results:
+        methods.setdefault(result["method"], []).append(result)
+    out: dict[str, dict[str, Any]] = {}
+    for method, entries in sorted(methods.items()):
+        warmups = [e["warmup"] for e in entries if e["warmup"].get("pass") is not None]
+        budgets = [e["budget_match"] for e in entries if e["budget_match"].get("pass") is not None]
+        dropouts = [e["dropout"] for e in entries if e["dropout"].get("pass") is not None]
+        femnists = [
+            e["femnist_counts"] for e in entries
+            if e["femnist_counts"].get("pass") is not None
+        ]
+        enforced = [
+            e["enforcement"] for e in entries
+            if e["enforcement"]["mean_count_per_client"] > 0
+            or e["enforcement"]["fraction_reduced_rounds"] > 0
+        ]
+
+        def _mean(values: list[float]) -> float:
+            return statistics.fmean(values) if values else 0.0
+
+        def _note(entries_: list[dict[str, Any]]) -> str:
+            for entry in entries_:
+                note = entry.get("note")
+                if isinstance(note, str) and note:
+                    return note
+            return ""
+
+        out[method] = {
+            "warmup": {
+                "n": sum(e["n"] for e in warmups),
+                "sum_mean": _mean([e["sum_mean"] for e in warmups]),
+                "sum_sd": _mean([e["sum_sd"] for e in warmups]),
+                "parity_median": max((e["parity_median"] for e in warmups), default=0.0),
+                "parity_max": max((e["parity_max"] for e in warmups), default=0.0),
+                "pass": all(e["pass"] for e in warmups) if warmups else None,
+            },
+            "budget_match": {
+                "n": sum(e["n"] for e in budgets),
+                "final_rdp_mean": _mean([e["final_rdp_mean"] for e in budgets]),
+                "utilization_mean": _mean([e["utilization_mean"] for e in budgets]),
+                "pass": all(e["pass"] for e in budgets) if budgets else None,
+                "note": _note(budgets),
+            },
+            "dropout": {
+                "n": sum(e["n"] for e in dropouts),
+                "fraction_never": _mean([e["fraction_never"] for e in dropouts]),
+                "dropout_round_mean": _mean([e["dropout_round_mean"] for e in dropouts]),
+                "dropout_round_sd": _mean([e["dropout_round_sd"] for e in dropouts]),
+                "final_rdp_mean": _mean([e["final_rdp_mean"] for e in dropouts]),
+                "pass": all(e["pass"] for e in dropouts) if dropouts else None,
+            },
+            "femnist_counts": {
+                "n": sum(e["n"] for e in femnists),
+                "train": femnists[0]["train"] if femnists else 0,
+                "test": femnists[0]["test"] if femnists else 0,
+                "writers": femnists[0]["writers"] if femnists else 0,
+                "pass": all(e["pass"] for e in femnists) if femnists else None,
+                "note": _note(femnists),
+            },
+            "enforcement": {
+                "mean_count_per_client": _mean(
+                    [e["mean_count_per_client"] for e in enforced],
+                ),
+                "fraction_reduced_rounds": _mean(
+                    [e["fraction_reduced_rounds"] for e in enforced],
+                ),
+            },
+        }
+    return out
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="PLDP-BO §5.1 verification checks")
+    parser.add_argument(
+        "--tracking-uri", type=str, default=None,
+        help="MLflow tracking URI (default: MLFLOW_TRACKING_URI or sqlite:///./mlflow.db)",
+    )
+    parser.add_argument("--dataset", nargs="*", default=[])
+    parser.add_argument("--partition", nargs="*", default=[])
+    parser.add_argument("--method", nargs="*", default=[])
+    parser.add_argument(
+        "--seeds", type=str, default=None,
+        help="seed range 'A-B' or single 'N' (default: all seeds)",
+    )
+    parser.add_argument(
+        "--json", action="store_true",
+        help="emit the §6.1 verification block as JSON only",
+    )
+    return parser
+
+
+def _print_check(method: str, name: str, verdict: bool | None, detail: str) -> None:
+    if verdict is True:
+        label = "PASS"
+    elif verdict is False:
+        label = "FAIL"
+    else:
+        label = "SKIP"
+    print(f"{label}  {method:18s} {name:12s} {detail}")
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    tracking_uri = (
+        args.tracking_uri
+        or os.environ.get("MLFLOW_TRACKING_URI")
+        or "sqlite:///./mlflow.db"
+    )
+    seeds = _parse_seeds(args.seeds) if args.seeds else None
+    runs = _discover_runs(
+        tracking_uri,
+        datasets=args.dataset or None,
+        partitions=args.partition or None,
+        methods=args.method or None,
+        seeds=seeds,
+    )
+    results = [{"method": run.method, **verify_run(run)} for run in runs]
+    aggregated = _aggregate(results)
+
+    if args.json:
+        print(json.dumps({"verification": aggregated}, indent=2))
+        return 0
+
+    if not runs:
+        print("verify: no §4-schema runs found")
+        return 0
+
+    failures = 0
+    for method, checks in aggregated.items():
+        for name, key in (("warm-up", "warmup"), ("budget", "budget_match"),
+                          ("drop-out", "dropout"), ("femnist", "femnist_counts")):
+            check = checks[key]
+            detail = f"n={check['n']}"
+            if key == "warmup":
+                detail += (
+                    f" mean={check['sum_mean']:.4f}±{check['sum_sd']:.4f}"
+                    f" (nominal {WARMUP_SUM_NOMINAL:.4f}±5%)"
+                    f" parity_med={check['parity_median']:.4f}"
+                    f" parity_max={check['parity_max']:.4f}"
+                )
+            elif key == "budget_match":
+                detail += (
+                    f" final_rdp={check['final_rdp_mean']:.4f}"
+                    f" utilization={check['utilization_mean']:.4f}"
+                )
+            elif key == "dropout":
+                detail += (
+                    f" never={check['fraction_never']:.2%}"
+                    f" round={check['dropout_round_mean']:.1f}±{check['dropout_round_sd']:.1f}"
+                    f" final_rdp={check['final_rdp_mean']:.4f}"
+                )
+            elif key == "femnist_counts":
+                detail += (
+                    f" {check['train']}/{check['test']}/{check['writers']}"
+                    f" expected {FEMNIST_EXPECTED[0]}/{FEMNIST_EXPECTED[1]}/{FEMNIST_EXPECTED[2]}"
+                )
+            if check.get("note"):
+                detail += f" ({check['note']})"
+            _print_check(method, name, check["pass"], detail)
+            if check["pass"] is False:
+                failures += 1
+
+    print(f"\n=== totals === runs: {len(runs)}  failed_checks: {failures}")
+    return 1 if failures else 0
+
+
+def main() -> None:
+    sys.exit(cmd_verify(build_parser().parse_args()))
+
+
+if __name__ == "__main__":
+    main()

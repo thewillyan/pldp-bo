@@ -610,6 +610,35 @@ New `scripts/verify` (reads MLflow URI + filters from argv/config):
 
 **Files:** `scripts/verify` (new), `tests/test_scripts.py`.
 
+##### Status log
+
+- **2026-08-15 — IMPL-13 closed.** `scripts/verify` implemented, TDD (21 new tests;
+  599 → 620 green). `VerifyRun` (uri, experiment, run name, run id, seed, tags, params
+  incl. `param_float`, client-state dicts via `_load_client_state` — `list_artifacts` +
+  `download_artifacts`, expects `client_state.json`). Discovery: FINISHED runs whose
+  `config_version` tag matches the locked hash (mirrors IMPL-12 inventory), filterable by
+  `--dataset`/`--partition`/`--method`/`--seeds`. Check 1 warm-up: per client, Σ `acct_cost`
+  over the first 10 participations (or available), mean±SD vs nominal 1.3995 within ±5%
+  (1.33–1.47); parity `|acct_cost−r_t_final|/r_t_final` median+max, zero-valued `r_t_final`
+  (refused rounds) excluded. Check 2 budget: mean final `cum_rdp` per method, utilization
+  1.00±0.02 vs B_RDP 10.0; nonprivate reports 0.0 with a note (§4.4 N/A rule — no privacy
+  fields logged, `PASS`). Check 3 drop-out: fraction never (dropout_round None → T+1),
+  mean±SD round, mean final RDP; descriptive `pass=True` when data present (per approved
+  plan). Check 4 FEMNIST: exact counts vs 654,281/163,570/3,598; SKIP (no exit effect)
+  when root/`dataset_root` absent or read fails; non-FEMNIST datasets reported as a note.
+  Enforcement (mean `enforcement_count` per client, fraction of reduced rounds) reported
+  in the §6.1 `verification` JSON block, not pass/fail. CLI: `--tracking-uri` (default
+  `MLFLOW_TRACKING_URI` → `sqlite:///./mlflow.db`), filters, `--json` (emits only the
+  `verification` object, shape per §6.1). Text output: per method×check PASS/FAIL/SKIP
+  lines with numbers, `=== totals === runs / failed_checks`, exit 1 on any FAIL. `_aggregate`
+  folds per-run checks per method (nonprivate budget and FEMNIST matches aggregate through;
+  artifact-less private runs stay SKIP). Manual acceptance: synthetic smoke DB (test-built
+  §4-schema sqlite: healthy grid-warm-up cell, over-budget cell, nonprivate, wrong-version
+  runs) produces the checklist with numbers — 6 PASS / 2 FAIL / 4 SKIP (FEMNIST absent by
+  design), exit 1, `failed_checks: 2`; `--json` verified; filters and empty-DB (exit 0)
+  paths checked. Ruff zero new findings; mypy zero new errors on `scripts/verify`
+  (pre-existing baselines unchanged).
+
 ---
 
 ### IMPL-14 — Tests, lint, smoke validation
