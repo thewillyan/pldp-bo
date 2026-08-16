@@ -518,6 +518,56 @@ class TestFourCellMatrixSmoke:
             assert isinstance(_make_strategy(cfg, None, None, None), MedianRobustAggregation)
 
 
+class TestTrackedRunSchema:
+    """IMPL-14: §4 param/metric/tag/artifact presence in a real in-process DB."""
+
+    def test_tracked_run_schema_present(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import mlflow
+
+        from src.config.locked import config_version as locked_config_version
+        from src.tracking.tracker import ExperimentTracker
+
+        cfg = load_config("config/smoke/pldpbo_nun.yaml")
+        monkeypatch.chdir(tmp_path)  # sqlite artifact root resolves from CWD
+        uri = f"sqlite:///{tmp_path}/mlflow.db"
+        monkeypatch.setenv("MLFLOW_TRACKING_URI", uri)
+
+        tracker = ExperimentTracker(cfg)
+        tracker.start_run()
+        tracker.log_round_metrics(1, {"loss": 0.5, "accuracy": 0.9})
+        tmp_path.joinpath("client_state.json").write_text(
+            '{"0": {"acct_cost": [0.01]}}',
+        )
+        tracker.log_artifact("client_state.json")
+        tracker.end_run()
+
+        client = mlflow.tracking.MlflowClient()
+        experiment = client.get_experiment_by_name(tracker.experiment_name)
+        assert experiment is not None
+        runs = client.search_runs(
+            [experiment.experiment_id],
+            filter_string="attributes.status = 'FINISHED'",
+        )
+        assert len(runs) == 1
+        run = runs[0]
+        tags = run.data.tags
+        assert tags["dataset"] == "mnist"
+        assert tags["method"] == "pldpbo_nun"
+        assert tags["config_version"] == locked_config_version()
+        params = run.data.params
+        assert params["data.num_clients"] == "4"
+        assert params["federated.num_rounds"] == "20"
+        assert params["seed"] == "0"
+        assert params["dataset_root"] == "./data"
+        assert run.data.metrics["loss"] == pytest.approx(0.5)
+        artifact_names = {a.path for a in client.list_artifacts(run.info.run_id)}
+        assert "client_state.json" in artifact_names
+
+
 class TestFemnistDataLessLoader:
     """IMPL-14: FEMNIST loader fails cleanly without processed data."""
 
