@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import tempfile
 from collections.abc import Sequence
 from time import perf_counter
@@ -201,22 +202,18 @@ def _write_client_state_artifact(
     payload = {
         "client_state": {str(cid): s for cid, s in sorted(state.items())},
     }
-    fd, tmp_path = tempfile.mkstemp(suffix=".json", prefix="client_state_")
+    # Stage the canonical name in a per-run directory: mlflow.log_artifact
+    # keeps the basename (scripts/verify reads ``client_state.json``), and a
+    # per-run dir avoids races between concurrent runs sharing a fixed path
+    # (IMPL-14 Task 6).
+    stage_dir = tempfile.mkdtemp(prefix="client_state_")
     try:
-        with os.fdopen(fd, "w") as f:
+        artifact_path = os.path.join(stage_dir, "client_state.json")
+        with open(artifact_path, "w") as f:
             json.dump(payload, f, sort_keys=True, indent=2)
-        # mlflow.log_artifact keeps the file's basename, so the temp name
-        # would reach the store; scripts/verify reads the canonical
-        # ``client_state.json`` (IMPL-14 Task 6).
-        artifact_path = os.path.join(os.path.dirname(tmp_path), "client_state.json")
-        os.replace(tmp_path, artifact_path)
-        try:
-            tracker.log_artifact(artifact_path)
-        finally:
-            os.unlink(artifact_path)
+        tracker.log_artifact(artifact_path)
     finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+        shutil.rmtree(stage_dir, ignore_errors=True)
     logger.info("Logged client_state.json for %d clients", len(state))
 
     final_rdps = [s["cum_rdp"][-1] for s in state.values() if s["cum_rdp"]]

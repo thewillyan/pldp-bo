@@ -429,6 +429,11 @@ def train(msg: Message, context: Context) -> Message:
     parameters = arrays.to_numpy_ndarrays()
     num_examples, fit_metrics = client.fit(parameters, {})[1:]
 
+    # The phase under which this round's r_t was selected: the warm-up
+    # grid spend of the transition round must be tagged "warmup" (the
+    # step below switches the scheduler to "bo" first). (§4.4 tags the
+    # spend, not the following round.)
+    phase_of_spend = _scheduler_phase(scheduler)
     if (
         config.bo.enabled
         and scheduler is not None
@@ -467,7 +472,7 @@ def train(msg: Message, context: Context) -> Message:
         # BO/accounting wall times (§4.3 bo_time_round / acct_time_round).
         exhausted = bool(fit_metrics.get("budget_exhausted", False))
         metrics["phase"] = phase_code(
-            "exhausted" if exhausted else _scheduler_phase(scheduler),
+            "exhausted" if exhausted else phase_of_spend,
         )
         metrics["bo_time"] = bo_time
         metrics["acct_time"] = acct_time

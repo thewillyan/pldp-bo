@@ -183,11 +183,9 @@ class TestSmokeConfigs:
         violations = collect_violations(cfg)
         # The fixed cells deliberately retarget R to ≈ B_RDP/T so the tiny
         # smoke horizon fully spends the budget without refusals (§9.3 math);
-        # pldpbo_nun raises T to 25 so its BO rounds spend the post-warm-up
+        # pldpbo_nun raises T to 31 so its BO rounds spend the post-warm-up
         # 8.6005 RDP (IMPL-14 Task 6 contingencies).
-        assert not any(
-            v.startswith("method") and "fixed_rdp_target" not in v for v in violations
-        ), violations
+        assert not any(v.startswith("method") for v in violations), violations
         assert cfg.federated.num_rounds == (31 if name == "pldpbo_nun" else 20)
         assert cfg.data.num_clients == 4
 

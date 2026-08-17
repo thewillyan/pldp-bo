@@ -1121,6 +1121,14 @@ class TestTrainReplySpecFields:
     def _reply_metrics(
         self, monkeypatch: pytest.MonkeyPatch, fit_metrics: dict[str, Any]
     ) -> MetricRecord | ConfigRecord:
+        return self._reply_metrics_ctx(monkeypatch, fit_metrics, _FakeTrainContext())
+
+    def _reply_metrics_ctx(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        fit_metrics: dict[str, Any],
+        ctx: _FakeTrainContext,
+    ) -> MetricRecord | ConfigRecord:
         from src.client_app import train
 
         config = self._make_config()
@@ -1135,7 +1143,7 @@ class TestTrainReplySpecFields:
             message_type="train",
             dst_node_id=0,
         )
-        reply = train(msg, cast(Any, _FakeTrainContext()))
+        reply = train(msg, cast(Any, ctx))
         return reply.content.metric_records.get("metrics", ConfigRecord())
 
     def test_reports_spec_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1171,3 +1179,29 @@ class TestTrainReplySpecFields:
         # Phase code 2.0 = "exhausted".
         assert metrics["phase"] == pytest.approx(2.0)
         assert "observed_m" not in metrics
+
+    def test_transition_round_spend_tagged_warmup(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # §4.4 tags the spend, not the following round: the warm-up grid
+        # spend of the transition round must stay "warmup" even though the
+        # scheduler switches to "bo" right after it (IMPL-14 Task 6).
+        from src.privacy.bo_scheduler import WARMUP_GRID
+
+        ctx = _FakeTrainContext()
+        self._monkeypatch(monkeypatch, self._make_config(), {})
+        phases: list[float] = []
+        candidates: list[float] = []
+        for _ in range(12):
+            metrics = self._reply_metrics_ctx(
+                monkeypatch,
+                {"rdp_cost": 0.05, "update_norm": 0.5, "budget_exhausted": False},
+                ctx,
+            )
+            phase_raw = metrics.get("phase")
+            candidate_raw = metrics.get("r_t_candidate")
+            assert phase_raw is not None and candidate_raw is not None
+            phases.append(float(cast(Any, phase_raw)))
+            candidates.append(float(cast(Any, candidate_raw)))
+        assert candidates[:10] == [pytest.approx(float(g)) for g in WARMUP_GRID[:10]]
+        assert phases[:10] == [pytest.approx(0.0)] * 10
+        assert phases[10] == pytest.approx(1.0)
+        assert phases[11] == pytest.approx(1.0)
