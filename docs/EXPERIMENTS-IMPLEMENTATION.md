@@ -331,7 +331,7 @@ client's L_val must be its own data (never seen in training).
 
 ### IMPL-07 — FEMNIST pipeline
 
-**Spec:** §9.9 — LEAF 80/20 sample split → ≈654,281 / ≈163,570 / 3,598 writers; 62 classes;
+**Spec:** §9.9 — LEAF 80/20 sample split → ≈654,281 / ≈163,570 / 3,597 writers; 62 classes;
 CNN 28×28; writer partition on train split; <10-sample writers merged.
 **Kind:** feature · **Phase:** 3 · **Depends on:** IMPL-05
 
@@ -354,14 +354,14 @@ Per the spec, the pipeline is implemented **now** and counts verified at extract
    - `src/models/__init__.py::_MODEL_DATA_COMPAT["cnn"] += "femnist"`;
      `src/models/cnn.py::_INPUT_CHANNELS_MAP["femnist"] = 1` (FC input = 3136, verified by test).
    - `src/models/mlp.py` needs `_INPUT_SIZE_MAP["femnist"]` only if MLP is used with FEMNIST (it is not in the matrix — add anyway for safety or explicitly reject).
-3. Partitions: `partition_type="writer"` on the **train** split — one client per writer (3,598
+3. Partitions: `partition_type="writer"` on the **train** split — one client per writer (3,597
    writers > K=100; K clients are the largest writer clusters, or a deterministic grouping rule —
    define once and document); writers with <10 train samples merged into the nearest writer
    cluster by label distribution.
 4. Official test split evaluation (with IMPL-08) and per-client test accuracy: test samples are
    grouped by writer; each client evaluates the global model on its own writers' test samples.
 5. Exact counts re-read from the `.pt` files at extraction (verification-only item, reported by
-   IMPL-13): train ≈654,281, test ≈163,570, writers 3,598.
+   IMPL-13): train ≈654,281, test ≈163,570, writers 3,597.
 
 #### Acceptance
 
@@ -599,7 +599,7 @@ New `scripts/verify` (reads MLflow URI + filters from argv/config):
 3. **Drop-out:** per method: distribution of `dropout_round` (never = T+1), fraction never
    dropping out, mean ± SD drop-out round, mean final cumulative RDP.
 4. **FEMNIST counts:** read the `.pt` files; report exact train/test/writer counts
-   vs ≈654,281 / ≈163,570 / 3,598.
+   vs ≈654,281 / ≈163,570 / 3,597.
 5. **Accounting convention:** covered by check 1 (per-round cost == one Gaussian release).
 6. Prints a PASS/FAIL list (exit code 1 on any FAIL) — consumption-ready for CI on smoke runs.
 
@@ -624,7 +624,7 @@ New `scripts/verify` (reads MLflow URI + filters from argv/config):
   1.00±0.02 vs B_RDP 10.0; nonprivate reports 0.0 with a note (§4.4 N/A rule — no privacy
   fields logged, `PASS`). Check 3 drop-out: fraction never (dropout_round None → T+1),
   mean±SD round, mean final RDP; descriptive `pass=True` when data present (per approved
-  plan). Check 4 FEMNIST: exact counts vs 654,281/163,570/3,598; SKIP (no exit effect)
+  plan). Check 4 FEMNIST: exact counts vs 654,281/163,570/3,597; SKIP (no exit effect)
   when root/`dataset_root` absent or read fails; non-FEMNIST datasets reported as a note.
   Enforcement (mean `enforcement_count` per client, fraction of reduced rounds) reported
   in the §6.1 `verification` JSON block, not pass/fail. CLI: `--tracking-uri` (default

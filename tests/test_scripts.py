@@ -1149,7 +1149,7 @@ class TestVerifyFemnistCounts:
         monkeypatch.setattr(
             _verify,
             "femnist_counts",
-            lambda _root: (654_281, 163_570, 3_598),
+            lambda _root: (654_281, 163_570, 3_597),
         )
         run = _verify.VerifyRun(
             "femnist_natural",

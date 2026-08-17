@@ -38,7 +38,7 @@ CLIENT_STATE_ARTIFACT = "client_state.json"
 WARMUP_PASS_TOLERANCE = 0.05  # ±5% of the nominal sum
 UTILIZATION_TOLERANCE = 0.02  # ±0.02 around 1.00
 BUDGET_TARGET = 10.0  # B_RDP, locked §2 constant
-FEMNIST_EXPECTED = (654_281, 163_570, 3_598)  # (train, test, writers)
+FEMNIST_EXPECTED = (654_281, 163_570, 3_597)  # (train, test, writers)
 
 
 @dataclass

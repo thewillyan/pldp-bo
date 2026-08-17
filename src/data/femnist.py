@@ -74,10 +74,12 @@ def femnist_counts(root: str) -> tuple[int, int, int]:
     """Return (n_train, n_test, n_writers) re-read from the .pt files.
 
     Verification-only helper for the §5.1 extraction check (spec §9.9);
-    expected values ≈654,281 / ≈163,570 / 3,598.
+    expected values ≈654,281 / ≈163,570 / 3,597.
     """
     processed = Path(root) / _PROCESSED_DIR
     train = torch.load(processed / TRAIN_FILE, weights_only=False)
     test = torch.load(processed / TEST_FILE, weights_only=False)
     keys = torch.load(processed / USER_KEYS_FILE, weights_only=False)
+    if isinstance(keys, dict) and "users" in keys:
+        keys = keys["users"]
     return len(train[0]), len(test[0]), len(keys)

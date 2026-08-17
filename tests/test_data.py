@@ -762,6 +762,15 @@ class TestFEMNISTDataset:
         _write_fake_femnist(tmp_path, n_train=654, n_test=163, n_writers=35)
         assert femnist_counts(str(tmp_path)) == (654, 163, 35)
 
+    def test_counts_dict_shaped_keys(self, tmp_path: Path) -> None:
+        # The real LEAF file stores {"users": [...]}; femnist_counts must
+        # unwrap it instead of reporting len(dict) == 1 (IMPL-14 Task 6).
+        _write_fake_femnist(tmp_path, n_train=654, n_test=163, n_writers=35)
+        keys_path = tmp_path / "FEMNIST" / "processed" / "femnist_user_keys.pt"
+        keys = torch.load(keys_path, weights_only=False)
+        torch.save({"users": keys}, keys_path)
+        assert femnist_counts(str(tmp_path)) == (654, 163, 35)
+
 
 def test_femnist_registry_and_meta() -> None:
     assert DATASET_REGISTRY["femnist"] is FEMNISTDataset
