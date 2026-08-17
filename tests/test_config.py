@@ -188,7 +188,7 @@ class TestSmokeConfigs:
         assert not any(
             v.startswith("method") and "fixed_rdp_target" not in v for v in violations
         ), violations
-        assert cfg.federated.num_rounds == (30 if name == "pldpbo_nun" else 20)
+        assert cfg.federated.num_rounds == (31 if name == "pldpbo_nun" else 20)
         assert cfg.data.num_clients == 4
 
     def test_femnist_loader_config_loads(self) -> None:
