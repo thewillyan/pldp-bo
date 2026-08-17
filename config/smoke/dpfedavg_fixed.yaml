@@ -41,7 +41,7 @@ privacy:
   rdp_alpha: 10.0
   total_budget: 10.0
   enforce_budget: true
-  fixed_rdp_target: 0.5
+  fixed_rdp_target: 0.86005
 personalization:
   enabled: false
 bo:

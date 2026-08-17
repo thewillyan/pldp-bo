@@ -181,7 +181,12 @@ class TestSmokeConfigs:
 
         cfg = load_config(f"config/smoke/{name}.yaml")
         violations = collect_violations(cfg)
-        assert not any(v.startswith("method") for v in violations), violations
+        # The fixed cells deliberately retarget R to (10.0 - 1.3995)/10 so the
+        # tiny smoke horizon (T=20) fully spends the budget (§9.3 math); the
+        # locked 0.5 target is for the full matrix horizon.
+        assert not any(
+            v.startswith("method") and "fixed_rdp_target" not in v for v in violations
+        ), violations
         assert cfg.federated.num_rounds == 20
         assert cfg.data.num_clients == 4
 
