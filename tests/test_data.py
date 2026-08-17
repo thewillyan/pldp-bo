@@ -6,7 +6,7 @@ from typing import Any, cast
 
 import pytest
 import torch
-from torch.utils.data import TensorDataset
+from torch.utils.data import Subset, TensorDataset
 
 from src.config.loader import DataConfig
 from src.data.dataloaders import (
@@ -32,7 +32,8 @@ def _make_toy_dataset(num_samples: int = 100) -> TensorDataset:
 
 
 def _make_toy_dataset_with_classes(
-    num_samples: int, num_classes: int,
+    num_samples: int,
+    num_classes: int,
 ) -> TensorDataset:
     x = torch.randn(num_samples, 1, 8, 8)
     y = torch.randint(0, num_classes, (num_samples,))
@@ -49,7 +50,7 @@ def test_partition_iid_equal_split() -> None:
 
 def test_partition_noniid_returns_correct_count() -> None:
     dataset = _make_toy_dataset(200)
-    subsets = partition_noniid_dirichlet(dataset, 5, alpha=0.5)
+    subsets = cast(list[Subset[Any]], partition_noniid_dirichlet(dataset, 5, alpha=0.5))
     assert len(subsets) == 5
     total = sum(len(s) for s in subsets)
     assert total == 200
@@ -59,7 +60,7 @@ def test_partition_noniid_no_empty_clients() -> None:
     x = torch.randn(50, 1, 8, 8)
     y = torch.tensor([0] + [1] * 49)
     dataset = TensorDataset(x, y)
-    subsets = partition_noniid_dirichlet(dataset, 50, alpha=0.1)
+    subsets = cast(list[Subset[Any]], partition_noniid_dirichlet(dataset, 50, alpha=0.1))
     assert len(subsets) == 50
     assert all(len(s) >= 1 for s in subsets)
     assert sum(len(s) for s in subsets) == 50
@@ -67,7 +68,7 @@ def test_partition_noniid_no_empty_clients() -> None:
 
 def test_partition_noniid_fewer_classes_than_clients() -> None:
     dataset = _make_toy_dataset_with_classes(200, 3)
-    subsets = partition_noniid_dirichlet(dataset, 10, alpha=1.0)
+    subsets = cast(list[Subset[Any]], partition_noniid_dirichlet(dataset, 10, alpha=1.0))
     assert len(subsets) == 10
     assert all(len(s) >= 1 for s in subsets)
     assert sum(len(s) for s in subsets) == 200
@@ -75,7 +76,7 @@ def test_partition_noniid_fewer_classes_than_clients() -> None:
 
 def test_partition_noniid_single_class_dataset() -> None:
     dataset = _make_toy_dataset_with_classes(100, 1)
-    subsets = partition_noniid_dirichlet(dataset, 5, alpha=1.0)
+    subsets = cast(list[Subset[Any]], partition_noniid_dirichlet(dataset, 5, alpha=1.0))
     assert len(subsets) == 5
     assert all(len(s) >= 1 for s in subsets)
     assert sum(len(s) for s in subsets) == 100
@@ -83,7 +84,7 @@ def test_partition_noniid_single_class_dataset() -> None:
 
 def test_partition_noniid_extreme_alpha() -> None:
     dataset = _make_toy_dataset_with_classes(200, 5)
-    subsets = partition_noniid_dirichlet(dataset, 50, alpha=0.001)
+    subsets = cast(list[Subset[Any]], partition_noniid_dirichlet(dataset, 50, alpha=0.001))
     assert len(subsets) == 50
     assert all(len(s) >= 1 for s in subsets)
     assert sum(len(s) for s in subsets) == 200
@@ -91,7 +92,7 @@ def test_partition_noniid_extreme_alpha() -> None:
 
 def test_partition_noniid_large_alpha() -> None:
     dataset = _make_toy_dataset_with_classes(1000, 5)
-    subsets = partition_noniid_dirichlet(dataset, 5, alpha=100.0)
+    subsets = cast(list[Subset[Any]], partition_noniid_dirichlet(dataset, 5, alpha=100.0))
     assert len(subsets) == 5
     assert all(len(s) >= 1 for s in subsets)
     assert sum(len(s) for s in subsets) == 1000
@@ -101,16 +102,16 @@ def test_partition_noniid_large_alpha() -> None:
 
 def test_partition_noniid_dirichlet_seed_reproducibility() -> None:
     dataset = _make_toy_dataset(200)
-    a = partition_noniid_dirichlet(dataset, 5, alpha=0.5, seed=42)
-    b = partition_noniid_dirichlet(dataset, 5, alpha=0.5, seed=42)
+    a = cast(list[Subset[Any]], partition_noniid_dirichlet(dataset, 5, alpha=0.5, seed=42))
+    b = cast(list[Subset[Any]], partition_noniid_dirichlet(dataset, 5, alpha=0.5, seed=42))
     for sa, sb in zip(a, b, strict=True):
         assert sa.indices == sb.indices
 
 
 def test_partition_noniid_dirichlet_different_seed_different() -> None:
     dataset = _make_toy_dataset(200)
-    a = partition_noniid_dirichlet(dataset, 5, alpha=0.5, seed=42)
-    b = partition_noniid_dirichlet(dataset, 5, alpha=0.5, seed=99)
+    a = cast(list[Subset[Any]], partition_noniid_dirichlet(dataset, 5, alpha=0.5, seed=42))
+    b = cast(list[Subset[Any]], partition_noniid_dirichlet(dataset, 5, alpha=0.5, seed=99))
     assert any(sa.indices != sb.indices for sa, sb in zip(a, b, strict=True))
 
 
@@ -253,7 +254,12 @@ class TestMinSamples:
     def test_dirichlet_tops_up_deficient_clients(self) -> None:
         dataset = _make_toy_dataset_with_classes(1000, 10)
         subsets = partition_dataset(
-            dataset, 20, "dirichlet", alpha=0.001, seed=42, min_samples=30,
+            dataset,
+            20,
+            "dirichlet",
+            alpha=0.001,
+            seed=42,
+            min_samples=30,
         )
         sizes = [len(s) for s in subsets]
         assert len(subsets) == 20
@@ -270,10 +276,20 @@ class TestMinSamples:
     def test_deterministic(self) -> None:
         dataset = _make_toy_dataset_with_classes(1000, 10)
         a = partition_dataset(
-            dataset, 20, "dirichlet", alpha=0.001, seed=42, min_samples=30,
+            dataset,
+            20,
+            "dirichlet",
+            alpha=0.001,
+            seed=42,
+            min_samples=30,
         )
         b = partition_dataset(
-            dataset, 20, "dirichlet", alpha=0.001, seed=42, min_samples=30,
+            dataset,
+            20,
+            "dirichlet",
+            alpha=0.001,
+            seed=42,
+            min_samples=30,
         )
         assert [s.indices for s in a] == [s.indices for s in b]
 
@@ -288,11 +304,22 @@ class TestSingleFullParity:
         for ptype, alpha in (("iid", 1.0), ("dirichlet", 0.1), ("pathological", 1.0)):
             dataset = _make_balanced_dataset(1000, 10)
             full = partition_dataset(
-                dataset, 20, ptype, alpha=alpha, seed=42, min_samples=30,
+                dataset,
+                20,
+                ptype,
+                alpha=alpha,
+                seed=42,
+                min_samples=30,
             )
             for i in range(20):
                 single = partition_single(
-                    dataset, 20, i, ptype, alpha=alpha, seed=42, min_samples=30,
+                    dataset,
+                    20,
+                    i,
+                    ptype,
+                    alpha=alpha,
+                    seed=42,
+                    min_samples=30,
                 )
                 assert single.indices == full[i].indices, (ptype, i)
 
@@ -301,18 +328,22 @@ class TestPartitionKwargs:
     def test_build_partition_kwargs(self) -> None:
         assert build_partition_kwargs("iid") == {"type": "iid"}
         assert build_partition_kwargs("dirichlet", alpha=0.5) == {
-            "type": "dirichlet", "alpha": 0.5,
+            "type": "dirichlet",
+            "alpha": 0.5,
         }
         assert build_partition_kwargs("noniid") == {
-            "type": "dirichlet", "alpha": 0.5,
+            "type": "dirichlet",
+            "alpha": 0.5,
         }
         assert build_partition_kwargs("pathological") == {
-            "type": "pathological", "classes_per_client": 2,
+            "type": "pathological",
+            "classes_per_client": 2,
         }
 
 
 def test_partition_min_samples_default() -> None:
     from src.config.loader import ExperimentConfig
+
     assert ExperimentConfig().data.partition_min_samples == 30
 
 
@@ -321,6 +352,7 @@ class TestSplitHoldout:
         from torch.utils.data import Subset
 
         from src.data.partitioner import split_holdout
+
         dataset = _make_toy_dataset(100)
         subset = Subset(dataset, list(range(100)))
         train, val = split_holdout(subset, 0.1, seed=7)
@@ -331,6 +363,7 @@ class TestSplitHoldout:
         from torch.utils.data import Subset
 
         from src.data.partitioner import split_holdout
+
         dataset = _make_toy_dataset(100)
         subset = Subset(dataset, list(range(100)))
         train, val = split_holdout(subset, 0.1, seed=7)
@@ -341,6 +374,7 @@ class TestSplitHoldout:
         from torch.utils.data import Subset
 
         from src.data.partitioner import split_holdout
+
         dataset = _make_toy_dataset(100)
         subset = Subset(dataset, list(range(100)))
         train_a, val_a = split_holdout(subset, 0.1, seed=7)
@@ -352,6 +386,7 @@ class TestSplitHoldout:
         from torch.utils.data import Subset
 
         from src.data.partitioner import split_holdout
+
         dataset = _make_toy_dataset(100)
         subset = Subset(dataset, list(range(100)))
         _, val_a = split_holdout(subset, 0.1, seed=7)
@@ -362,6 +397,7 @@ class TestSplitHoldout:
         from torch.utils.data import Subset
 
         from src.data.partitioner import split_holdout
+
         dataset = _make_toy_dataset(100)
         subset = Subset(dataset, list(range(100)))
         with pytest.raises(ValueError, match="val_frac"):
@@ -373,6 +409,7 @@ class TestSplitHoldout:
         from torch.utils.data import Subset
 
         from src.data.partitioner import split_holdout
+
         dataset = _make_toy_dataset(100)
         subset = Subset(dataset, list(range(100)))
         train, val = split_holdout(subset, 0.0, seed=7)
@@ -382,6 +419,7 @@ class TestSplitHoldout:
 
 def _make_config_for_loader(**kwargs: object) -> "DataConfig":
     from src.config.loader import DataConfig
+
     cfg = DataConfig(name="mnist", data_dir="/tmp/opencode/fake-data")
     for key, value in kwargs.items():
         setattr(cfg, key, value)
@@ -391,9 +429,16 @@ def _make_config_for_loader(**kwargs: object) -> "DataConfig":
 class TestCreateClientDataloader:
     """Hold-out + loader plumbing of create_client_dataloader (IMPL-06)."""
 
-    def _make(self, monkeypatch: pytest.MonkeyPatch, num_samples: int = 200,
-              num_clients: int = 4, partition_id: int = 0, seed: int = 42) -> tuple[Any, ...]:
+    def _make(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        num_samples: int = 200,
+        num_clients: int = 4,
+        partition_id: int = 0,
+        seed: int = 42,
+    ) -> tuple[Any, ...]:
         from src.data import create_client_dataloader
+
         dataset = _make_toy_dataset(num_samples)
         monkeypatch.setattr("src.data._cached_dataset", lambda _name, _data_dir: dataset)
         cfg = _make_config_for_loader(num_clients=num_clients, batch_size=8)
@@ -408,7 +453,8 @@ class TestCreateClientDataloader:
         assert len(val_loader.dataset) == len(val_subset)
 
     def test_train_subset_is_holdout_fraction_of_partition(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         _, _, train_subset, val_subset, _ = self._make(monkeypatch)
         assert len(train_subset) == 45  # 50-sample iid partition, 10% held out
@@ -420,6 +466,7 @@ class TestCreateClientDataloader:
 
     def test_holdout_fixed_across_calls(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from src.data import create_client_dataloader
+
         dataset = _make_toy_dataset(200)
         monkeypatch.setattr("src.data._cached_dataset", lambda _name, _data_dir: dataset)
         cfg = _make_config_for_loader(num_clients=4, batch_size=8)
@@ -430,6 +477,7 @@ class TestCreateClientDataloader:
 
     def test_holdout_differs_per_client(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from src.data import create_client_dataloader
+
         dataset = _make_toy_dataset(200)
         monkeypatch.setattr("src.data._cached_dataset", lambda _name, _data_dir: dataset)
         cfg = _make_config_for_loader(num_clients=4, batch_size=8)
@@ -448,6 +496,7 @@ class TestCreateClientDataloader:
         monkeypatch.setattr("src.data._cached_dataset", lambda _name, _data_dir: dataset)
         cfg = _make_config_for_loader(num_clients=4, batch_size=8)
         from src.data import create_client_dataloader
+
         _, _, _, _, total = create_client_dataloader(cfg, 2, 4, seed=42)
         assert total == 200
 
@@ -458,7 +507,10 @@ def test_create_dataset_returns_full_train_set(monkeypatch: pytest.MonkeyPatch) 
     class FakeDataset:
         def __init__(self, root: str, train: bool, transform: object, download: bool) -> None:
             self._root, self._train, self._transform, self._download = (
-                root, train, transform, download,
+                root,
+                train,
+                transform,
+                download,
             )
             self._data = torch.randn(40, 1, 8, 8)
             self._labels = torch.randint(0, 10, (40,))
@@ -496,7 +548,8 @@ class _RecordingRegistryDataset:
 
 
 def test_create_dataset_respects_train_flag(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     from src.data import create_dataset
 
@@ -509,7 +562,8 @@ def test_create_dataset_respects_train_flag(
 
 
 def test_cached_dataset_keys_by_train_flag(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     from src.data import create_dataset, create_test_dataset
 
@@ -525,7 +579,8 @@ def test_cached_dataset_keys_by_train_flag(
 
 
 def test_create_test_loader_uses_official_test_split(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     from src.data import create_test_loader
 
@@ -536,6 +591,7 @@ def test_create_test_loader_uses_official_test_split(
     assert _RecordingRegistryDataset.seen == [False]
     assert loader.batch_size == 4
     from torch.utils.data import SequentialSampler
+
     assert isinstance(loader.sampler, SequentialSampler)  # no shuffle
     assert len(cast(Any, loader).dataset) == 10
 
@@ -562,7 +618,10 @@ def _users_of(dataset: TensorDataset) -> torch.Tensor:
 
 
 def _write_fake_femnist(
-    root: Path, n_train: int = 100, n_test: int = 20, n_writers: int = 5,
+    root: Path,
+    n_train: int = 100,
+    n_test: int = 20,
+    n_writers: int = 5,
     scale: float = 1.0,
 ) -> None:
     processed = root / "FEMNIST" / "processed"
@@ -650,7 +709,8 @@ class TestWriterPartition:
 
     def test_partition_kwargs(self) -> None:
         assert build_partition_kwargs("writer") == {
-            "type": "writer", "merge_threshold": 10,
+            "type": "writer",
+            "merge_threshold": 10,
         }
 
 
@@ -700,6 +760,15 @@ class TestFEMNISTDataset:
 
     def test_counts(self, tmp_path: Path) -> None:
         _write_fake_femnist(tmp_path, n_train=654, n_test=163, n_writers=35)
+        assert femnist_counts(str(tmp_path)) == (654, 163, 35)
+
+    def test_counts_dict_shaped_keys(self, tmp_path: Path) -> None:
+        # The real LEAF file stores {"users": [...]}; femnist_counts must
+        # unwrap it instead of reporting len(dict) == 1 (IMPL-14 Task 6).
+        _write_fake_femnist(tmp_path, n_train=654, n_test=163, n_writers=35)
+        keys_path = tmp_path / "FEMNIST" / "processed" / "femnist_user_keys.pt"
+        keys = torch.load(keys_path, weights_only=False)
+        torch.save({"users": keys}, keys_path)
         assert femnist_counts(str(tmp_path)) == (654, 163, 35)
 
 

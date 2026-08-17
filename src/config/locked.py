@@ -6,52 +6,56 @@ import math
 from src.config.loader import ExperimentConfig
 
 # Methods defined by the experimental matrix (EXPERIMENTS-TODO.md §3).
-METHOD_NAMES = frozenset({
-    "nonprivate",
-    "dpfedavg_fixed",
-    "fedprox_fixed",
-    "pldpbo_nun",
-    "pldpbo_utility",
-    "pldpbo_retention",
-    "pldpbo_efficiency",
-    "pldpbo_perremaining",
-    "pldpbo_snr",
-    "pldpbo_agreement",
-})
+METHOD_NAMES = frozenset(
+    {
+        "nonprivate",
+        "dpfedavg_fixed",
+        "fedprox_fixed",
+        "pldpbo_nun",
+        "pldpbo_utility",
+        "pldpbo_retention",
+        "pldpbo_efficiency",
+        "pldpbo_perremaining",
+        "pldpbo_snr",
+        "pldpbo_agreement",
+    }
+)
 
 FIXED_METHODS = frozenset({"dpfedavg_fixed", "fedprox_fixed"})
-BO_METHODS = frozenset({
-    "pldpbo_nun",
-    "pldpbo_utility",
-    "pldpbo_retention",
-    "pldpbo_efficiency",
-    "pldpbo_perremaining",
-    "pldpbo_snr",
-    "pldpbo_agreement",
-})
+BO_METHODS = frozenset(
+    {
+        "pldpbo_nun",
+        "pldpbo_utility",
+        "pldpbo_retention",
+        "pldpbo_efficiency",
+        "pldpbo_perremaining",
+        "pldpbo_snr",
+        "pldpbo_agreement",
+    }
+)
 
 # Locked §2 constants, normalized as {spec label: expected value}. This table
 # is the single source of truth for the startup assertion and for
 # `config_version` (the tag the aggregation script uses to gate reruns).
 LOCKED_CONSTANTS: dict[str, object] = {
-    "T": 200,                 # communication rounds
-    "K": 100,                 # clients
-    "rho": 0.1,               # participation fraction
-    "min_fit_clients": 10,    # derived: rho * K ≈ clients/round
-    "E": 5,                   # local epochs
-    "B": 64,                  # local batch size
-    "eta_server": 0.01,       # server learning rate
-    "momentum": 0.9,          # local SGD momentum
-    "clip_norm": 1.0,         # per-example clipping norm C
-    "alpha0": 10.0,           # fixed RDP order
-    "B_RDP": 10.0,            # per-client RDP budget, flat
+    "T": 200,  # communication rounds
+    "K": 100,  # clients
+    "rho": 0.1,  # participation fraction
+    "min_fit_clients": 10,  # derived: rho * K ≈ clients/round
+    "E": 5,  # local epochs
+    "B": 64,  # local batch size
+    "eta_server": 0.01,  # server learning rate
+    "momentum": 0.9,  # local SGD momentum
+    "clip_norm": 1.0,  # per-example clipping norm C
+    "alpha0": 10.0,  # fixed RDP order
+    "B_RDP": 10.0,  # per-client RDP budget, flat
     "fixed_rdp_target": 0.5,  # B_RDP / (rho * T) for the fixed baselines
-    "R_min": 0.01,            # RDP search interval lower bound
-    "R_max": 2.0,             # RDP search interval upper bound
-    "lambda_aq": 0.1,         # acquisition penalty
-    "G": 50,                  # BO grid points
-    "min_warmup": 10,         # warm-up participations (log-spaced grid, §9.3)
-    "validation_frac": 0.1,   # per-client validation hold-out
+    "R_min": 0.01,  # RDP search interval lower bound
+    "R_max": 2.0,  # RDP search interval upper bound
+    "lambda_aq": 0.1,  # acquisition penalty
+    "G": 50,  # BO grid points
+    "min_warmup": 10,  # warm-up participations (log-spaced grid, §9.3)
+    "validation_frac": 0.1,  # per-client validation hold-out
 }
 
 _REL_TOL = 1e-9
@@ -113,9 +117,7 @@ def collect_violations(cfg: ExperimentConfig) -> list[str]:
     # --- method contract -----------------------------------------------------
     method = cfg.method
     if method not in METHOD_NAMES:
-        violations.append(
-            f"method: expected one of {sorted(METHOD_NAMES)}, got {method!r}"
-        )
+        violations.append(f"method: expected one of {sorted(METHOD_NAMES)}, got {method!r}")
 
     if fed.aggregation not in ("attenuation", "plain"):
         violations.append(

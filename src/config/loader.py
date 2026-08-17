@@ -5,6 +5,7 @@ import types
 import typing
 from dataclasses import dataclass, field, fields
 from pathlib import Path
+from typing import Mapping, cast
 
 import yaml
 
@@ -73,7 +74,7 @@ class PrivacyConfig:
 class PersonalizationConfig:
     enabled: bool = False
     strategy: str = "uniform"
-    client_epsilon_map: dict = field(default_factory=dict)
+    client_epsilon_map: dict[str, float] = field(default_factory=dict)
     track_cumulative: bool = True
 
 
@@ -99,9 +100,9 @@ class BOConfig:
     bounds_strategy: str = "global"
     bounds_ratio_min: float = 0.1
     bounds_ratio_max: float = 1.0
-    client_eps_min_map: dict = field(default_factory=dict)
-    client_eps_max_map: dict = field(default_factory=dict)
-    client_warmup_rounds_map: dict = field(default_factory=dict)
+    client_eps_min_map: dict[str, float] = field(default_factory=dict)
+    client_eps_max_map: dict[str, float] = field(default_factory=dict)
+    client_warmup_rounds_map: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -141,8 +142,8 @@ _CONFIG_KEY_MAP = {
 }
 
 
-def _expand_dot_keys(overrides: dict) -> dict:
-    result: dict = {}
+def _expand_dot_keys(overrides: Mapping[str, object]) -> dict[str, object]:
+    result: dict[str, object] = {}
     for key, value in overrides.items():
         parts = key.split(".")
         current = result
@@ -150,10 +151,11 @@ def _expand_dot_keys(overrides: dict) -> dict:
             if part in current and not isinstance(current[part], dict):
                 logger.warning(
                     "Config override key conflict: '%s' overlaps with existing key at '%s'",
-                    key, ".".join(parts[:depth + 1]),
+                    key,
+                    ".".join(parts[: depth + 1]),
                 )
                 break
-            current = current.setdefault(part, {})
+            current = cast(dict[str, object], current.setdefault(part, {}))
         else:
             existing = current.get(parts[-1])
             if isinstance(existing, dict):
@@ -172,7 +174,7 @@ def _unwrap_optional(tp: type) -> type:
         args = typing.get_args(tp)
         non_none = [a for a in args if a is not type(None)]
         if len(non_none) == 1:
-            return non_none[0]
+            return cast(type, non_none[0])
     return tp
 
 
@@ -185,18 +187,20 @@ def _coerce_value(value: object, expected: type) -> object:
     if expected is int:
         try:
             return int(value)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise ValueError(f"Cannot convert override value '{value}' to int") from None
     if expected is float:
         try:
             return float(value)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             raise ValueError(f"Cannot convert override value '{value}' to float") from None
     return value
 
 
 def _merge_dict_into_dataclass(
-    dc_instance: object, override: dict, dc_type: type | None = None,
+    dc_instance: object,
+    override: dict[str, object],
+    dc_type: type | None = None,
 ) -> None:
     if dc_type is None:
         dc_type = type(dc_instance)
@@ -215,7 +219,10 @@ def _merge_dict_into_dataclass(
             setattr(dc_instance, key, value)
 
 
-def load_config(config_path: str, overrides: dict | None = None) -> ExperimentConfig:
+def load_config(
+    config_path: str,
+    overrides: Mapping[str, object] | None = None,
+) -> ExperimentConfig:
     config = ExperimentConfig()
 
     path = Path(config_path)
@@ -235,10 +242,13 @@ def load_config(config_path: str, overrides: dict | None = None) -> ExperimentCo
                         if isinstance(value, str) and expected in (float, int):
                             try:
                                 value = expected(value)
-                            except (ValueError, TypeError):
+                            except ValueError, TypeError:
                                 logger.warning(
                                     "Config key '%s.%s': cannot convert '%s' to %s",
-                                    key, fld.name, value, expected.__name__,
+                                    key,
+                                    fld.name,
+                                    value,
+                                    expected.__name__,
                                 )
                         setattr(current, fld.name, value)
             elif hasattr(config, key):

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from typing import Any
+from typing import Any, Sized, cast
 
 import flwr as fl
 import torch
@@ -27,7 +27,11 @@ def _get_optimizer(
             weight_decay=config.optimizer.weight_decay,
         )
     if config.optimizer.name == "adam":
-        return torch.optim.Adam(model.parameters(), lr=lr, weight_decay=config.optimizer.weight_decay)
+        return torch.optim.Adam(
+            model.parameters(),
+            lr=lr,
+            weight_decay=config.optimizer.weight_decay,
+        )
     raise ValueError(f"Unknown optimizer: {config.optimizer.name}")
 
 
@@ -38,8 +42,8 @@ class FlowerClient(fl.client.NumPyClient):
     def __init__(
         self,
         model: BaseModel,
-        trainloader: DataLoader,
-        valloader: DataLoader,
+        trainloader: DataLoader[Any],
+        valloader: DataLoader[Any],
         config: ExperimentConfig,
     ):
         self.model = model
@@ -65,7 +69,9 @@ class FlowerClient(fl.client.NumPyClient):
         return max(self._remaining_rdp, 0.0)
 
     def fit(
-        self, parameters: list[Any], config: dict[str, Any],
+        self,
+        parameters: list[Any],
+        config: dict[str, Any],
     ) -> tuple[list[Any], int, dict[str, Any]]:
         if len(self.trainloader) == 0:
             return parameters, 0, {}
@@ -101,10 +107,12 @@ class FlowerClient(fl.client.NumPyClient):
                     )
                 optimizer.step()
 
-        return self.model.get_weights(), len(self.trainloader.dataset), {}
+        return self.model.get_weights(), len(cast(Sized, self.trainloader.dataset)), {}
 
     def evaluate(
-        self, parameters: list[Any], config: dict[str, Any],  # noqa: ARG002
+        self,
+        parameters: list[Any],
+        config: dict[str, Any],  # noqa: ARG002
     ) -> tuple[float, int, dict[str, Any]]:
         self.model.set_weights(parameters)
         net = self.model.get_model().to(get_device())
@@ -122,8 +130,8 @@ class FlowerClient(fl.client.NumPyClient):
                 loss += criterion(outputs, labels).item()
                 _, predicted = torch.max(outputs, 1)
                 total += labels.size(0)
-                correct += (predicted == labels).sum().item()
+                correct += int((predicted == labels).sum().item())
 
         accuracy = correct / total
         avg_loss = loss / len(self.valloader)
-        return avg_loss, len(self.valloader.dataset), {"accuracy": accuracy}
+        return avg_loss, len(cast(Sized, self.valloader.dataset)), {"accuracy": accuracy}

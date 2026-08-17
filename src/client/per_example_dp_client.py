@@ -7,7 +7,6 @@ from typing import Any
 import numpy as np
 import torch
 from torch import nn
-from torch.func import functional_call, grad, vmap
 from torch.utils.data import DataLoader
 
 from src.client.base_client import FlowerClient, _get_optimizer
@@ -26,13 +25,15 @@ logger = logging.getLogger(__name__)
 # Reference variants compute their clean statistics from a locally-trained
 # no-DP model (spec §9.6). NUN/Utility (and the fixed baselines) use only the
 # privatized model, so they skip the clean pass (≈2x local cost saving).
-CLEAN_PASS_METHODS = frozenset({
-    "pldpbo_retention",
-    "pldpbo_efficiency",
-    "pldpbo_perremaining",
-    "pldpbo_snr",
-    "pldpbo_agreement",
-})
+CLEAN_PASS_METHODS = frozenset(
+    {
+        "pldpbo_retention",
+        "pldpbo_efficiency",
+        "pldpbo_perremaining",
+        "pldpbo_snr",
+        "pldpbo_agreement",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -44,23 +45,31 @@ def _compute_per_example_grads(
     model: nn.Module,
     inputs: torch.Tensor,
     targets: torch.Tensor,
-    criterion: nn.Module,
 ) -> dict[str, torch.Tensor]:
-    """Compute per-example gradients via vmap + grad."""
-    params: dict[str, torch.Tensor] = dict(model.named_parameters())
-    buffers: dict[str, torch.Tensor] = dict(model.named_buffers())
+    """Compute per-example gradients in one batched autograd pass.
 
-    def loss_fn(
-        params: dict[str, torch.Tensor],
-        buffers: dict[str, torch.Tensor],
-        sample: torch.Tensor,
-        target: torch.Tensor,
-    ) -> torch.Tensor:
-        out = functional_call(model, (params, buffers), sample.unsqueeze(0))
-        return criterion(out, target.unsqueeze(0))  # type: ignore[no-any-return]
-
-    grads_fn = vmap(grad(loss_fn), in_dims=(None, None, 0, 0))
-    return grads_fn(params, buffers, inputs, targets)  # type: ignore[no-any-return]
+    One forward over the batch, then ``torch.autograd.grad`` with batched
+    grad_outputs (Opacus-style) — O(B x |params|) transient memory, released
+    after each call. The previous torch.func ``vmap(grad(...))``
+    implementation leaked ~100 MB per training step under the fit-loop state
+    on torch 2.13 CPU builds, ballooning a single client to ~30 GB and
+    tripping the kernel OOM killer during smoke runs (IMPL-14 Task 6).
+    """
+    outputs = model(inputs)
+    per_sample_loss = nn.CrossEntropyLoss(reduction="none")(outputs, targets)
+    batch_size = per_sample_loss.size(0)
+    grads = torch.autograd.grad(
+        per_sample_loss,
+        list(model.parameters()),
+        grad_outputs=torch.eye(
+            batch_size,
+            device=per_sample_loss.device,
+            dtype=per_sample_loss.dtype,
+        ),
+        is_grads_batched=True,
+    )
+    names = [name for name, _ in model.named_parameters()]
+    return dict(zip(names, grads, strict=True))
 
 
 def _clip_per_example(
@@ -163,8 +172,8 @@ class PerExampleDPClient(FlowerClient):
     def __init__(
         self,
         model: BaseModel,
-        trainloader: DataLoader,
-        valloader: DataLoader,
+        trainloader: DataLoader[Any],
+        valloader: DataLoader[Any],
         config: ExperimentConfig,
         client_epsilon: float | None = None,
         computed_sigma: float | None = None,
@@ -186,9 +195,7 @@ class PerExampleDPClient(FlowerClient):
 
         total_samples = len(trainloader.dataset)  # type: ignore[arg-type]
         self._sampling_rate = config.data.batch_size / total_samples
-        self._total_steps_per_round = (
-            config.federated.local_epochs * len(trainloader)
-        )
+        self._total_steps_per_round = config.federated.local_epochs * len(trainloader)
 
     def _check_budget(self) -> bool:
         if self._client_epsilon is not None and self._client_epsilon == 0:
@@ -203,7 +210,9 @@ class PerExampleDPClient(FlowerClient):
         if self._rdp_native:
             return {
                 "rdp_cost": 0.0,
-                "cumulative_rdp": self._accountant.get_rdp_at_alpha(self._rdp_alpha) if self._accountant else 0.0,
+                "cumulative_rdp": (
+                    self._accountant.get_rdp_at_alpha(self._rdp_alpha) if self._accountant else 0.0
+                ),
                 "client_rdp": self._client_epsilon or 0.0,
                 "update_norm": 0.0,
                 "update_norm_clean": 0.0,
@@ -243,8 +252,11 @@ class PerExampleDPClient(FlowerClient):
         }
 
     def fit(
-        self, parameters: list[Any], config: dict[str, Any],
+        self,
+        parameters: list[Any],
+        config: dict[str, Any],
     ) -> tuple[list[Any], int, dict[str, Any]]:
+        del config
         if self._check_budget():
             return parameters, 0, self._make_empty_metrics(budget_exhausted=True)
 
@@ -302,7 +314,9 @@ class PerExampleDPClient(FlowerClient):
                 images, labels = to_device(batch)
 
                 per_example_grads = _compute_per_example_grads(
-                    net, images, labels, criterion,
+                    net,
+                    images,
+                    labels,
                 )
 
                 if proximal_mu > 0:
@@ -310,9 +324,13 @@ class PerExampleDPClient(FlowerClient):
                     # every example's gradient before clipping. The shift is the
                     # same for all examples and public, so the per-example clip
                     # still bounds each example's contribution to the release.
+                    # Detached: a graph-carrying shift retained per-step history
+                    # through the momentum buffer (torch.func-era leak pattern;
+                    # IMPL-14 Task 6) — the drift is a plain value, not a
+                    # gradient source.
                     params = dict(net.named_parameters())
                     per_example_grads = {
-                        k: g + proximal_mu * (params[k] - global_params[k])
+                        k: (g + proximal_mu * (params[k] - global_params[k])).detach()
                         for k, g in per_example_grads.items()
                     }
 
@@ -328,7 +346,8 @@ class PerExampleDPClient(FlowerClient):
 
                 avg_clipped = _average_grads(clipped)
                 flat_after = torch.cat(
-                    [v.reshape(1, -1) for v in avg_clipped.values()], dim=1,
+                    [v.reshape(1, -1) for v in avg_clipped.values()],
+                    dim=1,
                 )
                 grad_norms_after.append(flat_after.detach().norm().item())
 
@@ -380,17 +399,24 @@ class PerExampleDPClient(FlowerClient):
         noisy_weights = local_weights
 
         utility_loss_noisy, noisy_logits = compute_validation_stats(
-            self.model.get_model(), self.valloader, criterion,
+            self.model.get_model(),
+            self.valloader,
+            criterion,
         )
 
         if clean_pass:
             assert clean_net_ref is not None
             clean_net, update_norm_clean = _run_clean_pass(
-                clean_net_ref, self.trainloader, self.config, criterion,
+                clean_net_ref,
+                self.trainloader,
+                self.config,
+                criterion,
             )
             clean_net.eval()
             utility_loss_clean, clean_logits = compute_validation_stats(
-                clean_net, self.valloader, criterion,
+                clean_net,
+                self.valloader,
+                criterion,
             )
         else:
             utility_loss_clean = 0.0
@@ -405,14 +431,16 @@ class PerExampleDPClient(FlowerClient):
 
             privacy_remaining = self._resolve_remaining_rdp()
             utility_per_remaining = (
-            -loss_degradation * inv_loss_clean / max(privacy_remaining, 1e-12)
-        )
+                -loss_degradation * inv_loss_clean / max(privacy_remaining, 1e-12)
+            )
 
             assert clean_logits is not None
             clean_flat = clean_logits.view(clean_logits.size(0), -1)
             noisy_flat_logits = noisy_logits.view(noisy_logits.size(0), -1)
             cos_sim = torch.nn.functional.cosine_similarity(
-                clean_flat, noisy_flat_logits, dim=1,
+                clean_flat,
+                noisy_flat_logits,
+                dim=1,
             )
             # logit_disagreement = 1 - mean(cos_sim) is the minimization-equivalent
             # complement of the paper's m_agr (maximized logit agreement): minimizing
@@ -430,11 +458,7 @@ class PerExampleDPClient(FlowerClient):
         # m_snr = ||Delta_clean||_2^2 / sigma^2 with the clean unclipped update
         # (spec §9.12); clean-pass methods get the clean-pass update norm,
         # others report 0.0 (clean-derived metrics are N/A for them).
-        snr = (
-            (update_norm_clean ** 2) / max(sigma ** 2, 1e-12)
-            if clean_pass
-            else 0.0
-        )
+        snr = (update_norm_clean**2) / max(sigma**2, 1e-12) if clean_pass else 0.0
 
         clipped_fraction = float(np.mean(clip_fractions)) if clip_fractions else 0.0
 
@@ -443,7 +467,9 @@ class PerExampleDPClient(FlowerClient):
                 "rdp_cost": privacy_param,
                 "r_t_final": privacy_param,
                 "acct_cost": compute_rdp_cost_dp_sgd(
-                    self._rdp_alpha, sigma, self._sampling_rate,
+                    self._rdp_alpha,
+                    sigma,
+                    self._sampling_rate,
                 ),
                 "cumulative_rdp": cumulative_privacy,
                 "client_rdp": self._client_epsilon or 0.0,

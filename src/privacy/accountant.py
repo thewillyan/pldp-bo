@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+from typing import Any
 
 import numpy as np
 
@@ -13,10 +14,11 @@ class RDPAccountant:
     def __init__(self, delta: float = 1e-5) -> None:
         self._delta = delta
         self._rdp_per_alpha: np.ndarray = np.zeros_like(RDP_ALPHAS)
-        self._steps: list[dict] = []
+        self._steps: list[dict[str, Any]] = []
 
-    def step(self, *, sigma: float, clipping_norm: float, num_steps: int = 1,
-             mode: str = "per_update") -> None:
+    def step(
+        self, *, sigma: float, clipping_norm: float, num_steps: int = 1, mode: str = "per_update"
+    ) -> None:
         if mode == "per_example":
             cost = np.array(
                 [compute_rdp_cost_dp_sgd(float(a), sigma, clipping_norm) for a in RDP_ALPHAS],
@@ -28,12 +30,14 @@ class RDPAccountant:
                 dtype=np.float64,
             )
         self._rdp_per_alpha += cost * num_steps
-        self._steps.append({
-            "sigma": sigma,
-            "clipping_norm": clipping_norm,
-            "num_steps": num_steps,
-            "mode": mode,
-        })
+        self._steps.append(
+            {
+                "sigma": sigma,
+                "clipping_norm": clipping_norm,
+                "num_steps": num_steps,
+                "mode": mode,
+            }
+        )
 
     def get_epsilon(self, delta: float | None = None) -> float:
         if not self._steps:
@@ -94,7 +98,7 @@ class RDPAccountant:
         self._rdp_per_alpha = np.zeros_like(RDP_ALPHAS)
         self._steps = []
 
-    def get_state(self) -> dict:
+    def get_state(self) -> dict[str, Any]:
         return {
             "delta": self._delta,
             "steps": json.dumps(self._steps),
@@ -102,7 +106,7 @@ class RDPAccountant:
         }
 
     @classmethod
-    def from_state(cls, state: dict) -> RDPAccountant:
+    def from_state(cls, state: dict[str, Any]) -> RDPAccountant:
         accountant = cls(delta=state["delta"])
         rdp_data = state.get("rdp_per_alpha", [])
         accountant._rdp_per_alpha = np.array(rdp_data, dtype=np.float64)
@@ -111,10 +115,12 @@ class RDPAccountant:
         steps_raw = state.get("steps", "[]")
         steps_data = json.loads(steps_raw) if isinstance(steps_raw, str) else steps_raw
         for step_info in steps_data:
-            accountant._steps.append({
-                "sigma": step_info["sigma"],
-                "clipping_norm": step_info["clipping_norm"],
-                "num_steps": step_info["num_steps"],
-                "mode": step_info.get("mode", "per_update"),
-            })
+            accountant._steps.append(
+                {
+                    "sigma": step_info["sigma"],
+                    "clipping_norm": step_info["clipping_norm"],
+                    "num_steps": step_info["num_steps"],
+                    "mode": step_info.get("mode", "per_update"),
+                }
+            )
         return accountant

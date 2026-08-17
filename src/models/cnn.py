@@ -22,7 +22,13 @@ _INPUT_DIMS_MAP: dict[str, tuple[int, int]] = {
 
 
 class CNN(nn.Module):
-    def __init__(self, num_classes: int = 10, in_channels: int = 3, input_h: int = 32, input_w: int = 32) -> None:
+    def __init__(
+        self,
+        num_classes: int = 10,
+        in_channels: int = 3,
+        input_h: int = 32,
+        input_w: int = 32,
+    ) -> None:
         super().__init__()
         self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=3, padding=1)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
@@ -36,17 +42,18 @@ class CNN(nn.Module):
     def _get_conv_output(self, in_channels: int, h: int, w: int) -> int:
         with torch.no_grad():
             dummy = torch.zeros(1, in_channels, h, w, device=get_device())
-            x = self.pool(self.relu(self.conv1(dummy)))
+            x: torch.Tensor = self.pool(self.relu(self.conv1(dummy)))
             x = self.pool(self.relu(self.conv2(x)))
             return x.numel() // x.shape[0]
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.pool(self.relu(self.conv1(x)))
-        x = self.pool(self.relu(self.conv2(x)))
-        x = x.view(x.size(0), -1)
-        x = self.relu(self.fc1(x))
-        x = self.dropout(x)
-        return self.fc2(x)
+        h: torch.Tensor = self.pool(self.relu(self.conv1(x)))
+        h = self.pool(self.relu(self.conv2(h)))
+        h = h.view(h.size(0), -1)
+        h = self.relu(self.fc1(h))
+        h = self.dropout(h)
+        out: torch.Tensor = self.fc2(h)
+        return out
 
 
 class CNNModel(BaseModel):
@@ -56,7 +63,10 @@ class CNNModel(BaseModel):
         in_channels = _INPUT_CHANNELS_MAP.get(dataset_name, 3)
         input_h, input_w = _INPUT_DIMS_MAP.get(dataset_name, (32, 32))
         self._model = CNN(
-            num_classes, in_channels=in_channels, input_h=input_h, input_w=input_w,
+            num_classes,
+            in_channels=in_channels,
+            input_h=input_h,
+            input_w=input_w,
         )
 
     def get_model(self) -> nn.Module:

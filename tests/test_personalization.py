@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 import numpy as np
 import pytest
 import torch
@@ -27,7 +29,7 @@ def test_weight_custom_strategy() -> None:
     config = PersonalizationConfig(
         enabled=True,
         strategy="custom",
-        client_epsilon_map={0: 1.0, 1: 2.5, 2: 5.0},
+        client_epsilon_map=cast(dict[str, float], {0: 1.0, 1: 2.5, 2: 5.0}),
     )
     dataset = _make_dataset([0, 1, 2, 0, 1, 2, 0, 1, 2, 0])
 
@@ -40,7 +42,7 @@ def test_weight_custom_missing_key() -> None:
     config = PersonalizationConfig(
         enabled=True,
         strategy="custom",
-        client_epsilon_map={0: 1.0},
+        client_epsilon_map=cast(dict[str, float], {0: 1.0}),
     )
     dataset = _make_dataset([0, 1, 2])
 
@@ -71,8 +73,20 @@ def test_weight_data_proportional_strategy() -> None:
     small_dataset = _make_dataset([0, 1] * 5)
     large_dataset = _make_dataset([0, 1] * 50)
 
-    small_weight = compute_budget_weight(0, small_dataset, config, num_clients=2, total_train_size=total_size)
-    large_weight = compute_budget_weight(0, large_dataset, config, num_clients=2, total_train_size=total_size)
+    small_weight = compute_budget_weight(
+        0,
+        small_dataset,
+        config,
+        num_clients=2,
+        total_train_size=total_size,
+    )
+    large_weight = compute_budget_weight(
+        0,
+        large_dataset,
+        config,
+        num_clients=2,
+        total_train_size=total_size,
+    )
 
     assert small_weight < large_weight
 
@@ -128,10 +142,16 @@ def test_weight_heterogeneity_with_total_num_classes() -> None:
     w4_observed = compute_budget_weight(0, client_with_4_classes, config)
 
     w3_total10 = compute_budget_weight(
-        0, client_with_3_classes, config, total_num_classes=10,
+        0,
+        client_with_3_classes,
+        config,
+        total_num_classes=10,
     )
     w4_total10 = compute_budget_weight(
-        0, client_with_4_classes, config, total_num_classes=10,
+        0,
+        client_with_4_classes,
+        config,
+        total_num_classes=10,
     )
 
     assert w3_observed != w3_total10 or w4_observed != w4_total10
@@ -197,8 +217,8 @@ def test_rdp_accountant_serialization_empty() -> None:
     assert restored.total_steps() == 0
 
 
-def _make_bo_config(**kwargs) -> BOConfig:
-    defaults = dict(
+def _make_bo_config(**kwargs: Any) -> BOConfig:
+    defaults: dict[str, Any] = dict(
         enabled=True,
         min_warmup=20,
         epsilon_min=0.1,
@@ -212,8 +232,8 @@ def _make_bo_config(**kwargs) -> BOConfig:
     return BOConfig(**defaults)
 
 
-def _make_personalization_config(**kwargs) -> PersonalizationConfig:
-    defaults = dict(
+def _make_personalization_config(**kwargs: Any) -> PersonalizationConfig:
+    defaults: dict[str, Any] = dict(
         enabled=True,
         strategy="custom",
         client_epsilon_map={0: 5.0, 1: 2.0},
@@ -314,7 +334,14 @@ class TestAssignEpsilonBounds:
             bounds_ratio_max=2.0,
         )
         small = _make_dataset([0] * 10)
-        eps_min, eps_max, _ = assign_epsilon_bounds(0, small, pc, bc, num_clients=10, total_train_size=100)
+        eps_min, eps_max, _ = assign_epsilon_bounds(
+            0,
+            small,
+            pc,
+            bc,
+            num_clients=10,
+            total_train_size=100,
+        )
         # weight = client_size / expected_per_client = 10 / (100/10) = 1.0
         # eps_min = max(1.0 * 0.2, 1e-6) = 0.2
         # eps_max = 1.0 * 2.0 = 2.0
@@ -360,10 +387,13 @@ class TestAssignEpsilonBounds:
 
     def test_custom_strategy_with_global_bounds(self) -> None:
         pc = _make_personalization_config(
-            strategy="custom", client_epsilon_map={0: 10.0, 1: 2.0},
+            strategy="custom",
+            client_epsilon_map={0: 10.0, 1: 2.0},
         )
         bc = _make_bo_config(
-            bounds_strategy="global", epsilon_min=0.5, epsilon_max=8.0,
+            bounds_strategy="global",
+            epsilon_min=0.5,
+            epsilon_max=8.0,
         )
         dataset = _make_dataset([0, 1, 2])
         eps_min_0, eps_max_0, _ = assign_epsilon_bounds(0, dataset, pc, bc)
@@ -376,7 +406,8 @@ class TestAssignEpsilonBounds:
 
     def test_from_epsilon_custom_zero_weight(self) -> None:
         pc = _make_personalization_config(
-            strategy="custom", client_epsilon_map={0: 0.0},
+            strategy="custom",
+            client_epsilon_map={0: 0.0},
         )
         bc = _make_bo_config(
             bounds_strategy="from_epsilon",
@@ -397,7 +428,12 @@ class TestAssignEpsilonBounds:
         )
         small = _make_dataset([0] * 10)
         rdp_min, rdp_max, _ = assign_epsilon_bounds(
-            0, small, pc, bc, num_clients=10, total_train_size=100,
+            0,
+            small,
+            pc,
+            bc,
+            num_clients=10,
+            total_train_size=100,
         )
         # weight = 10 / (100/10) = 1.0
         # rdp_min = max(1.0 * 0.2, 1e-6) = 0.2
@@ -439,10 +475,20 @@ class TestAssignEpsilonBounds:
         large = _make_dataset([0] * 30)
         # 2 clients: small has 10, large has 30, total=40
         rdp_min_s, rdp_max_s, _ = assign_epsilon_bounds(
-            0, small, pc, bc, num_clients=2, total_train_size=40,
+            0,
+            small,
+            pc,
+            bc,
+            num_clients=2,
+            total_train_size=40,
         )
         rdp_min_l, rdp_max_l, _ = assign_epsilon_bounds(
-            1, large, pc, bc, num_clients=2, total_train_size=40,
+            1,
+            large,
+            pc,
+            bc,
+            num_clients=2,
+            total_train_size=40,
         )
         # small weight = 10 / (40/2) = 0.5
         # large weight = 30 / (40/2) = 1.5

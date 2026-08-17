@@ -3,7 +3,7 @@ __pycache__/
 .venv/
 mlruns/
 mlflow.db
-data/
+/data/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/

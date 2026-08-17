@@ -40,9 +40,7 @@ class TestFixedEpsilonScheduler:
 
 class TestUniformRandomEpsilonScheduler:
     def test_values_in_bounds(self) -> None:
-        scheduler = UniformRandomEpsilonScheduler(
-            epsilon_min=1.0, epsilon_max=5.0, seed=42
-        )
+        scheduler = UniformRandomEpsilonScheduler(epsilon_min=1.0, epsilon_max=5.0, seed=42)
         for _ in range(100):
             eps = scheduler.get_epsilon()
             assert 1.0 <= eps <= 5.0
@@ -62,9 +60,7 @@ class TestUniformRandomEpsilonScheduler:
         assert values1 != values2
 
     def test_serialization_roundtrip(self) -> None:
-        original = UniformRandomEpsilonScheduler(
-            epsilon_min=0.1, epsilon_max=10.0, seed=42
-        )
+        original = UniformRandomEpsilonScheduler(epsilon_min=0.1, epsilon_max=10.0, seed=42)
         original.get_epsilon()
         original.get_epsilon()
         state = original.get_state()
@@ -72,17 +68,13 @@ class TestUniformRandomEpsilonScheduler:
         assert restored.get_epsilon() == original.get_epsilon()
 
     def test_step_is_noop(self) -> None:
-        scheduler = UniformRandomEpsilonScheduler(
-            epsilon_min=1.0, epsilon_max=2.0, seed=42
-        )
+        scheduler = UniformRandomEpsilonScheduler(epsilon_min=1.0, epsilon_max=2.0, seed=42)
         val_before = scheduler.get_epsilon()
         scheduler.step(epsilon=val_before, metric=0.5)
         assert scheduler.get_epsilon() != val_before
 
     def test_repr(self) -> None:
-        scheduler = UniformRandomEpsilonScheduler(
-            epsilon_min=0.5, epsilon_max=8.0
-        )
+        scheduler = UniformRandomEpsilonScheduler(epsilon_min=0.5, epsilon_max=8.0)
         assert "UniformRandomEpsilonScheduler" in repr(scheduler)
         assert "0.5" in repr(scheduler)
         assert "8.0" in repr(scheduler)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 import numpy as np
 
@@ -9,23 +10,21 @@ from src.utils import deserialize_rng, serialize_rng
 
 class EpsilonScheduler(ABC):
     @abstractmethod
-    def get_epsilon(self) -> float:
-        ...
+    def get_epsilon(self) -> float: ...
 
     def step(self, epsilon: float, metric: float) -> None:  # noqa: B027
         pass
 
+    @abstractmethod
     def set_remaining_budget(self, remaining: float | None) -> None:
         pass
 
     @abstractmethod
-    def get_state(self) -> dict:
-        ...
+    def get_state(self) -> dict[str, Any]: ...
 
     @classmethod
     @abstractmethod
-    def from_state(cls, state: dict) -> EpsilonScheduler:
-        ...
+    def from_state(cls, state: dict[str, Any]) -> EpsilonScheduler: ...
 
 
 class FixedEpsilonScheduler(EpsilonScheduler):
@@ -34,14 +33,17 @@ class FixedEpsilonScheduler(EpsilonScheduler):
             raise ValueError("epsilon must be positive")
         self._epsilon = epsilon
 
+    def set_remaining_budget(self, remaining: float | None) -> None:
+        pass
+
     def get_epsilon(self) -> float:
         return self._epsilon
 
-    def get_state(self) -> dict:
+    def get_state(self) -> dict[str, Any]:
         return {"type": "fixed", "epsilon": self._epsilon}
 
     @classmethod
-    def from_state(cls, state: dict) -> FixedEpsilonScheduler:
+    def from_state(cls, state: dict[str, Any]) -> FixedEpsilonScheduler:
         return cls(epsilon=state["epsilon"])
 
     def __repr__(self) -> str:
@@ -59,12 +61,15 @@ class UniformRandomEpsilonScheduler(EpsilonScheduler):
         self._seed = seed
         self._rng = np.random.RandomState(seed)
 
+    def set_remaining_budget(self, remaining: float | None) -> None:
+        pass
+
     def get_epsilon(self) -> float:
         return float(
             self._rng.uniform(self._epsilon_min, self._epsilon_max),
         )
 
-    def get_state(self) -> dict:
+    def get_state(self) -> dict[str, Any]:
         state = {
             "type": "uniform_random",
             "epsilon_min": self._epsilon_min,
@@ -76,7 +81,7 @@ class UniformRandomEpsilonScheduler(EpsilonScheduler):
         return state
 
     @classmethod
-    def from_state(cls, state: dict) -> UniformRandomEpsilonScheduler:
+    def from_state(cls, state: dict[str, Any]) -> UniformRandomEpsilonScheduler:
         scheduler = cls(
             epsilon_min=state["epsilon_min"],
             epsilon_max=state["epsilon_max"],
@@ -94,23 +99,21 @@ class RDPNativeScheduler(ABC):
     """Abstract base for RDP-native schedulers (analogous to EpsilonScheduler)."""
 
     @abstractmethod
-    def get_rdp(self) -> float:
-        ...
+    def get_rdp(self) -> float: ...
 
     def step(self, rdp: float, metric: float) -> None:  # noqa: B027
         pass
 
+    @abstractmethod
     def set_remaining_budget(self, remaining: float | None) -> None:
         pass
 
     @abstractmethod
-    def get_state(self) -> dict:
-        ...
+    def get_state(self) -> dict[str, Any]: ...
 
     @classmethod
     @abstractmethod
-    def from_state(cls, state: dict) -> RDPNativeScheduler:
-        ...
+    def from_state(cls, state: dict[str, Any]) -> RDPNativeScheduler: ...
 
 
 class FixedRDPScheduler(RDPNativeScheduler):
@@ -119,14 +122,17 @@ class FixedRDPScheduler(RDPNativeScheduler):
             raise ValueError("rdp_target must be positive")
         self._rdp_target = rdp_target
 
+    def set_remaining_budget(self, remaining: float | None) -> None:
+        pass
+
     def get_rdp(self) -> float:
         return self._rdp_target
 
-    def get_state(self) -> dict:
+    def get_state(self) -> dict[str, Any]:
         return {"type": "fixed_rdp", "rdp_target": self._rdp_target}
 
     @classmethod
-    def from_state(cls, state: dict) -> FixedRDPScheduler:
+    def from_state(cls, state: dict[str, Any]) -> FixedRDPScheduler:
         return cls(rdp_target=state["rdp_target"])
 
     def __repr__(self) -> str:
@@ -144,10 +150,13 @@ class UniformRandomRDPScheduler(RDPNativeScheduler):
         self._seed = seed
         self._rng = np.random.RandomState(seed)
 
+    def set_remaining_budget(self, remaining: float | None) -> None:
+        pass
+
     def get_rdp(self) -> float:
         return float(self._rng.uniform(self._rdp_min, self._rdp_max))
 
-    def get_state(self) -> dict:
+    def get_state(self) -> dict[str, Any]:
         state = {
             "type": "uniform_random_rdp",
             "rdp_min": self._rdp_min,
@@ -159,7 +168,7 @@ class UniformRandomRDPScheduler(RDPNativeScheduler):
         return state
 
     @classmethod
-    def from_state(cls, state: dict) -> UniformRandomRDPScheduler:
+    def from_state(cls, state: dict[str, Any]) -> UniformRandomRDPScheduler:
         scheduler = cls(
             rdp_min=state["rdp_min"],
             rdp_max=state["rdp_max"],

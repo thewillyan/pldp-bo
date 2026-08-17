@@ -29,16 +29,16 @@ from pathlib import Path
 from typing import Any, cast
 
 import mlflow
-from src.data.femnist import femnist_counts
 
 from src.config.locked import config_version as locked_config_version
+from src.data.femnist import femnist_counts
 from src.privacy.bo_scheduler import WARMUP_SUM_NOMINAL
 
 CLIENT_STATE_ARTIFACT = "client_state.json"
 WARMUP_PASS_TOLERANCE = 0.05  # ±5% of the nominal sum
 UTILIZATION_TOLERANCE = 0.02  # ±0.02 around 1.00
 BUDGET_TARGET = 10.0  # B_RDP, locked §2 constant
-FEMNIST_EXPECTED = (654_281, 163_570, 3_598)  # (train, test, writers)
+FEMNIST_EXPECTED = (654_281, 163_570, 3_597)  # (train, test, writers)
 
 
 @dataclass
@@ -61,15 +61,30 @@ class VerifyRun:
 
 
 def _load_client_state(client: mlflow.tracking.MlflowClient, run_id: str) -> dict[str, Any] | None:
+    """Per-client state of *run_id* (None when absent/unreadable)."""
     try:
         names = {f.path for f in client.list_artifacts(run_id)}
-    except mlflow.exceptions.MlflowException:
+    except Exception:
         return None
     if CLIENT_STATE_ARTIFACT not in names:
         return None
-    path = client.download_artifacts(run_id, CLIENT_STATE_ARTIFACT)
-    with open(path) as f:
-        return cast(dict[str, object], json.load(f))
+    try:
+        path = client.download_artifacts(run_id, CLIENT_STATE_ARTIFACT)
+        with open(path) as f:
+            payload = json.load(f)
+    except Exception:
+        print(
+            f"warning: unreadable {CLIENT_STATE_ARTIFACT} for run {run_id}",
+            file=sys.stderr,
+        )
+        return None
+    # The server writes {"client_state": {cid: state, ...}}; older artifacts
+    # carried the bare per-client dict. Normalize both to the inner dict.
+    if isinstance(payload, dict) and isinstance(payload.get("client_state"), dict):
+        return cast(dict[str, object], payload["client_state"])
+    if isinstance(payload, dict):
+        return payload
+    return None
 
 
 def _discover_runs(
@@ -132,7 +147,7 @@ def _parse_seeds(spec: str) -> list[int]:
 
 def _client_state_entries(run: VerifyRun) -> list[dict[str, Any]]:
     """Per-client participation records of *run* ([] when the artifact is absent)."""
-    if run.client_state is None:
+    if not isinstance(run.client_state, dict):
         return []
     return [state for state in run.client_state.values() if isinstance(state, dict)]
 
@@ -140,16 +155,26 @@ def _client_state_entries(run: VerifyRun) -> list[dict[str, Any]]:
 def _check_warmup(run: VerifyRun) -> dict[str, float | int | bool | None]:
     """§5.1 check 1: warm-up sum + per-round accountant-cost parity.
 
-    Per run × client: Σ over the client's first 10 participations of
-    ``acct_cost`` (fewer participations → sum what exists). Parity excludes
-    refused rounds (``r_t_final`` == 0.0).
+    Per run × client: Σ over the client's warm-up participations of
+    ``acct_cost`` (participations recorded under phase "warmup"; first 10 at
+    most). Summing only warm-up-phase entries keeps the check correct when
+    ``fraction_fit < 1`` or refused rounds mix non-warm-up costs into a
+    client's early history. Parity excludes refused rounds (``r_t_final`` ==
+    0.0). Methods without a warm-up phase (fixed/uniform r_t, §4.4) have no
+    warm-up sum; the check SKIPs for them.
     """
+    entries = _client_state_entries(run)
+    if not any(_has_warmup_phase(state) for state in entries):
+        return {"n": 0, "sum_mean": 0.0, "sum_sd": 0.0, "pass": None,
+                "parity_median": 0.0, "parity_max": 0.0}
     sums: list[float] = []
     parities: list[float] = []
-    for state in _client_state_entries(run):
+    for state in entries:
         acct = [float(v) for v in state.get("acct_cost", []) if v is not None]
-        if acct:
-            sums.append(sum(acct[:10]))
+        phases = [str(p) for p in state.get("phase", [])]
+        warmup = [c for c, p in zip(acct, phases, strict=False) if p == "warmup"]
+        if warmup:
+            sums.append(sum(warmup[:10]))
         finals = [float(v) for v in state.get("r_t_final", [])]
         for cost, final in zip(acct, finals, strict=False):
             if final > 0:
@@ -170,6 +195,14 @@ def _check_warmup(run: VerifyRun) -> dict[str, float | int | bool | None]:
         "parity_median": statistics.median(parities) if parities else 0.0,
         "parity_max": max(parities) if parities else 0.0,
     }
+
+
+def _has_warmup_phase(state: dict[str, Any]) -> bool:
+    """True when *state* shows warm-up participations (§4.4 warm-up phase)."""
+    if isinstance(state.get("warmup_rounds"), list) and state["warmup_rounds"]:
+        return True
+    phases = state.get("phase", [])
+    return isinstance(phases, list) and any(p == "warmup" for p in phases)
 
 
 def _check_budget(run: VerifyRun) -> dict[str, float | int | bool | str | None]:

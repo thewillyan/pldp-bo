@@ -148,6 +148,7 @@ def test_rdp_accountant_get_state() -> None:
     assert "delta" in state
     assert "steps" in state
     import json
+
     assert len(json.loads(state["steps"])) == 3
     assert "rdp_per_alpha" in state
 
@@ -295,6 +296,7 @@ class TestEnforceEpsilonBudget:
         """Verify that the returned sigma, when used to calibrate,
         produces an epsilon close to the returned epsilon."""
         from src.privacy.per_update_dp import _rdp_epsilon_for_sigma
+
         accountant = RDPAccountant(delta=1e-5)
         result_eps, result_sigma = enforce_epsilon_budget(
             candidate_epsilon=2.0,
@@ -460,8 +462,9 @@ class TestEnforceBudgetPerExample:
         accountant = RDPAccountant(delta=1e-5)
         # Accumulate 5 rounds × 10 steps = 50 actual steps
         for _ in range(5):
-            accountant.step(sigma=0.5, clipping_norm=sampling_rate,
-                            num_steps=10, mode="per_example")
+            accountant.step(
+                sigma=0.5, clipping_norm=sampling_rate, num_steps=10, mode="per_example"
+            )
 
         eps_no_steps, _ = enforce_epsilon_budget(
             candidate_epsilon=1.0,
@@ -496,8 +499,9 @@ class TestEnforceBudgetPerExample:
 class TestResolveEpsilon:
     """Tests for _resolve_epsilon in client_app.py."""
 
-    def _make_config(self, personalization_enabled: bool = True,
-                     bo_eps_min: float = 0.1) -> ExperimentConfig:
+    def _make_config(
+        self, personalization_enabled: bool = True, bo_eps_min: float = 0.1
+    ) -> ExperimentConfig:
         cfg = ExperimentConfig()
         cfg.privacy.enabled = True
         cfg.privacy.update_clip_norm = 1.0
@@ -509,6 +513,7 @@ class TestResolveEpsilon:
 
     def test_explicit_eps_min_respected_with_personalization(self) -> None:
         from src.client_app import _resolve_epsilon
+
         config = self._make_config()
         accountant = RDPAccountant(delta=1e-5)
         result_eps, result_sigma, _candidate, _bo, _acct = _resolve_epsilon(
@@ -523,6 +528,7 @@ class TestResolveEpsilon:
 
     def test_lower_bound_above_personalization_unchanged(self) -> None:
         from src.client_app import _resolve_epsilon
+
         config = self._make_config()
         accountant = RDPAccountant(delta=1e-5)
         result_eps, result_sigma, _candidate, _bo, _acct = _resolve_epsilon(
@@ -537,6 +543,7 @@ class TestResolveEpsilon:
 
     def test_no_personalization_uses_bo_min(self) -> None:
         from src.client_app import _resolve_epsilon
+
         config = self._make_config(personalization_enabled=False, bo_eps_min=0.3)
         accountant = RDPAccountant(delta=1e-5)
         result_eps, result_sigma, _candidate, _bo, _acct = _resolve_epsilon(
@@ -617,8 +624,12 @@ class TestMomentumAccountingUnchanged:
             config.optimizer.momentum = momentum
             model = _SimpleModel()
             client = PerExampleDPClient(
-                model, loader, loader, config,
-                client_epsilon=0.5, seed=42,
+                model,
+                loader,
+                loader,
+                config,
+                client_epsilon=0.5,
+                seed=42,
             )
             if params is None:
                 params = client.get_parameters({})
@@ -631,6 +642,3 @@ class TestMomentumAccountingUnchanged:
 
         assert metrics[0]["sigma"] == pytest.approx(metrics[1]["sigma"])
         assert metrics[0]["rdp_cost"] == pytest.approx(metrics[1]["rdp_cost"])
-
-
-

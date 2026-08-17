@@ -74,7 +74,7 @@ implementation repo (training) ──► MLflow tracking server
 | CIFAR-100 | 50,000 | 10,000 | 100 | CNN 2-conv/FC-512 (≈2.17M params) |
 | FEMNIST | ≈654,281 | ≈163,570 | 62 | CNN 2-conv/FC-512 (≈1.66M params) |
 
-- FEMNIST: 817,851 total images, 3,598 writers (`femnist_user_keys.pt`), 80/20 **sample-based** split (LEAF preprocessing `-t sample`). Client construction uses the writer partition on the **train** split. Exact counts must be re-read from the `.pt` files during extraction (verification check, §5.1).
+- FEMNIST: 817,851 total images, 3,597 writers (`femnist_user_keys.pt`), 80/20 **sample-based** split (LEAF preprocessing `-t sample`). Client construction uses the writer partition on the **train** split. Exact counts must be re-read from the `.pt` files during extraction (verification check, §5.1).
 - CNN: conv 32 → conv 64 (3×3, pad 1), ReLU, 2×2 max-pool ×2 → FC 512 → dropout 0.25 → softmax. FEMNIST input 28×28 (FC input 3136); CIFAR-100 input 32×32 (FC input 4096).
 
 ---
@@ -178,7 +178,7 @@ Reads MLflow (URI + filters from provenance), computes, writes the artifact (§6
 1. **Warm-up sum:** for each private method × run × client: Σ over the client's first 10 participations of `acct_cost`; report mean ± SD across clients and runs vs nominal 1.3995; pass criterion: mean within ±5% (1.33–1.47). Also per-round parity: `acct_cost` vs `r_t_final` relative error (median, max).
 2. **Budget matching:** mean final cumulative RDP per method ≈ 10.0 for all private methods (utilization ≈ 1.00 ± tolerance 0.02); non-private = 0.
 3. **Drop-out:** per method: distribution of `dropout_round` (never = T+1), fraction never dropping out, mean ± SD drop-out round, mean final cumulative RDP.
-4. **FEMNIST counts:** read the `.pt` files; report exact train/test/writer counts (compare vs ≈654,281 / ≈163,570 / 3,598).
+4. **FEMNIST counts:** read the `.pt` files; report exact train/test/writer counts (compare vs ≈654,281 / ≈163,570 / 3,597).
 5. **Accounting convention:** confirm per-round cost logged by the accountant equals the RDP cost of the round's single Gaussian release (covered by check 1).
 
 ### 5.2 Aggregations
@@ -404,7 +404,7 @@ Work items are ordered by dependency. Each gives the exact change; acceptance = 
 - **Acceptance:** `partition_kwargs` logged; per-cell client counts documented.
 
 ### 9.9 FEMNIST pipeline — blocked on data (implement now, verify at extraction)
-- **Requirement (§2/§3):** LEAF 80/20 **sample** split (`./preprocess.sh -s niid --sf 1.0 -k 0 -t sample`) → ≈654,281/≈163,570/3,598 writers; 62 classes; CNN 28×28 (FC input 3136); writer partition on the **train** split.
+- **Requirement (§2/§3):** LEAF 80/20 **sample** split (`./preprocess.sh -s niid --sf 1.0 -k 0 -t sample`) → ≈654,281/≈163,570/3,597 writers; 62 classes; CNN 28×28 (FC input 3136); writer partition on the **train** split.
 - **Current:** absent — registry is cifar10/cifar100/mnist; `_MODEL_DATA_COMPAT` rejects `femnist`; no `_INPUT_CHANNELS_MAP` entry.
 - **Required change:** loader for `femnist_train.pt` / `femnist_test.pt` / `femnist_user_keys.pt`; registry/compat/channels entries; writer keys → clients; merge writers with <10 samples; CNN input 28×28.
 - **Acceptance:** exact counts re-read from the `.pt` files at extraction and reported in §5.1 check 4; `dataset_root`/`data_hash` params logged.

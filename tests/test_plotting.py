@@ -69,11 +69,13 @@ class TestGetRunName:
 
 class TestExtractMetricsByRound:
     def test_basic(self) -> None:
-        run = make_run(metrics={
-            "round_0_server_loss": 0.8,
-            "round_1_server_loss": 0.5,
-            "round_2_server_loss": 0.3,
-        })
+        run = make_run(
+            metrics={
+                "round_0_server_loss": 0.8,
+                "round_1_server_loss": 0.5,
+                "round_2_server_loss": 0.3,
+            }
+        )
         rounds, vals = extract_metrics_by_round(run, "server_loss")
         assert rounds == [0, 1, 2]
         assert vals == [0.8, 0.5, 0.3]
@@ -85,20 +87,24 @@ class TestExtractMetricsByRound:
         assert vals == []
 
     def test_underscore_metric_name(self) -> None:
-        run = make_run(metrics={
-            "round_0_accuracy": 0.9,
-            "round_1_accuracy": 0.95,
-        })
+        run = make_run(
+            metrics={
+                "round_0_accuracy": 0.9,
+                "round_1_accuracy": 0.95,
+            }
+        )
         rounds, vals = extract_metrics_by_round(run, "accuracy")
         assert rounds == [0, 1]
         assert vals == [0.9, 0.95]
 
     def test_unsorted_keys(self) -> None:
-        run = make_run(metrics={
-            "round_2_server_loss": 0.3,
-            "round_0_server_loss": 0.8,
-            "round_1_server_loss": 0.5,
-        })
+        run = make_run(
+            metrics={
+                "round_2_server_loss": 0.3,
+                "round_0_server_loss": 0.8,
+                "round_1_server_loss": 0.5,
+            }
+        )
         rounds, vals = extract_metrics_by_round(run, "server_loss")
         assert rounds == [0, 1, 2]
 
@@ -116,12 +122,14 @@ class TestExtractMetricsByRound:
 
 class TestExtractAllRoundMetrics:
     def test_multiple_metrics(self) -> None:
-        run = make_run(metrics={
-            "round_0_server_loss": 0.8,
-            "round_1_server_loss": 0.5,
-            "round_0_accuracy": 0.9,
-            "round_1_accuracy": 0.95,
-        })
+        run = make_run(
+            metrics={
+                "round_0_server_loss": 0.8,
+                "round_1_server_loss": 0.5,
+                "round_0_accuracy": 0.9,
+                "round_1_accuracy": 0.95,
+            }
+        )
         result = extract_all_round_metrics(run)
         assert "server_loss" in result
         assert "accuracy" in result
@@ -140,19 +148,23 @@ class TestExtractAllRoundMetrics:
 
 class TestExtractPerClientMetric:
     def test_valid_client(self) -> None:
-        run = make_run(metrics={
-            "round_0_client_1_epsilon": 1.0,
-            "round_1_client_1_epsilon": 2.0,
-        })
+        run = make_run(
+            metrics={
+                "round_0_client_1_epsilon": 1.0,
+                "round_1_client_1_epsilon": 2.0,
+            }
+        )
         rounds, vals = extract_per_client_metric(run, 1, "epsilon")
         assert rounds == [0, 1]
         assert vals == [1.0, 2.0]
 
     def test_different_client_id(self) -> None:
-        run = make_run(metrics={
-            "round_0_client_0_epsilon": 0.5,
-            "round_0_client_1_epsilon": 1.0,
-        })
+        run = make_run(
+            metrics={
+                "round_0_client_0_epsilon": 0.5,
+                "round_0_client_1_epsilon": 1.0,
+            }
+        )
         rounds, vals = extract_per_client_metric(run, 1, "epsilon")
         assert rounds == [0]
         assert vals == [1.0]
@@ -171,12 +183,14 @@ class TestExtractPerClientMetric:
 
 class TestExtractRoundStats:
     def test_basic(self) -> None:
-        run = make_run(metrics={
-            "round_0_epsilon_mean": 2.0,
-            "round_0_epsilon_std": 0.5,
-            "round_1_epsilon_mean": 1.5,
-            "round_1_epsilon_std": 0.3,
-        })
+        run = make_run(
+            metrics={
+                "round_0_epsilon_mean": 2.0,
+                "round_0_epsilon_std": 0.5,
+                "round_1_epsilon_mean": 1.5,
+                "round_1_epsilon_std": 0.3,
+            }
+        )
         rounds, stats = extract_round_stats(run, "epsilon")
         assert rounds == [0, 1]
         assert stats["mean"] == [2.0, 1.5]
@@ -189,23 +203,27 @@ class TestExtractRoundStats:
         assert stats == {}
 
     def test_multi_word_stat_name(self) -> None:
-        run = make_run(metrics={
-            "round_0_server_loss_mean": 0.5,
-            "round_0_server_loss_std": 0.1,
-            "round_1_server_loss_mean": 0.3,
-            "round_1_server_loss_std": 0.05,
-        })
+        run = make_run(
+            metrics={
+                "round_0_server_loss_mean": 0.5,
+                "round_0_server_loss_std": 0.1,
+                "round_1_server_loss_mean": 0.3,
+                "round_1_server_loss_std": 0.05,
+            }
+        )
         rounds, stats = extract_round_stats(run, "server_loss")
         assert rounds == [0, 1]
         assert stats["mean"] == [0.5, 0.3]
         assert stats["std"] == [0.1, 0.05]
 
     def test_partial_aggs(self) -> None:
-        run = make_run(metrics={
-            "round_0_epsilon_mean": 2.0,
-            "round_1_epsilon_mean": 1.5,
-            "round_1_epsilon_std": 0.3,
-        })
+        run = make_run(
+            metrics={
+                "round_0_epsilon_mean": 2.0,
+                "round_1_epsilon_mean": 1.5,
+                "round_1_epsilon_std": 0.3,
+            }
+        )
         rounds, stats = extract_round_stats(run, "epsilon")
         assert rounds == [0, 1]
         import math
@@ -239,12 +257,14 @@ class TestGetRunParams:
 
 class TestPlotConvergence:
     def test_success(self) -> None:
-        run = make_run(metrics={
-            "round_0_server_loss": 0.8,
-            "round_1_server_loss": 0.5,
-            "round_0_accuracy": 0.6,
-            "round_1_accuracy": 0.8,
-        })
+        run = make_run(
+            metrics={
+                "round_0_server_loss": 0.8,
+                "round_1_server_loss": 0.5,
+                "round_0_accuracy": 0.6,
+                "round_1_accuracy": 0.8,
+            }
+        )
         with patch("src.plotting.convergence.get_run_by_id", return_value=run):
             from src.plotting.convergence import plot_convergence
 
@@ -265,10 +285,12 @@ class TestPlotConvergence:
                 plot_convergence("test_id")
 
     def test_partial_loss(self) -> None:
-        run = make_run(metrics={
-            "round_0_accuracy": 0.9,
-            "round_1_accuracy": 0.95,
-        })
+        run = make_run(
+            metrics={
+                "round_0_accuracy": 0.9,
+                "round_1_accuracy": 0.95,
+            }
+        )
         with patch("src.plotting.convergence.get_run_by_id", return_value=run):
             from src.plotting.convergence import plot_convergence
 
@@ -278,10 +300,12 @@ class TestPlotConvergence:
         plt.close(fig)
 
     def test_partial_accuracy(self) -> None:
-        run = make_run(metrics={
-            "round_0_server_loss": 0.8,
-            "round_1_server_loss": 0.5,
-        })
+        run = make_run(
+            metrics={
+                "round_0_server_loss": 0.8,
+                "round_1_server_loss": 0.5,
+            }
+        )
         with patch("src.plotting.convergence.get_run_by_id", return_value=run):
             from src.plotting.convergence import plot_convergence
 
@@ -291,10 +315,12 @@ class TestPlotConvergence:
         plt.close(fig)
 
     def test_save_path(self, tmp_path: Path) -> None:
-        run = make_run(metrics={
-            "round_0_server_loss": 0.8,
-            "round_0_accuracy": 0.6,
-        })
+        run = make_run(
+            metrics={
+                "round_0_server_loss": 0.8,
+                "round_0_accuracy": 0.6,
+            }
+        )
         path = tmp_path / "convergence.png"
         with patch("src.plotting.convergence.get_run_by_id", return_value=run):
             from src.plotting.convergence import plot_convergence
@@ -365,12 +391,14 @@ class TestPlotClientEpsilonDistribution:
         plt.close(fig)
 
     def test_success_legacy(self) -> None:
-        run = make_run(metrics={
-            "round_1_client_0_epsilon": 1.0,
-            "round_1_client_1_epsilon": 2.0,
-            "round_2_client_0_epsilon": 1.5,
-            "round_2_client_1_epsilon": 2.5,
-        })
+        run = make_run(
+            metrics={
+                "round_1_client_0_epsilon": 1.0,
+                "round_1_client_1_epsilon": 2.0,
+                "round_2_client_0_epsilon": 1.5,
+                "round_2_client_1_epsilon": 2.5,
+            }
+        )
         with patch("src.plotting.privacy.get_run_by_id", return_value=run):
             from src.plotting.privacy import plot_client_epsilon_distribution
 
@@ -413,12 +441,14 @@ class TestPlotClientEpsilonDistribution:
 
 class TestPlotCumulativePrivacyBudget:
     def test_success(self) -> None:
-        run = make_run(metrics={
-            "round_0_client_0_cumulative_epsilon": 1.0,
-            "round_1_client_0_cumulative_epsilon": 2.0,
-            "round_0_client_1_cumulative_epsilon": 0.5,
-            "round_1_client_1_cumulative_epsilon": 1.0,
-        })
+        run = make_run(
+            metrics={
+                "round_0_client_0_cumulative_epsilon": 1.0,
+                "round_1_client_0_cumulative_epsilon": 2.0,
+                "round_0_client_1_cumulative_epsilon": 0.5,
+                "round_1_client_1_cumulative_epsilon": 1.0,
+            }
+        )
         with patch("src.plotting.privacy.get_run_by_id", return_value=run):
             from src.plotting.privacy import plot_cumulative_privacy_budget
 
@@ -454,18 +484,22 @@ class TestPlotCumulativePrivacyBudget:
 
 class TestPlotComparisonConvergence:
     def test_success_two_runs(self) -> None:
-        run1 = make_run(metrics={
-            "round_0_server_loss": 0.8,
-            "round_1_server_loss": 0.5,
-            "round_0_accuracy": 0.6,
-            "round_1_accuracy": 0.8,
-        })
-        run2 = make_run(metrics={
-            "round_0_server_loss": 0.9,
-            "round_1_server_loss": 0.6,
-            "round_0_accuracy": 0.5,
-            "round_1_accuracy": 0.7,
-        })
+        run1 = make_run(
+            metrics={
+                "round_0_server_loss": 0.8,
+                "round_1_server_loss": 0.5,
+                "round_0_accuracy": 0.6,
+                "round_1_accuracy": 0.8,
+            }
+        )
+        run2 = make_run(
+            metrics={
+                "round_0_server_loss": 0.9,
+                "round_1_server_loss": 0.6,
+                "round_0_accuracy": 0.5,
+                "round_1_accuracy": 0.7,
+            }
+        )
         fake_runs = {"run1": run1, "run2": run2}
         with patch(
             "src.plotting.comparison.get_run_by_id",
@@ -473,9 +507,7 @@ class TestPlotComparisonConvergence:
         ):
             from src.plotting.comparison import plot_comparison_convergence
 
-            fig = plot_comparison_convergence(
-                ["run1", "run2"], labels=["A", "B"]
-            )
+            fig = plot_comparison_convergence(["run1", "run2"], labels=["A", "B"])
         assert len(fig.axes) == 2
         assert fig.axes[0].get_title() == "Server Loss vs Round"
         assert fig.axes[1].get_title() == "Accuracy vs Round"
@@ -490,10 +522,12 @@ class TestPlotComparisonConvergence:
                 plot_comparison_convergence(["run1"], labels=["A"])
 
     def test_partial_loss(self) -> None:
-        run = make_run(metrics={
-            "round_0_accuracy": 0.9,
-            "round_1_accuracy": 0.95,
-        })
+        run = make_run(
+            metrics={
+                "round_0_accuracy": 0.9,
+                "round_1_accuracy": 0.95,
+            }
+        )
         with patch("src.plotting.comparison.get_run_by_id", return_value=run):
             from src.plotting.comparison import plot_comparison_convergence
 
@@ -505,10 +539,12 @@ class TestPlotComparisonConvergence:
         plt.close(fig)
 
     def test_partial_accuracy(self) -> None:
-        run = make_run(metrics={
-            "round_0_server_loss": 0.8,
-            "round_1_server_loss": 0.5,
-        })
+        run = make_run(
+            metrics={
+                "round_0_server_loss": 0.8,
+                "round_1_server_loss": 0.5,
+            }
+        )
         with patch("src.plotting.comparison.get_run_by_id", return_value=run):
             from src.plotting.comparison import plot_comparison_convergence
 
@@ -520,32 +556,32 @@ class TestPlotComparisonConvergence:
         plt.close(fig)
 
     def test_custom_labels(self) -> None:
-        run = make_run(metrics={
-            "round_0_server_loss": 0.8,
-            "round_0_accuracy": 0.6,
-        })
+        run = make_run(
+            metrics={
+                "round_0_server_loss": 0.8,
+                "round_0_accuracy": 0.6,
+            }
+        )
         with patch("src.plotting.comparison.get_run_by_id", return_value=run):
             from src.plotting.comparison import plot_comparison_convergence
 
-            fig = plot_comparison_convergence(
-                ["run1"], labels=["My Run"]
-            )
+            fig = plot_comparison_convergence(["run1"], labels=["My Run"])
         legends = [ax.get_legend() for ax in fig.axes if ax.get_legend()]
         assert len(legends) == 2
         plt.close(fig)
 
     def test_save_path(self, tmp_path: Path) -> None:
-        run = make_run(metrics={
-            "round_0_server_loss": 0.8,
-            "round_0_accuracy": 0.6,
-        })
+        run = make_run(
+            metrics={
+                "round_0_server_loss": 0.8,
+                "round_0_accuracy": 0.6,
+            }
+        )
         path = tmp_path / "comparison_conv.png"
         with patch("src.plotting.comparison.get_run_by_id", return_value=run):
             from src.plotting.comparison import plot_comparison_convergence
 
-            fig = plot_comparison_convergence(
-                ["run1"], labels=["A"], save_path=path
-            )
+            fig = plot_comparison_convergence(["run1"], labels=["A"], save_path=path)
         assert path.exists()
         plt.close(fig)
 
@@ -557,18 +593,22 @@ class TestPlotComparisonConvergence:
 
 class TestPlotComparisonPrivacy:
     def test_success(self) -> None:
-        run1 = make_run(metrics={
-            "round_0_epsilon_mean": 1.0,
-            "round_0_epsilon_std": 0.2,
-            "round_1_epsilon_mean": 2.0,
-            "round_1_epsilon_std": 0.3,
-        })
-        run2 = make_run(metrics={
-            "round_0_epsilon_mean": 1.5,
-            "round_0_epsilon_std": 0.1,
-            "round_1_epsilon_mean": 2.5,
-            "round_1_epsilon_std": 0.4,
-        })
+        run1 = make_run(
+            metrics={
+                "round_0_epsilon_mean": 1.0,
+                "round_0_epsilon_std": 0.2,
+                "round_1_epsilon_mean": 2.0,
+                "round_1_epsilon_std": 0.3,
+            }
+        )
+        run2 = make_run(
+            metrics={
+                "round_0_epsilon_mean": 1.5,
+                "round_0_epsilon_std": 0.1,
+                "round_1_epsilon_mean": 2.5,
+                "round_1_epsilon_std": 0.4,
+            }
+        )
         fake_runs = {"run1": run1, "run2": run2}
         with patch(
             "src.plotting.comparison.get_run_by_id",
@@ -576,9 +616,7 @@ class TestPlotComparisonPrivacy:
         ):
             from src.plotting.comparison import plot_comparison_privacy
 
-            fig = plot_comparison_privacy(
-                ["run1", "run2"], labels=["A", "B"]
-            )
+            fig = plot_comparison_privacy(["run1", "run2"], labels=["A", "B"])
         # Only per-round data present → 1 subplot
         assert len(fig.axes) == 1
         ax = fig.axes[0]
@@ -592,22 +630,26 @@ class TestPlotComparisonPrivacy:
         plt.close(fig)
 
     def test_success_both_metrics(self) -> None:
-        run1 = make_run(metrics={
-            "round_0_epsilon_mean": 1.0,
-            "round_0_epsilon_std": 0.2,
-            "round_1_epsilon_mean": 2.0,
-            "round_1_epsilon_std": 0.3,
-            "round_0_cumulative_epsilon_mean": 1.0,
-            "round_1_cumulative_epsilon_mean": 3.0,
-        })
-        run2 = make_run(metrics={
-            "round_0_epsilon_mean": 1.5,
-            "round_0_epsilon_std": 0.1,
-            "round_1_epsilon_mean": 2.5,
-            "round_1_epsilon_std": 0.4,
-            "round_0_cumulative_epsilon_mean": 1.5,
-            "round_1_cumulative_epsilon_mean": 4.0,
-        })
+        run1 = make_run(
+            metrics={
+                "round_0_epsilon_mean": 1.0,
+                "round_0_epsilon_std": 0.2,
+                "round_1_epsilon_mean": 2.0,
+                "round_1_epsilon_std": 0.3,
+                "round_0_cumulative_epsilon_mean": 1.0,
+                "round_1_cumulative_epsilon_mean": 3.0,
+            }
+        )
+        run2 = make_run(
+            metrics={
+                "round_0_epsilon_mean": 1.5,
+                "round_0_epsilon_std": 0.1,
+                "round_1_epsilon_mean": 2.5,
+                "round_1_epsilon_std": 0.4,
+                "round_0_cumulative_epsilon_mean": 1.5,
+                "round_1_cumulative_epsilon_mean": 4.0,
+            }
+        )
         fake_runs = {"run1": run1, "run2": run2}
         with patch(
             "src.plotting.comparison.get_run_by_id",
@@ -615,9 +657,7 @@ class TestPlotComparisonPrivacy:
         ):
             from src.plotting.comparison import plot_comparison_privacy
 
-            fig = plot_comparison_privacy(
-                ["run1", "run2"], labels=["A", "B"]
-            )
+            fig = plot_comparison_privacy(["run1", "run2"], labels=["A", "B"])
         assert len(fig.axes) == 2
         ax_per, ax_cum = fig.axes
         assert ax_per.get_ylabel() == "Per-Round Epsilon (ε)"
@@ -628,12 +668,14 @@ class TestPlotComparisonPrivacy:
         plt.close(fig)
 
     def test_no_std(self) -> None:
-        run1 = make_run(metrics={
-            "round_0_epsilon_mean": 1.0,
-            "round_0_epsilon_std": 0.2,
-            "round_1_epsilon_mean": 2.0,
-            "round_1_epsilon_std": 0.3,
-        })
+        run1 = make_run(
+            metrics={
+                "round_0_epsilon_mean": 1.0,
+                "round_0_epsilon_std": 0.2,
+                "round_1_epsilon_mean": 2.0,
+                "round_1_epsilon_std": 0.3,
+            }
+        )
         fake_runs = {"run1": run1}
         with patch(
             "src.plotting.comparison.get_run_by_id",
@@ -641,9 +683,7 @@ class TestPlotComparisonPrivacy:
         ):
             from src.plotting.comparison import plot_comparison_privacy
 
-            fig = plot_comparison_privacy(
-                ["run1"], labels=["A"], show_std=False
-            )
+            fig = plot_comparison_privacy(["run1"], labels=["A"], show_std=False)
         assert len(fig.axes) == 1
         assert len(fig.axes[0].collections) == 0
         plt.close(fig)
@@ -662,9 +702,7 @@ class TestPlotComparisonPrivacy:
         with patch("src.plotting.comparison.get_run_by_id", return_value=run):
             from src.plotting.comparison import plot_comparison_privacy
 
-            fig = plot_comparison_privacy(
-                ["run1"], labels=["A"], save_path=path
-            )
+            fig = plot_comparison_privacy(["run1"], labels=["A"], save_path=path)
         assert path.exists()
         plt.close(fig)
 
@@ -676,12 +714,14 @@ class TestPlotComparisonPrivacy:
 
 class TestPlotMetricVsEpsilon:
     def test_success(self) -> None:
-        run = make_run(metrics={
-            "round_0_client_0_epsilon": 1.0,
-            "round_1_client_0_epsilon": 2.0,
-            "round_0_client_0_utility_loss": 0.5,
-            "round_1_client_0_utility_loss": 0.3,
-        })
+        run = make_run(
+            metrics={
+                "round_0_client_0_epsilon": 1.0,
+                "round_1_client_0_epsilon": 2.0,
+                "round_0_client_0_utility_loss": 0.5,
+                "round_1_client_0_utility_loss": 0.3,
+            }
+        )
         with patch("src.plotting.bo.get_run_by_id", return_value=run):
             from src.plotting.bo import plot_metric_vs_epsilon
 
@@ -692,20 +732,20 @@ class TestPlotMetricVsEpsilon:
         plt.close(fig)
 
     def test_warmup_phase(self) -> None:
-        run = make_run(metrics={
-            "round_0_client_0_epsilon": 1.0,
-            "round_1_client_0_epsilon": 2.0,
-            "round_2_client_0_epsilon": 3.0,
-            "round_0_client_0_utility_loss": 0.5,
-            "round_1_client_0_utility_loss": 0.4,
-            "round_2_client_0_utility_loss": 0.3,
-        })
+        run = make_run(
+            metrics={
+                "round_0_client_0_epsilon": 1.0,
+                "round_1_client_0_epsilon": 2.0,
+                "round_2_client_0_epsilon": 3.0,
+                "round_0_client_0_utility_loss": 0.5,
+                "round_1_client_0_utility_loss": 0.4,
+                "round_2_client_0_utility_loss": 0.3,
+            }
+        )
         with patch("src.plotting.bo.get_run_by_id", return_value=run):
             from src.plotting.bo import plot_metric_vs_epsilon
 
-            fig = plot_metric_vs_epsilon(
-                "test_id", client_id=0, warmup_rounds=1
-            )
+            fig = plot_metric_vs_epsilon("test_id", client_id=0, warmup_rounds=1)
         legends = fig.axes[0].get_legend()
         assert legends is not None
         legend_texts = [t.get_text() for t in legends.get_texts()]
@@ -727,15 +767,15 @@ class TestPlotMetricVsEpsilon:
             from src.plotting.bo import plot_metric_vs_epsilon
 
             with pytest.raises(ValueError, match="No data for client 0"):
-                plot_metric_vs_epsilon(
-                    "test_id", client_id=0, metric="nonexistent"
-                )
+                plot_metric_vs_epsilon("test_id", client_id=0, metric="nonexistent")
 
     def test_save_path(self, tmp_path: Path) -> None:
-        run = make_run(metrics={
-            "round_0_client_0_epsilon": 1.0,
-            "round_0_client_0_utility_loss": 0.5,
-        })
+        run = make_run(
+            metrics={
+                "round_0_client_0_epsilon": 1.0,
+                "round_0_client_0_utility_loss": 0.5,
+            }
+        )
         path = tmp_path / "metric_vs_eps.png"
         with patch("src.plotting.bo.get_run_by_id", return_value=run):
             from src.plotting.bo import plot_metric_vs_epsilon

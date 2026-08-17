@@ -7,7 +7,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 import torch
-from flwr.app import ArrayRecord, ConfigRecord, Message, RecordDict
+from flwr.app import ArrayRecord, ConfigRecord, Message, MetricRecord, RecordDict
 from torch import nn
 from torch.utils.data import DataLoader, Subset, TensorDataset
 
@@ -31,7 +31,7 @@ class _SimpleModel(BaseModel):
         return self._net
 
 
-def _make_loader() -> DataLoader:
+def _make_loader() -> DataLoader[Any]:
     data = TensorDataset(torch.randn(4, 10), torch.randint(0, 2, (4,)))
     return DataLoader(data, batch_size=2)
 
@@ -154,30 +154,31 @@ class TestCreateClient:
 
     def test_creates_per_update_client_when_mode_per_update(self) -> None:
         from src.client.per_update_dp_client import PerUpdateDPClient
+
         config = ExperimentConfig()
         config.privacy.enabled = True
         config.privacy.clipping_mode = "per_update"
         model = _SimpleModel()
         loader = _make_loader()
-        client = create_client(0, model, loader, loader, config,
-                               client_epsilon=1.0)
+        client = create_client(0, model, loader, loader, config, client_epsilon=1.0)
         assert isinstance(client, PerUpdateDPClient)
 
     def test_creates_per_example_client_when_mode_per_example(self) -> None:
         from src.client.per_example_dp_client import PerExampleDPClient
+
         config = ExperimentConfig()
         config.privacy.enabled = True
         config.privacy.clipping_mode = "per_example"
         config.optimizer.momentum = 0.9
         model = _SimpleModel()
         loader = _make_loader()
-        client = create_client(0, model, loader, loader, config,
-                               client_epsilon=1.0)
+        client = create_client(0, model, loader, loader, config, client_epsilon=1.0)
         assert isinstance(client, PerExampleDPClient)
 
     def test_forwards_remaining_rdp_to_dp_clients(self) -> None:
         from src.client.per_example_dp_client import PerExampleDPClient
         from src.client.per_update_dp_client import PerUpdateDPClient
+
         model = _SimpleModel()
         loader = _make_loader()
         per_example_cfg = ExperimentConfig()
@@ -186,10 +187,12 @@ class TestCreateClient:
         per_update_cfg = ExperimentConfig()
         per_update_cfg.privacy.enabled = True
         per_update_cfg.privacy.clipping_mode = "per_update"
-        pe = create_client(0, model, loader, loader, per_example_cfg,
-                           client_epsilon=1.0, remaining_rdp=6.5)
-        pu = create_client(0, model, loader, loader, per_update_cfg,
-                           client_epsilon=1.0, remaining_rdp=6.5)
+        pe = create_client(
+            0, model, loader, loader, per_example_cfg, client_epsilon=1.0, remaining_rdp=6.5
+        )
+        pu = create_client(
+            0, model, loader, loader, per_update_cfg, client_epsilon=1.0, remaining_rdp=6.5
+        )
         assert isinstance(pe, PerExampleDPClient)
         assert isinstance(pu, PerUpdateDPClient)
         assert pe._remaining_rdp == 6.5
@@ -207,11 +210,15 @@ class TestPerExampleDPClient:
 
     def test_fit_returns_valid_output(self) -> None:
         from src.client.per_example_dp_client import PerExampleDPClient
+
         config = self._make_config()
         model = _SimpleModel()
         loader = _make_loader()
         client = PerExampleDPClient(
-            model, loader, loader, config,
+            model,
+            loader,
+            loader,
+            config,
             client_epsilon=1.0,
         )
         params = client.get_parameters({})
@@ -228,18 +235,24 @@ class TestPerExampleDPClient:
 
     def test_momentum_and_proximal_accepted(self) -> None:
         from src.client.per_example_dp_client import PerExampleDPClient
+
         config = self._make_config()
         config.optimizer.momentum = 0.9
         config.federated.proximal_mu = 0.01
         model = _SimpleModel()
         loader = _make_loader()
         client = PerExampleDPClient(
-            model, loader, loader, config, client_epsilon=1.0,
+            model,
+            loader,
+            loader,
+            config,
+            client_epsilon=1.0,
         )
         assert client is not None
 
     def test_fit_momentum_proximal_rdp_native_runs(self) -> None:
         from src.client.per_example_dp_client import PerExampleDPClient
+
         config = self._make_config()
         config.optimizer.momentum = 0.9
         config.federated.proximal_mu = 0.01
@@ -247,8 +260,12 @@ class TestPerExampleDPClient:
         model = _SimpleModel()
         loader = _make_loader()
         client = PerExampleDPClient(
-            model, loader, loader, config,
-            client_epsilon=0.5, seed=42,
+            model,
+            loader,
+            loader,
+            config,
+            client_epsilon=0.5,
+            seed=42,
         )
         params = client.get_parameters({})
         weights, num_examples, metrics = client.fit(params, {})
@@ -260,24 +277,30 @@ class TestPerExampleDPClient:
         assert metrics["sigma"] > 0
 
     def test_momentum_matches_reference_implementation(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         from src.client.per_example_dp_client import PerExampleDPClient
+
         monkeypatch.setattr(
-            "src.client.per_example_dp_client._add_noise", _identity_noise,
+            "src.client.per_example_dp_client._add_noise",
+            _identity_noise,
         )
         config = self._make_config()
         config.optimizer.momentum = 0.9
         model = _SimpleModel()
         loader = _make_loader()
         client = PerExampleDPClient(
-            model, loader, loader, config,
-            client_epsilon=1.0, seed=42,
+            model,
+            loader,
+            loader,
+            config,
+            client_epsilon=1.0,
+            seed=42,
             remaining_rdp=5.0,
         )
         params = client.get_parameters({})
 
-        criterion = nn.CrossEntropyLoss()
         net_ref = copy.deepcopy(model.get_model())
         opt = torch.optim.SGD(
             net_ref.parameters(),
@@ -287,10 +310,13 @@ class TestPerExampleDPClient:
         for _ in range(config.federated.local_epochs):
             for images, labels in loader:
                 per_example_grads = _compute_per_example_grads(
-                    net_ref, images, labels, criterion,
+                    net_ref,
+                    images,
+                    labels,
                 )
                 clipped, _ = _clip_per_example(
-                    per_example_grads, config.privacy.update_clip_norm,
+                    per_example_grads,
+                    config.privacy.update_clip_norm,
                 )
                 opt.zero_grad()
                 _set_model_grads(net_ref, _average_grads(clipped))
@@ -303,13 +329,18 @@ class TestPerExampleDPClient:
 
     def test_momentum_buffer_resets_between_fits(self) -> None:
         from src.client.per_example_dp_client import PerExampleDPClient
+
         config = self._make_config()
         config.optimizer.momentum = 0.9
         model = _SimpleModel()
         loader = _make_loader()
         client = PerExampleDPClient(
-            model, loader, loader, config,
-            client_epsilon=1.0, seed=42,
+            model,
+            loader,
+            loader,
+            config,
+            client_epsilon=1.0,
+            seed=42,
             remaining_rdp=5.0,
         )
         params = client.get_parameters({})
@@ -320,36 +351,42 @@ class TestPerExampleDPClient:
 
     def test_proximal_shifted_grads_before_clipping(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from src.client.per_example_dp_client import PerExampleDPClient
+
         monkeypatch.setattr(
-            "src.client.per_example_dp_client._add_noise", _identity_noise,
+            "src.client.per_example_dp_client._add_noise",
+            _identity_noise,
         )
         config = self._make_config()
         config.optimizer.momentum = 0.0
         config.federated.proximal_mu = 0.01
         config.privacy.update_clip_norm = 0.1  # forces clipping, distinguishes
-        config.federated.local_epochs = 1      # shift-before-clip vs after-clip
+        config.federated.local_epochs = 1  # shift-before-clip vs after-clip
         model = _SimpleModel()
         loader = _make_loader()
         client = PerExampleDPClient(
-            model, loader, loader, config,
-            client_epsilon=1.0, seed=42,
+            model,
+            loader,
+            loader,
+            config,
+            client_epsilon=1.0,
+            seed=42,
             remaining_rdp=5.0,
         )
         params = client.get_parameters({})
 
         mu = config.federated.proximal_mu
-        criterion = nn.CrossEntropyLoss()
         net_ref = copy.deepcopy(model.get_model())
         global_params = copy.deepcopy(dict(net_ref.named_parameters()))
         opt = torch.optim.SGD(net_ref.parameters(), lr=config.optimizer.lr)
         for images, labels in loader:
             per_example_grads = _compute_per_example_grads(
-                net_ref, images, labels, criterion,
+                net_ref,
+                images,
+                labels,
             )
             params_now = dict(net_ref.named_parameters())
             shifted = {
-                k: g + mu * (params_now[k] - global_params[k])
-                for k, g in per_example_grads.items()
+                k: g + mu * (params_now[k] - global_params[k]) for k, g in per_example_grads.items()
             }
             clipped, _ = _clip_per_example(shifted, config.privacy.update_clip_norm)
             opt.zero_grad()
@@ -363,12 +400,16 @@ class TestPerExampleDPClient:
 
     def test_clip_fraction_between_0_and_1(self) -> None:
         from src.client.per_example_dp_client import PerExampleDPClient
+
         config = self._make_config()
         config.privacy.update_clip_norm = 0.01  # very small clip norm → high clip fraction
         model = _SimpleModel()
         loader = _make_loader()
         client = PerExampleDPClient(
-            model, loader, loader, config,
+            model,
+            loader,
+            loader,
+            config,
             client_epsilon=1.0,
         )
         params = client.get_parameters({})
@@ -377,11 +418,15 @@ class TestPerExampleDPClient:
 
     def test_budget_exhausted_returns_zeros(self) -> None:
         from src.client.per_example_dp_client import PerExampleDPClient
+
         config = self._make_config()
         model = _SimpleModel()
         loader = _make_loader()
         client = PerExampleDPClient(
-            model, loader, loader, config,
+            model,
+            loader,
+            loader,
+            config,
             client_epsilon=0.0,  # exhausted
         )
         params = client.get_parameters({})
@@ -391,13 +436,18 @@ class TestPerExampleDPClient:
 
     def test_clean_pass_runs_for_reference_variant(self) -> None:
         from src.client.per_example_dp_client import PerExampleDPClient
+
         config = self._make_config()
         config.method = "pldpbo_retention"
         model = _SimpleModel()
         loader = _make_loader()
         client = PerExampleDPClient(
-            model, loader, loader, config,
-            client_epsilon=1.0, seed=42,
+            model,
+            loader,
+            loader,
+            config,
+            client_epsilon=1.0,
+            seed=42,
             remaining_rdp=5.0,
         )
         params = client.get_parameters({})
@@ -408,13 +458,18 @@ class TestPerExampleDPClient:
 
     def test_no_clean_pass_for_nun(self) -> None:
         from src.client.per_example_dp_client import PerExampleDPClient
+
         config = self._make_config()
         config.method = "pldpbo_nun"
         model = _SimpleModel()
         loader = _make_loader()
         client = PerExampleDPClient(
-            model, loader, loader, config,
-            client_epsilon=1.0, seed=42,
+            model,
+            loader,
+            loader,
+            config,
+            client_epsilon=1.0,
+            seed=42,
             remaining_rdp=5.0,
         )
         params = client.get_parameters({})
@@ -429,26 +484,34 @@ class TestPerExampleDPClient:
     def test_clean_loss_differs_from_global_model_eval(self) -> None:
         from src.client.per_example_dp_client import PerExampleDPClient
         from src.privacy.metrics import compute_validation_stats
+
         config = self._make_config()
         config.method = "pldpbo_retention"
         config.optimizer.lr = 0.5
         model = _SimpleModel()
         loader = _make_loader()
         client = PerExampleDPClient(
-            model, loader, loader, config,
-            client_epsilon=1.0, seed=42,
+            model,
+            loader,
+            loader,
+            config,
+            client_epsilon=1.0,
+            seed=42,
             remaining_rdp=5.0,
         )
         params = client.get_parameters({})
         model.set_weights(params)
         global_loss, _ = compute_validation_stats(
-            model.get_model(), loader, nn.CrossEntropyLoss(),
+            model.get_model(),
+            loader,
+            nn.CrossEntropyLoss(),
         )
         _, _, metrics = client.fit(params, {})
         assert not np.isclose(metrics["utility_loss_clean"], global_loss)
 
     def test_clean_pass_accounting_unaffected(self) -> None:
         from src.client.per_example_dp_client import PerExampleDPClient
+
         reference_config = self._make_config()
         reference_config.method = "pldpbo_retention"
         nun_config = self._make_config()
@@ -457,13 +520,21 @@ class TestPerExampleDPClient:
         loader = _make_loader()
 
         reference = PerExampleDPClient(
-            _SimpleModel(), loader, loader, reference_config,
-            client_epsilon=1.0, seed=42,
+            _SimpleModel(),
+            loader,
+            loader,
+            reference_config,
+            client_epsilon=1.0,
+            seed=42,
             remaining_rdp=5.0,
         )
         nun = PerExampleDPClient(
-            model, loader, loader, nun_config,
-            client_epsilon=1.0, seed=42,
+            model,
+            loader,
+            loader,
+            nun_config,
+            client_epsilon=1.0,
+            seed=42,
             remaining_rdp=5.0,
         )
         params = nun.get_parameters({})
@@ -474,6 +545,7 @@ class TestPerExampleDPClient:
 
     def test_clean_loss_varies_per_client(self) -> None:
         from src.client.per_example_dp_client import PerExampleDPClient
+
         config = self._make_config()
         config.method = "pldpbo_retention"
         config.data.batch_size = 4
@@ -486,30 +558,42 @@ class TestPerExampleDPClient:
         params = _SimpleModel().get_weights()
 
         client_a = PerExampleDPClient(
-            _SimpleModel(), loader_a, loader_a, config,
-            client_epsilon=1.0, seed=42,
+            _SimpleModel(),
+            loader_a,
+            loader_a,
+            config,
+            client_epsilon=1.0,
+            seed=42,
             remaining_rdp=5.0,
         )
         client_b = PerExampleDPClient(
-            _SimpleModel(), loader_b, loader_b, config,
-            client_epsilon=1.0, seed=42,
+            _SimpleModel(),
+            loader_b,
+            loader_b,
+            config,
+            client_epsilon=1.0,
+            seed=42,
             remaining_rdp=5.0,
         )
         _, _, metrics_a = client_a.fit(params, {})
         _, _, metrics_b = client_b.fit(params, {})
         assert not np.isclose(
-            metrics_a["utility_loss_clean"], metrics_b["utility_loss_clean"],
+            metrics_a["utility_loss_clean"],
+            metrics_b["utility_loss_clean"],
         )
 
     def test_clean_pass_doubles_optimizer_steps(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from src.client import per_example_dp_client as mod
         from src.client.per_example_dp_client import PerExampleDPClient
+
         dp_steps: list[int] = [0]
         clean_steps: list[int] = [0]
         original = mod._get_optimizer  # type: ignore[attr-defined]
 
         def counting(
-            net: nn.Module, config: ExperimentConfig, momentum: float | None = None,
+            net: nn.Module,
+            config: ExperimentConfig,
+            momentum: float | None = None,
         ) -> _CountingOptimizer:
             opt = original(net, config, momentum=momentum)
             counter = clean_steps if momentum is None else dp_steps
@@ -522,8 +606,12 @@ class TestPerExampleDPClient:
         model = _SimpleModel()
         loader = _make_loader()
         client = PerExampleDPClient(
-            model, loader, loader, config,
-            client_epsilon=1.0, seed=42,
+            model,
+            loader,
+            loader,
+            config,
+            client_epsilon=1.0,
+            seed=42,
             remaining_rdp=5.0,
         )
         params = client.get_parameters({})
@@ -533,13 +621,18 @@ class TestPerExampleDPClient:
 
     def test_snr_uses_clean_unclipped_update_norm(self) -> None:
         from src.client.per_example_dp_client import PerExampleDPClient
+
         config = self._make_config()
         config.method = "pldpbo_snr"
         model = _SimpleModel()
         loader = _make_loader()
         client = PerExampleDPClient(
-            model, loader, loader, config,
-            client_epsilon=1.0, seed=42,
+            model,
+            loader,
+            loader,
+            config,
+            client_epsilon=1.0,
+            seed=42,
             remaining_rdp=5.0,
         )
         params = client.get_parameters({})
@@ -550,13 +643,18 @@ class TestPerExampleDPClient:
 
     def test_snr_zero_without_clean_pass(self) -> None:
         from src.client.per_example_dp_client import PerExampleDPClient
+
         config = self._make_config()
         config.method = "pldpbo_nun"
         model = _SimpleModel()
         loader = _make_loader()
         client = PerExampleDPClient(
-            model, loader, loader, config,
-            client_epsilon=1.0, seed=42,
+            model,
+            loader,
+            loader,
+            config,
+            client_epsilon=1.0,
+            seed=42,
         )
         params = client.get_parameters({})
         _, _, metrics = client.fit(params, {})
@@ -564,13 +662,18 @@ class TestPerExampleDPClient:
 
     def test_missing_remaining_rdp_raises_for_clean_pass(self) -> None:
         from src.client.per_example_dp_client import PerExampleDPClient
+
         config = self._make_config()
         config.method = "pldpbo_retention"
         model = _SimpleModel()
         loader = _make_loader()
         client = PerExampleDPClient(
-            model, loader, loader, config,
-            client_epsilon=1.0, seed=42,
+            model,
+            loader,
+            loader,
+            config,
+            client_epsilon=1.0,
+            seed=42,
         )
         params = client.get_parameters({})
         with pytest.raises(ValueError, match="remaining_rdp"):
@@ -578,13 +681,18 @@ class TestPerExampleDPClient:
 
     def test_missing_remaining_rdp_ok_for_non_clean_pass(self) -> None:
         from src.client.per_example_dp_client import PerExampleDPClient
+
         config = self._make_config()
         config.method = "pldpbo_nun"
         model = _SimpleModel()
         loader = _make_loader()
         client = PerExampleDPClient(
-            model, loader, loader, config,
-            client_epsilon=1.0, seed=42,
+            model,
+            loader,
+            loader,
+            config,
+            client_epsilon=1.0,
+            seed=42,
         )
         params = client.get_parameters({})
         _, _, metrics = client.fit(params, {})
@@ -601,12 +709,17 @@ class TestPerUpdateDPClient:
 
     def test_fit_reports_clean_update_norm(self) -> None:
         from src.client.per_update_dp_client import PerUpdateDPClient
+
         config = self._make_config()
         model = _SimpleModel()
         loader = _make_loader()
         client = PerUpdateDPClient(
-            model, loader, loader, config,
-            client_epsilon=1.0, seed=42,
+            model,
+            loader,
+            loader,
+            config,
+            client_epsilon=1.0,
+            seed=42,
             remaining_rdp=5.0,
         )
         params = client.get_parameters({})
@@ -616,13 +729,18 @@ class TestPerUpdateDPClient:
 
     def test_snr_uses_raw_unclipped_update_norm(self) -> None:
         from src.client.per_update_dp_client import PerUpdateDPClient
+
         config = self._make_config()
         config.privacy.update_clip_norm = 1e-6  # forces clipping; snr must stay raw
         model = _SimpleModel()
         loader = _make_loader()
         client = PerUpdateDPClient(
-            model, loader, loader, config,
-            client_epsilon=1.0, seed=42,
+            model,
+            loader,
+            loader,
+            config,
+            client_epsilon=1.0,
+            seed=42,
             remaining_rdp=5.0,
         )
         params = client.get_parameters({})
@@ -633,12 +751,17 @@ class TestPerUpdateDPClient:
 
     def test_missing_remaining_rdp_raises(self) -> None:
         from src.client.per_update_dp_client import PerUpdateDPClient
+
         config = self._make_config()
         model = _SimpleModel()
         loader = _make_loader()
         client = PerUpdateDPClient(
-            model, loader, loader, config,
-            client_epsilon=1.0, seed=42,
+            model,
+            loader,
+            loader,
+            config,
+            client_epsilon=1.0,
+            seed=42,
         )
         params = client.get_parameters({})
         with pytest.raises(ValueError, match="remaining_rdp"):
@@ -648,6 +771,7 @@ class TestPerUpdateDPClient:
         from src.client.per_update_dp_client import PerUpdateDPClient
         from src.privacy.accountant import RDPAccountant
         from src.privacy.per_update_dp import compute_rdp_cost
+
         config = self._make_config()
         config.privacy.accountant_mode = "rdp_native"
         config.privacy.rdp_alpha = 10.0
@@ -655,8 +779,12 @@ class TestPerUpdateDPClient:
         model = _SimpleModel()
         loader = _make_loader()
         client = PerUpdateDPClient(
-            model, loader, loader, config,
-            client_epsilon=1.0, seed=42,
+            model,
+            loader,
+            loader,
+            config,
+            client_epsilon=1.0,
+            seed=42,
             accountant=RDPAccountant(delta=1e-5),
             remaining_rdp=5.0,
         )
@@ -664,8 +792,49 @@ class TestPerUpdateDPClient:
         _, _, metrics = client.fit(params, {})
         assert metrics["r_t_final"] == pytest.approx(1.0)
         assert metrics["acct_cost"] == pytest.approx(
-            compute_rdp_cost(10.0, metrics["sigma"], 1.0), rel=1e-9,
+            compute_rdp_cost(10.0, metrics["sigma"], 1.0),
+            rel=1e-9,
         )
+
+
+class TestPerExampleGrads:
+    def test_matches_manual_per_sample_backward(self) -> None:
+        torch.manual_seed(0)
+        model = nn.Sequential(nn.Linear(10, 8), nn.ReLU(), nn.Linear(8, 3))
+        inputs = torch.randn(5, 10)
+        targets = torch.randint(0, 3, (5,))
+        grads = _compute_per_example_grads(model, inputs, targets)
+
+        names = [name for name, _ in model.named_parameters()]
+        reference: dict[str, list[torch.Tensor]] = {name: [] for name in names}
+        for i in range(inputs.size(0)):
+            model.zero_grad()
+            loss = nn.CrossEntropyLoss()(model(inputs[i].unsqueeze(0)), targets[i].unsqueeze(0))
+            loss.backward()
+            for name, param in model.named_parameters():
+                assert param.grad is not None
+                reference[name].append(param.grad)
+        for name, param in model.named_parameters():
+            ref = torch.stack(reference[name])
+            assert grads[name].shape == torch.Size([5, *param.shape])
+            assert torch.allclose(grads[name], ref, atol=1e-5, rtol=1e-5)
+
+    def test_single_example_batch(self) -> None:
+        model = nn.Linear(10, 2)
+        inputs = torch.randn(1, 10)
+        targets = torch.randint(0, 2, (1,))
+        grads = _compute_per_example_grads(model, inputs, targets)
+        assert grads["weight"].shape == torch.Size([1, 2, 10])
+        assert grads["bias"].shape == torch.Size([1, 2])
+
+    def test_returns_plain_tensors_and_no_grad_history(self) -> None:
+        model = nn.Linear(4, 2)
+        inputs = torch.randn(3, 4)
+        targets = torch.randint(0, 2, (3,))
+        grads = _compute_per_example_grads(model, inputs, targets)
+        for tensor in grads.values():
+            assert not tensor.requires_grad
+            assert tensor.grad_fn is None
 
 
 class TestClipPerExample:
@@ -770,7 +939,9 @@ class TestClientTestAccuracyQuery:
         monkeypatch.setattr(
             "src.client_app.create_dataloaders",
             lambda dataset, batch_size, shuffle: DataLoader(
-                dataset, batch_size=batch_size, shuffle=shuffle,
+                dataset,
+                batch_size=batch_size,
+                shuffle=shuffle,
             ),
         )
         monkeypatch.setattr(
@@ -780,17 +951,20 @@ class TestClientTestAccuracyQuery:
 
     def test_evaluates_only_own_writers_test_samples(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from src.client_app import query
+
         config = ExperimentConfig()
         config.data.name = "femnist"
         train_subset = Subset(self._make_train_dataset(), [0, 1, 2, 3])  # writers {0, 1}
         self._monkeypatch(monkeypatch, train_subset, config)
         msg = Message(
-            content=RecordDict({
-                "config": ConfigRecord({"task": "client_test_accuracy"}),
-                "arrays": ArrayRecord(
-                    _FixedPredictionModel([0, 1, 9, 9, 1, 9]).get_model().state_dict(),
-                ),
-            }),
+            content=RecordDict(
+                {
+                    "config": ConfigRecord({"task": "client_test_accuracy"}),
+                    "arrays": ArrayRecord(
+                        _FixedPredictionModel([0, 1, 9, 9, 1, 9]).get_model().state_dict(),
+                    ),
+                }
+            ),
             message_type="query",
             dst_node_id=0,
             group_id="t",
@@ -804,15 +978,18 @@ class TestClientTestAccuracyQuery:
 
     def test_no_test_samples_for_writer_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from src.client_app import query
+
         config = ExperimentConfig()
         config.data.name = "femnist"
         train_subset = Subset(self._make_train_dataset(), [4])  # writer {2} only
         self._monkeypatch(monkeypatch, train_subset, config, test_users=[0, 1, 0, 1, 0, 1])
         msg = Message(
-            content=RecordDict({
-                "config": ConfigRecord({"task": "client_test_accuracy"}),
-                "arrays": ArrayRecord({}),
-            }),
+            content=RecordDict(
+                {
+                    "config": ConfigRecord({"task": "client_test_accuracy"}),
+                    "arrays": ArrayRecord({}),
+                }
+            ),
             message_type="query",
             dst_node_id=0,
             group_id="t",
@@ -824,15 +1001,18 @@ class TestClientTestAccuracyQuery:
 
     def test_requires_femnist_dataset(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from src.client_app import query
+
         config = ExperimentConfig()
         config.data.name = "mnist"
         train_subset = Subset(self._make_train_dataset(), [0])
         self._monkeypatch(monkeypatch, train_subset, config)
         msg = Message(
-            content=RecordDict({
-                "config": ConfigRecord({"task": "client_test_accuracy"}),
-                "arrays": ArrayRecord({}),
-            }),
+            content=RecordDict(
+                {
+                    "config": ConfigRecord({"task": "client_test_accuracy"}),
+                    "arrays": ArrayRecord({}),
+                }
+            ),
             message_type="query",
             dst_node_id=0,
             group_id="t",
@@ -844,6 +1024,7 @@ class TestClientTestAccuracyQuery:
 class TestReadRemainingRdp:
     def test_reads_float_from_config(self) -> None:
         from src.client_app import _read_remaining_rdp
+
         msg = Message(
             content=RecordDict({"config": ConfigRecord({"remaining_rdp": 6.5})}),
             message_type="train",
@@ -853,6 +1034,7 @@ class TestReadRemainingRdp:
 
     def test_none_when_missing(self) -> None:
         from src.client_app import _read_remaining_rdp
+
         msg = Message(
             content=RecordDict({"config": ConfigRecord({})}),
             message_type="train",
@@ -862,6 +1044,7 @@ class TestReadRemainingRdp:
 
     def test_none_when_no_config_record(self) -> None:
         from src.client_app import _read_remaining_rdp
+
         msg = Message(
             content=RecordDict({}),
             message_type="train",
@@ -877,7 +1060,9 @@ class _FakeFitClient:
         self._metrics = metrics
 
     def fit(
-        self, parameters: list[Any], config: dict[str, Any],  # noqa: ARG002
+        self,
+        _parameters: list[Any],
+        config: dict[str, Any],  # noqa: ARG002
     ) -> tuple[list[Any], int, dict[str, Any]]:
         return [], 2, self._metrics
 
@@ -907,8 +1092,10 @@ class TestTrainReplySpecFields:
         return config
 
     def _monkeypatch(
-        self, monkeypatch: pytest.MonkeyPatch,
-        config: ExperimentConfig, metrics: dict[str, Any],
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        config: ExperimentConfig,
+        metrics: dict[str, Any],
     ) -> None:
         monkeypatch.setattr(
             "src.client_app.load_config",
@@ -931,19 +1118,32 @@ class TestTrainReplySpecFields:
             lambda **kwargs: _FakeFitClient(metrics),  # noqa: ARG005
         )
 
-    def _reply_metrics(self, monkeypatch: pytest.MonkeyPatch, fit_metrics: dict[str, Any]) -> dict:
+    def _reply_metrics(
+        self, monkeypatch: pytest.MonkeyPatch, fit_metrics: dict[str, Any]
+    ) -> MetricRecord | ConfigRecord:
+        return self._reply_metrics_ctx(monkeypatch, fit_metrics, _FakeTrainContext())
+
+    def _reply_metrics_ctx(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        fit_metrics: dict[str, Any],
+        ctx: _FakeTrainContext,
+    ) -> MetricRecord | ConfigRecord:
         from src.client_app import train
+
         config = self._make_config()
         self._monkeypatch(monkeypatch, config, fit_metrics)
         msg = Message(
-            content=RecordDict({
-                "config": ConfigRecord({"per_client_budget": 10.0, "remaining_rdp": 5.0}),
-                "arrays": ArrayRecord(_SimpleModel().get_model().state_dict()),
-            }),
+            content=RecordDict(
+                {
+                    "config": ConfigRecord({"per_client_budget": 10.0, "remaining_rdp": 5.0}),
+                    "arrays": ArrayRecord(_SimpleModel().get_model().state_dict()),
+                }
+            ),
             message_type="train",
             dst_node_id=0,
         )
-        reply = train(msg, cast(Any, _FakeTrainContext()))
+        reply = train(msg, cast(Any, ctx))
         return reply.content.metric_records.get("metrics", ConfigRecord())
 
     def test_reports_spec_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -959,13 +1159,16 @@ class TestTrainReplySpecFields:
         assert metrics["r_t_candidate"] == pytest.approx(0.01)
         assert metrics["phase"] == pytest.approx(0.0)
         assert metrics["observed_m"] == pytest.approx(0.42)
-        assert isinstance(metrics["bo_time"], float) and metrics["bo_time"] >= 0
-        assert isinstance(metrics["acct_time"], float) and metrics["acct_time"] >= 0
+        bo_time = metrics["bo_time"]
+        acct_time = metrics["acct_time"]
+        assert isinstance(bo_time, float) and bo_time >= 0
+        assert isinstance(acct_time, float) and acct_time >= 0
         assert metrics["num-examples"] == 2
         assert metrics["client-id"] == 0
 
     def test_exhausted_reports_phase_and_no_observed_m(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         fit_metrics = {
             "rdp_cost": 0.0,
@@ -976,3 +1179,29 @@ class TestTrainReplySpecFields:
         # Phase code 2.0 = "exhausted".
         assert metrics["phase"] == pytest.approx(2.0)
         assert "observed_m" not in metrics
+
+    def test_transition_round_spend_tagged_warmup(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # §4.4 tags the spend, not the following round: the warm-up grid
+        # spend of the transition round must stay "warmup" even though the
+        # scheduler switches to "bo" right after it (IMPL-14 Task 6).
+        from src.privacy.bo_scheduler import WARMUP_GRID
+
+        ctx = _FakeTrainContext()
+        self._monkeypatch(monkeypatch, self._make_config(), {})
+        phases: list[float] = []
+        candidates: list[float] = []
+        for _ in range(12):
+            metrics = self._reply_metrics_ctx(
+                monkeypatch,
+                {"rdp_cost": 0.05, "update_norm": 0.5, "budget_exhausted": False},
+                ctx,
+            )
+            phase_raw = metrics.get("phase")
+            candidate_raw = metrics.get("r_t_candidate")
+            assert phase_raw is not None and candidate_raw is not None
+            phases.append(float(cast(Any, phase_raw)))
+            candidates.append(float(cast(Any, candidate_raw)))
+        assert candidates[:10] == [pytest.approx(float(g)) for g in WARMUP_GRID[:10]]
+        assert phases[:10] == [pytest.approx(0.0)] * 10
+        assert phases[10] == pytest.approx(1.0)
+        assert phases[11] == pytest.approx(1.0)

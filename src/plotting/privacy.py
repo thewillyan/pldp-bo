@@ -5,6 +5,7 @@ from pathlib import Path
 import matplotlib.figure
 import matplotlib.pyplot as plt
 import numpy as np
+from mlflow.entities import Run
 
 from src.plotting._helpers import (
     _get_metric_history,
@@ -14,7 +15,7 @@ from src.plotting._helpers import (
 )
 
 
-def _discover_client_ids(run) -> set[int]:
+def _discover_client_ids(run: Run) -> set[int]:
     ids: set[int] = set()
     for key in run.data.metrics:
         if "_client_" not in key:
@@ -24,12 +25,12 @@ def _discover_client_ids(run) -> set[int]:
             idx = parts.index("client")
             if idx + 1 < len(parts):
                 ids.add(int(parts[idx + 1]))
-        except (ValueError, IndexError):
+        except ValueError, IndexError:
             continue
     return ids
 
 
-def _get_client_latest(run, metric_suffix: str) -> dict[int, float]:
+def _get_client_latest(run: Run, metric_suffix: str) -> dict[int, float]:
     result: dict[int, float] = {}
     for key, value in run.data.metrics.items():
         if not key.endswith(metric_suffix):
@@ -39,7 +40,7 @@ def _get_client_latest(run, metric_suffix: str) -> dict[int, float]:
             idx = parts.index("client")
             cid = int(parts[idx + 1])
             result[cid] = float(value)
-        except (ValueError, IndexError):
+        except ValueError, IndexError:
             continue
     return result
 
@@ -51,7 +52,7 @@ def _get_client_trace(run_id: str, client_id: int, metric: str) -> list[tuple[in
     return []
 
 
-def _detect_format(run) -> str:
+def _detect_format(run: Run) -> str:
     for key in run.data.metrics:
         if key.startswith("round_"):
             return "legacy"
@@ -88,10 +89,7 @@ def plot_client_epsilon_distribution(
     all_ids = sorted(remaining.keys() | used_data.keys())
 
     if remaining and used_data:
-        allocated_vals = [
-            remaining.get(cid, 0.0) + used_data.get(cid, 0.0)
-            for cid in all_ids
-        ]
+        allocated_vals = [remaining.get(cid, 0.0) + used_data.get(cid, 0.0) for cid in all_ids]
         used_vals = [used_data.get(cid, 0.0) for cid in all_ids]
 
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 5))
@@ -99,10 +97,24 @@ def plot_client_epsilon_distribution(
         x = np.arange(len(all_ids))
         width = 0.35
 
-        ax1.bar(x - width / 2, allocated_vals, width,
-                label="Initial Budget", color="#4A90D9", edgecolor="black", linewidth=0.5)
-        ax1.bar(x + width / 2, used_vals, width,
-                label="Cumulative Used", color="#1A5276", edgecolor="black", linewidth=0.5)
+        ax1.bar(
+            x - width / 2,
+            allocated_vals,
+            width,
+            label="Initial Budget",
+            color="#4A90D9",
+            edgecolor="black",
+            linewidth=0.5,
+        )
+        ax1.bar(
+            x + width / 2,
+            used_vals,
+            width,
+            label="Cumulative Used",
+            color="#1A5276",
+            edgecolor="black",
+            linewidth=0.5,
+        )
         ax1.set_xlabel("Client ID")
         ax1.set_ylabel(x_label)
         ax1.set_title("Privacy Budget: Initial Allocation vs Cumulative Spend")
@@ -110,10 +122,16 @@ def plot_client_epsilon_distribution(
         ax1.set_xticklabels(all_ids)
         ax1.legend(frameon=True, framealpha=0.9, edgecolor="gray")
         ax1.grid(True, alpha=0.3, axis="y")
-        ax1.text(0.5, -0.22,
-                 "Initial Budget = Remaining Budget + Cumulative Used",
-                 transform=ax1.transAxes, ha="center", fontsize=8,
-                 style="italic", color="gray")
+        ax1.text(
+            0.5,
+            -0.22,
+            "Initial Budget = Remaining Budget + Cumulative Used",
+            transform=ax1.transAxes,
+            ha="center",
+            fontsize=8,
+            style="italic",
+            color="gray",
+        )
 
         total_rounds_str = run.data.params.get("federated.num_rounds", "0")
         total_rounds = int(total_rounds_str) if total_rounds_str else 0
@@ -125,27 +143,39 @@ def plot_client_epsilon_distribution(
             rds = [d[0] for d in data]
             eps = [d[1] for d in data]
             color = trace_colors[i % len(trace_colors)]
-            ax2.plot(rds, eps, marker="o", markersize=4, color=color,
-                     label=f"Client {cid}", linewidth=1.5)
-            last_r, last_eps = data[-1]
-            exhausted = total_rounds > 0 and (
-                last_r < total_rounds - 1 or len(data) < total_rounds
+            ax2.plot(
+                rds,
+                eps,
+                marker="o",
+                markersize=4,
+                color=color,
+                label=f"Client {cid}",
+                linewidth=1.5,
             )
+            last_r, last_eps = data[-1]
+            exhausted = total_rounds > 0 and (last_r < total_rounds - 1 or len(data) < total_rounds)
             marker_color = "#E74C3C" if exhausted else color
-            ax2.plot(last_r, last_eps, marker="x", markersize=8,
-                     color=marker_color, mew=2)
+            ax2.plot(last_r, last_eps, marker="x", markersize=8, color=marker_color, mew=2)
 
         sorted_rounds, stats = extract_round_stats(run, stat_metric, aggs=("mean", "std"))
         if sorted_rounds:
             mean_vals = stats.get("mean", [])
             std_vals = stats.get("std", [])
             if mean_vals and std_vals and len(mean_vals) == len(std_vals):
-                ax2.plot(sorted_rounds, mean_vals, color="black", linewidth=2.5,
-                         linestyle="--", label="Mean ± σ", zorder=len(all_ids) + 5)
-                upper = [m + s for m, s in zip(mean_vals, std_vals)]
-                lower = [m - s for m, s in zip(mean_vals, std_vals)]
-                ax2.fill_between(sorted_rounds, lower, upper, alpha=0.15,
-                                 color="black", zorder=len(all_ids) + 4)
+                ax2.plot(
+                    sorted_rounds,
+                    mean_vals,
+                    color="black",
+                    linewidth=2.5,
+                    linestyle="--",
+                    label="Mean ± σ",
+                    zorder=len(all_ids) + 5,
+                )
+                upper = [m + s for m, s in zip(mean_vals, std_vals, strict=False)]
+                lower = [m - s for m, s in zip(mean_vals, std_vals, strict=False)]
+                ax2.fill_between(
+                    sorted_rounds, lower, upper, alpha=0.15, color="black", zorder=len(all_ids) + 4
+                )
 
         ax2.set_xlabel("Round")
         ax2.set_ylabel(x_label)
@@ -199,7 +229,10 @@ def plot_client_epsilon_distribution(
 
 
 def _plot_client_epsilon_legacy(
-    run, run_id: str, save_path: Path | None, dpi: int,
+    run: Run,
+    run_id: str,
+    save_path: Path | None,
+    dpi: int,
 ) -> matplotlib.figure.Figure:
     remaining: dict[int, tuple[int, float]] = {}
     used_data: dict[int, tuple[int, float]] = {}
@@ -215,7 +248,7 @@ def _plot_client_epsilon_legacy(
         try:
             round_num = int(parts[1])
             client_id = int(parts[3])
-        except (ValueError, IndexError):
+        except ValueError, IndexError:
             continue
 
         if key.endswith("_remaining_budget"):
@@ -226,7 +259,11 @@ def _plot_client_epsilon_legacy(
             prev_round, _ = used_data.get(client_id, (-1, 0.0))
             if round_num > prev_round:
                 used_data[client_id] = (round_num, float(value))
-        elif key.endswith("_epsilon") and not key.endswith("_client_epsilon") and not key.endswith("_cumulative_epsilon"):
+        elif (
+            key.endswith("_epsilon")
+            and not key.endswith("_client_epsilon")
+            and not key.endswith("_cumulative_epsilon")
+        ):
             prev_round, _ = per_round.get(client_id, (-1, 0.0))
             if round_num > prev_round:
                 per_round[client_id] = (round_num, float(value))
@@ -238,8 +275,7 @@ def _plot_client_epsilon_legacy(
     if has_remaining and has_used:
         all_ids = sorted(set(remaining.keys()) | set(used_data.keys()))
         allocated_vals = [
-            remaining.get(cid, (0, 0.0))[1] + used_data.get(cid, (0, 0.0))[1]
-            for cid in all_ids
+            remaining.get(cid, (0, 0.0))[1] + used_data.get(cid, (0, 0.0))[1] for cid in all_ids
         ]
         used_vals = [used_data.get(cid, (0, 0.0))[1] for cid in all_ids]
 
@@ -248,10 +284,24 @@ def _plot_client_epsilon_legacy(
         x = np.arange(len(all_ids))
         width = 0.35
 
-        ax1.bar(x - width / 2, allocated_vals, width,
-                label="Initial Budget", color="#4A90D9", edgecolor="black", linewidth=0.5)
-        ax1.bar(x + width / 2, used_vals, width,
-                label="Cumulative Used", color="#1A5276", edgecolor="black", linewidth=0.5)
+        ax1.bar(
+            x - width / 2,
+            allocated_vals,
+            width,
+            label="Initial Budget",
+            color="#4A90D9",
+            edgecolor="black",
+            linewidth=0.5,
+        )
+        ax1.bar(
+            x + width / 2,
+            used_vals,
+            width,
+            label="Cumulative Used",
+            color="#1A5276",
+            edgecolor="black",
+            linewidth=0.5,
+        )
         ax1.set_xlabel("Client ID")
         ax1.set_ylabel("Epsilon (ε)")
         ax1.set_title("Privacy Budget: Initial Allocation vs Cumulative Spend")
@@ -259,10 +309,16 @@ def _plot_client_epsilon_legacy(
         ax1.set_xticklabels(all_ids)
         ax1.legend(frameon=True, framealpha=0.9, edgecolor="gray")
         ax1.grid(True, alpha=0.3, axis="y")
-        ax1.text(0.5, -0.22,
-                 "Initial Budget = Remaining Budget + Cumulative Used",
-                 transform=ax1.transAxes, ha="center", fontsize=8,
-                 style="italic", color="gray")
+        ax1.text(
+            0.5,
+            -0.22,
+            "Initial Budget = Remaining Budget + Cumulative Used",
+            transform=ax1.transAxes,
+            ha="center",
+            fontsize=8,
+            style="italic",
+            color="gray",
+        )
 
         total_rounds_str = run.data.params.get("federated.num_rounds", "0")
         total_rounds = int(total_rounds_str) if total_rounds_str else 0
@@ -274,27 +330,39 @@ def _plot_client_epsilon_legacy(
             rds = [d[0] for d in data]
             eps = [d[1] for d in data]
             color = trace_colors[i % len(trace_colors)]
-            ax2.plot(rds, eps, marker="o", markersize=4, color=color,
-                     label=f"Client {cid}", linewidth=1.5)
-            last_r, last_eps = data[-1]
-            exhausted = total_rounds > 0 and (
-                last_r < total_rounds - 1 or len(data) < total_rounds
+            ax2.plot(
+                rds,
+                eps,
+                marker="o",
+                markersize=4,
+                color=color,
+                label=f"Client {cid}",
+                linewidth=1.5,
             )
+            last_r, last_eps = data[-1]
+            exhausted = total_rounds > 0 and (last_r < total_rounds - 1 or len(data) < total_rounds)
             marker_color = "#E74C3C" if exhausted else color
-            ax2.plot(last_r, last_eps, marker="x", markersize=8,
-                     color=marker_color, mew=2)
+            ax2.plot(last_r, last_eps, marker="x", markersize=8, color=marker_color, mew=2)
 
         sorted_rounds, stats = extract_round_stats(run, "epsilon", aggs=("mean", "std"))
         if sorted_rounds:
             mean_vals = stats.get("mean", [])
             std_vals = stats.get("std", [])
             if mean_vals and std_vals and len(mean_vals) == len(std_vals):
-                ax2.plot(sorted_rounds, mean_vals, color="black", linewidth=2.5,
-                         linestyle="--", label="Mean ± σ", zorder=len(all_ids) + 5)
-                upper = [m + s for m, s in zip(mean_vals, std_vals)]
-                lower = [m - s for m, s in zip(mean_vals, std_vals)]
-                ax2.fill_between(sorted_rounds, lower, upper, alpha=0.15,
-                                 color="black", zorder=len(all_ids) + 4)
+                ax2.plot(
+                    sorted_rounds,
+                    mean_vals,
+                    color="black",
+                    linewidth=2.5,
+                    linestyle="--",
+                    label="Mean ± σ",
+                    zorder=len(all_ids) + 5,
+                )
+                upper = [m + s for m, s in zip(mean_vals, std_vals, strict=False)]
+                lower = [m - s for m, s in zip(mean_vals, std_vals, strict=False)]
+                ax2.fill_between(
+                    sorted_rounds, lower, upper, alpha=0.15, color="black", zorder=len(all_ids) + 4
+                )
 
         ax2.set_xlabel("Round")
         ax2.set_ylabel("Epsilon (ε)")
@@ -415,8 +483,10 @@ def plot_cumulative_privacy_budget(
         rounds_list = [d[0] for d in data]
         epsilons_list = [d[1] for d in data]
         ax.plot(
-            rounds_list, epsilons_list,
-            marker="o", markersize=2,
+            rounds_list,
+            epsilons_list,
+            marker="o",
+            markersize=2,
             label=f"Client {client_id}",
             color=colors[i % len(colors)],
         )
@@ -436,7 +506,10 @@ def plot_cumulative_privacy_budget(
 
 
 def _plot_cumulative_legacy(
-    run, run_id: str, save_path: Path | None, dpi: int,
+    run: Run,
+    run_id: str,
+    save_path: Path | None,
+    dpi: int,
 ) -> matplotlib.figure.Figure:
     client_cumulative: dict[int, list[tuple[int, float]]] = {}
     for key, value in run.data.metrics.items():
@@ -445,7 +518,7 @@ def _plot_cumulative_legacy(
             try:
                 round_num = int(parts[1])
                 client_id = int(parts[3])
-            except (ValueError, IndexError):
+            except ValueError, IndexError:
                 continue
             if client_id not in client_cumulative:
                 client_cumulative[client_id] = []
@@ -463,8 +536,10 @@ def _plot_cumulative_legacy(
         rounds_list = [d[0] for d in data]
         epsilons_list = [d[1] for d in data]
         ax.plot(
-            rounds_list, epsilons_list,
-            marker="o", markersize=2,
+            rounds_list,
+            epsilons_list,
+            marker="o",
+            markersize=2,
             label=f"Client {client_id}",
             color=colors[i % len(colors)],
         )

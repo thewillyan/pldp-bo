@@ -7,7 +7,7 @@ import tempfile
 import types
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import mlflow
@@ -63,7 +63,7 @@ def _make_run(
         if tag is not None:
             client.set_tag(run_id, "config_version", tag)
         client.set_terminated(run_id, status=status)
-        return run_id
+        return cast(str, run_id)
     finally:
         mlflow.set_tracking_uri(prev)
 
@@ -213,7 +213,8 @@ class TestResolveRunId:
         assert kwargs["experiment_ids"] == ["42"]
 
     def test_scoped_missing_experiment_returns_none(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         mock_client = MagicMock()
         mock_client.get_experiment_by_name.return_value = None
@@ -314,7 +315,7 @@ class TestGenMatrixConfigs:
         self.out_dir = tmp_path / "matrix"
 
     def _write(self) -> list[Path]:
-        return _gen.write_configs(self.out_dir)
+        return cast(list[Path], _gen.write_configs(self.out_dir))
 
     def test_emits_all_100_cells(self) -> None:
         files = self._write()
@@ -483,7 +484,10 @@ class TestMatrixInventory:
 
     def test_done_when_finished_and_matching_tag(self, mlflow_uri: str) -> None:
         run_id = _make_run(
-            mlflow_uri, "mnist_iid", "pldpbo_snr_seed0", tag=locked_config_version(),
+            mlflow_uri,
+            "mnist_iid",
+            "pldpbo_snr_seed0",
+            tag=locked_config_version(),
         )
         by_cell = {
             (r.cell, r.run_name): r
@@ -497,43 +501,47 @@ class TestMatrixInventory:
     def test_failed_when_crashed(self, mlflow_uri: str) -> None:
         _make_run(mlflow_uri, "mnist_iid", "pldpbo_snr_seed0", status="FAILED")
         by_cell = {
-            (r.cell, r.run_name): r
-            for r in _run.matrix_inventory(mlflow_uri, self.cells_dir, [0])
+            (r.cell, r.run_name): r for r in _run.matrix_inventory(mlflow_uri, self.cells_dir, [0])
         }
         assert by_cell[("mnist_iid", "pldpbo_snr_seed0")].status == "failed"
 
     def test_failed_when_stale_config_version(self, mlflow_uri: str) -> None:
         _make_run(mlflow_uri, "mnist_iid", "pldpbo_snr_seed0", tag="deadbeef")
         by_cell = {
-            (r.cell, r.run_name): r
-            for r in _run.matrix_inventory(mlflow_uri, self.cells_dir, [0])
+            (r.cell, r.run_name): r for r in _run.matrix_inventory(mlflow_uri, self.cells_dir, [0])
         }
         assert by_cell[("mnist_iid", "pldpbo_snr_seed0")].status == "failed"
 
     def test_experiment_scoped(self, mlflow_uri: str) -> None:
         # A FINISHED matching run under a different experiment must not count.
         _make_run(
-            mlflow_uri, "cifar100_iid", "pldpbo_snr_seed0", tag=locked_config_version(),
+            mlflow_uri,
+            "cifar100_iid",
+            "pldpbo_snr_seed0",
+            tag=locked_config_version(),
         )
         by_cell = {
-            (r.cell, r.run_name): r
-            for r in _run.matrix_inventory(mlflow_uri, self.cells_dir, [0])
+            (r.cell, r.run_name): r for r in _run.matrix_inventory(mlflow_uri, self.cells_dir, [0])
         }
         assert by_cell[("mnist_iid", "pldpbo_snr_seed0")].status == "missing"
         assert by_cell[("cifar100_iid", "pldpbo_snr_seed0")].status == "done"
 
     def test_plan_excludes_done(self, mlflow_uri: str) -> None:
         _make_run(
-            mlflow_uri, "mnist_iid", "pldpbo_snr_seed0", tag=locked_config_version(),
+            mlflow_uri,
+            "mnist_iid",
+            "pldpbo_snr_seed0",
+            tag=locked_config_version(),
         )
         plan = _run.matrix_plan(_run.matrix_inventory(mlflow_uri, self.cells_dir, [0, 1]))
         assert len(plan) == 199
-        assert ("mnist_iid", "pldpbo_snr_seed0") not in {
-            (r.cell, r.run_name) for r in plan
-        }
+        assert ("mnist_iid", "pldpbo_snr_seed0") not in {(r.cell, r.run_name) for r in plan}
 
     def test_dry_run_reports_1200_missing(
-        self, mlflow_uri: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
+        self,
+        mlflow_uri: str,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         monkeypatch.setattr(_run, "CONFIG_DIR", self.cells_dir)
         args = SimpleNamespace(
@@ -563,18 +571,21 @@ class TestRunMatrix:
 
     @pytest.fixture
     def cell_config(self) -> Path:
-        return next(
-            p for p in self.cells_dir.glob("mnist_iid_pldpbo_snr.yaml")
-        )
+        return next(p for p in self.cells_dir.glob("mnist_iid_pldpbo_snr.yaml"))
 
     def test_deletes_failed_run_and_relaunches(
-        self, mlflow_uri: str, cell_config: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        mlflow_uri: str,
+        cell_config: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         old_id = _make_run(mlflow_uri, "mnist_iid", "pldpbo_snr_seed0", status="FAILED")
         calls: list[tuple[str, int, list[str]]] = []
 
         def fake_cmd_single(
-            config_path: str, num_clients: int, overrides: list[str],
+            config_path: str,
+            num_clients: int,
+            overrides: list[str],
             experiment: str | None = None,
         ) -> tuple[str, str] | None:
             calls.append((config_path, num_clients, overrides))
@@ -584,14 +595,21 @@ class TestRunMatrix:
             assert num_clients == 100
             assert overrides == ["seed=0"]
             _make_run(
-                mlflow_uri, "mnist_iid", "pldpbo_snr_seed0", tag=locked_config_version(),
+                mlflow_uri,
+                "mnist_iid",
+                "pldpbo_snr_seed0",
+                tag=locked_config_version(),
             )
             return None
 
         monkeypatch.setattr(_run, "cmd_single", fake_cmd_single)
         inventory = _run.matrix_inventory(
-            mlflow_uri, self.cells_dir, [0],
-            datasets=["mnist"], partitions=["iid"], methods=["pldpbo_snr"],
+            mlflow_uri,
+            self.cells_dir,
+            [0],
+            datasets=["mnist"],
+            partitions=["iid"],
+            methods=["pldpbo_snr"],
         )
         _run.run_matrix(mlflow_uri, _run.matrix_plan(inventory))
 
@@ -614,12 +632,17 @@ class TestRunMatrix:
 
     def test_skips_done_runs(self, mlflow_uri: str, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_run(
-            mlflow_uri, "mnist_iid", "pldpbo_snr_seed0", tag=locked_config_version(),
+            mlflow_uri,
+            "mnist_iid",
+            "pldpbo_snr_seed0",
+            tag=locked_config_version(),
         )
         calls: list[tuple[str, int, list[str]]] = []
 
         def fake_cmd_single(
-            config_path: str, num_clients: int, overrides: list[str],
+            config_path: str,
+            num_clients: int,
+            overrides: list[str],
             experiment: str | None = None,
         ) -> tuple[str, str] | None:
             calls.append((config_path, num_clients, overrides))
@@ -629,19 +652,27 @@ class TestRunMatrix:
 
         monkeypatch.setattr(_run, "cmd_single", fake_cmd_single)
         inventory = _run.matrix_inventory(
-            mlflow_uri, self.cells_dir, [0],
-            datasets=["mnist"], partitions=["iid"], methods=["pldpbo_snr"],
+            mlflow_uri,
+            self.cells_dir,
+            [0],
+            datasets=["mnist"],
+            partitions=["iid"],
+            methods=["pldpbo_snr"],
         )
         _run.run_matrix(mlflow_uri, _run.matrix_plan(inventory))
         assert calls == []
 
     def test_num_clients_read_from_config(
-        self, mlflow_uri: str, monkeypatch: pytest.MonkeyPatch,
+        self,
+        mlflow_uri: str,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         calls: list[tuple[str, int, list[str]]] = []
 
         def fake_cmd_single(
-            config_path: str, num_clients: int, overrides: list[str],
+            config_path: str,
+            num_clients: int,
+            overrides: list[str],
             experiment: str | None = None,
         ) -> tuple[str, str] | None:
             calls.append((config_path, num_clients, overrides))
@@ -651,19 +682,27 @@ class TestRunMatrix:
 
         monkeypatch.setattr(_run, "cmd_single", fake_cmd_single)
         inventory = _run.matrix_inventory(
-            mlflow_uri, self.cells_dir, [0],
-            datasets=["mnist"], partitions=["iid"], methods=["pldpbo_snr"],
+            mlflow_uri,
+            self.cells_dir,
+            [0],
+            datasets=["mnist"],
+            partitions=["iid"],
+            methods=["pldpbo_snr"],
         )
         _run.run_matrix(mlflow_uri, _run.matrix_plan(inventory))
         assert calls and calls[0][1] == 100
 
     def test_num_clients_override_wins(
-        self, mlflow_uri: str, monkeypatch: pytest.MonkeyPatch,
+        self,
+        mlflow_uri: str,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         calls: list[tuple[str, int, list[str]]] = []
 
         def fake_cmd_single(
-            config_path: str, num_clients: int, overrides: list[str],
+            config_path: str,
+            num_clients: int,
+            overrides: list[str],
             experiment: str | None = None,
         ) -> tuple[str, str] | None:
             calls.append((config_path, num_clients, overrides))
@@ -673,8 +712,12 @@ class TestRunMatrix:
 
         monkeypatch.setattr(_run, "cmd_single", fake_cmd_single)
         inventory = _run.matrix_inventory(
-            mlflow_uri, self.cells_dir, [0],
-            datasets=["mnist"], partitions=["iid"], methods=["pldpbo_snr"],
+            mlflow_uri,
+            self.cells_dir,
+            [0],
+            datasets=["mnist"],
+            partitions=["iid"],
+            methods=["pldpbo_snr"],
         )
         _run.run_matrix(mlflow_uri, _run.matrix_plan(inventory), num_clients=20)
         assert calls and calls[0][1] == 20
@@ -688,17 +731,32 @@ class TestVerifyDiscovery:
 
     def test_includes_only_finished_current_version(self) -> None:
         good = _make_verify_run(
-            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
-            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+            self.mlflow_uri,
+            "mnist_iid",
+            "pldpbo_snr_seed0",
+            method="pldpbo_snr",
+            dataset="mnist",
+            partition="iid",
+            seed=0,
         )
         _make_verify_run(
-            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed1",
-            method="pldpbo_snr", dataset="mnist", partition="iid", seed=1,
+            self.mlflow_uri,
+            "mnist_iid",
+            "pldpbo_snr_seed1",
+            method="pldpbo_snr",
+            dataset="mnist",
+            partition="iid",
+            seed=1,
             status="FAILED",
         )
         _make_verify_run(
-            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed2",
-            method="pldpbo_snr", dataset="mnist", partition="iid", seed=2,
+            self.mlflow_uri,
+            "mnist_iid",
+            "pldpbo_snr_seed2",
+            method="pldpbo_snr",
+            dataset="mnist",
+            partition="iid",
+            seed=2,
             tag="deadbeef",
         )
         runs = _verify._discover_runs(self.mlflow_uri)
@@ -706,35 +764,63 @@ class TestVerifyDiscovery:
 
     def test_spans_experiments(self) -> None:
         _make_verify_run(
-            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
-            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+            self.mlflow_uri,
+            "mnist_iid",
+            "pldpbo_snr_seed0",
+            method="pldpbo_snr",
+            dataset="mnist",
+            partition="iid",
+            seed=0,
         )
         _make_verify_run(
-            self.mlflow_uri, "cifar100_dirichlet_0.1", "pldpbo_nun_seed3",
-            method="pldpbo_nun", dataset="cifar100", partition="dirichlet_0.1", seed=3,
+            self.mlflow_uri,
+            "cifar100_dirichlet_0.1",
+            "pldpbo_nun_seed3",
+            method="pldpbo_nun",
+            dataset="cifar100",
+            partition="dirichlet_0.1",
+            seed=3,
         )
         runs = _verify._discover_runs(self.mlflow_uri)
         assert sorted(r.experiment for r in runs) == [
-            "cifar100_dirichlet_0.1", "mnist_iid",
+            "cifar100_dirichlet_0.1",
+            "mnist_iid",
         ]
 
     def test_filters_by_tags(self) -> None:
         _make_verify_run(
-            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
-            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+            self.mlflow_uri,
+            "mnist_iid",
+            "pldpbo_snr_seed0",
+            method="pldpbo_snr",
+            dataset="mnist",
+            partition="iid",
+            seed=0,
         )
         _make_verify_run(
-            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed7",
-            method="pldpbo_snr", dataset="mnist", partition="iid", seed=7,
+            self.mlflow_uri,
+            "mnist_iid",
+            "pldpbo_snr_seed7",
+            method="pldpbo_snr",
+            dataset="mnist",
+            partition="iid",
+            seed=7,
         )
         _make_verify_run(
-            self.mlflow_uri, "cifar100_iid", "pldpbo_snr_seed0",
-            method="pldpbo_snr", dataset="cifar100", partition="iid", seed=0,
+            self.mlflow_uri,
+            "cifar100_iid",
+            "pldpbo_snr_seed0",
+            method="pldpbo_snr",
+            dataset="cifar100",
+            partition="iid",
+            seed=0,
         )
         runs = _verify._discover_runs(
             self.mlflow_uri,
-            datasets=["mnist"], partitions=["iid"],
-            methods=["pldpbo_snr"], seeds=[0],
+            datasets=["mnist"],
+            partitions=["iid"],
+            methods=["pldpbo_snr"],
+            seeds=[0],
         )
         assert len(runs) == 1
         assert runs[0].seed == 0
@@ -742,8 +828,13 @@ class TestVerifyDiscovery:
 
     def test_carries_params(self) -> None:
         _make_verify_run(
-            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
-            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+            self.mlflow_uri,
+            "mnist_iid",
+            "pldpbo_snr_seed0",
+            method="pldpbo_snr",
+            dataset="mnist",
+            partition="iid",
+            seed=0,
             params={"T": "200", "K": "100", "B_RDP": "10.0", "dataset_root": "/data"},
         )
         runs = _verify._discover_runs(self.mlflow_uri)
@@ -753,8 +844,13 @@ class TestVerifyDiscovery:
     def test_loads_client_state_artifact(self) -> None:
         state = {"0": {"acct_cost": [0.01, 0.02]}}
         run_id = _make_verify_run(
-            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
-            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+            self.mlflow_uri,
+            "mnist_iid",
+            "pldpbo_snr_seed0",
+            method="pldpbo_snr",
+            dataset="mnist",
+            partition="iid",
+            seed=0,
             state=state,
         )
         runs = _verify._discover_runs(self.mlflow_uri)
@@ -763,18 +859,47 @@ class TestVerifyDiscovery:
 
     def test_no_artifact_gives_none(self) -> None:
         _make_verify_run(
-            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
-            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+            self.mlflow_uri,
+            "mnist_iid",
+            "pldpbo_snr_seed0",
+            method="pldpbo_snr",
+            dataset="mnist",
+            partition="iid",
+            seed=0,
         )
         runs = _verify._discover_runs(self.mlflow_uri)
         assert runs[0].client_state is None
+
+    def test_unwraps_server_payload_shape(self) -> None:
+        # server_app._write_client_state_artifact stores {"client_state": ...}.
+        inner = {"0": {"acct_cost": [0.01, 0.02]}}
+        _make_verify_run(
+            self.mlflow_uri,
+            "mnist_iid",
+            "pldpbo_snr_seed0",
+            method="pldpbo_snr",
+            dataset="mnist",
+            partition="iid",
+            seed=0,
+            state={"client_state": inner},
+        )
+        runs = _verify._discover_runs(self.mlflow_uri)
+        assert runs[0].client_state == inner
 
 
 class TestVerifyCli:
     def test_parser_exposes_matrix_style_flags(self) -> None:
         args = _verify.build_parser().parse_args(
-            ["--tracking-uri", "sqlite:///x.db", "--dataset", "mnist",
-             "--method", "pldpbo_snr", "--seeds", "0-3"],
+            [
+                "--tracking-uri",
+                "sqlite:///x.db",
+                "--dataset",
+                "mnist",
+                "--method",
+                "pldpbo_snr",
+                "--seeds",
+                "0-3",
+            ],
         )
         assert args.tracking_uri == "sqlite:///x.db"
         assert args.dataset == ["mnist"]
@@ -796,8 +921,18 @@ class TestVerifyWarmup:
 
         grid = list(WARMUP_GRID)
         state = {
-            "0": {"acct_cost": grid, "r_t_final": grid},
-            "1": {"acct_cost": grid, "r_t_final": grid},
+            "0": {
+                "acct_cost": grid,
+                "r_t_final": grid,
+                "phase": ["warmup"] * len(grid),
+                "warmup_rounds": list(range(len(grid))),
+            },
+            "1": {
+                "acct_cost": grid,
+                "r_t_final": grid,
+                "phase": ["warmup"] * len(grid),
+                "warmup_rounds": list(range(len(grid))),
+            },
         }
         result = _verify._check_warmup(_vr(state=state))
         assert result["pass"] is True
@@ -807,20 +942,61 @@ class TestVerifyWarmup:
         assert result["parity_max"] == 0.0
 
     def test_fails_out_of_tolerance(self) -> None:
-        state = {"0": {"acct_cost": [0.2] * 10, "r_t_final": [0.2] * 10}}
+        state = {
+            "0": {
+                "acct_cost": [0.2] * 10,
+                "r_t_final": [0.2] * 10,
+                "phase": ["warmup"] * 10,
+                "warmup_rounds": list(range(10)),
+            },
+        }
         result = _verify._check_warmup(_vr(state=state))
         assert result["pass"] is False
 
-    def test_uses_first_ten_participations_only(self) -> None:
+    def test_caps_warmup_sum_at_ten_participations(self) -> None:
         from src.privacy.bo_scheduler import WARMUP_GRID
 
         grid = list(WARMUP_GRID)
-        state = {"0": {"acct_cost": grid + [5.0, 5.0], "r_t_final": grid + [5.0, 5.0]}}
+        state = {
+            "0": {
+                "acct_cost": grid + [5.0, 5.0],
+                "r_t_final": grid + [5.0, 5.0],
+                "phase": ["warmup"] * (len(grid) + 2),
+                "warmup_rounds": list(range(len(grid) + 2)),
+            },
+        }
         result = _verify._check_warmup(_vr(state=state))
         assert abs(result["sum_mean"] - _verify.WARMUP_SUM_NOMINAL) < 1e-9
 
+    def test_excludes_non_warmup_participations_from_sum(self) -> None:
+        # A late-joining client under fraction_fit < 1 has early BO-phase
+        # participations before its first warm-up spends; only participations
+        # recorded under phase "warmup" may enter the sum (IMPL-14 Task 6).
+        from src.privacy.bo_scheduler import WARMUP_GRID
+
+        grid = list(WARMUP_GRID)
+        state = {
+            "0": {
+                "acct_cost": [5.0] * 3 + grid,
+                "r_t_final": [5.0] * 3 + grid,
+                "phase": ["bo"] * 3 + ["warmup"] * len(grid),
+                "warmup_rounds": list(range(len(grid))),
+            },
+        }
+        result = _verify._check_warmup(_vr(state=state))
+        assert result["n"] == 1
+        assert abs(result["sum_mean"] - _verify.WARMUP_SUM_NOMINAL) < 1e-9
+        assert result["parity_median"] == 0.0
+
     def test_sums_available_participations_when_fewer_than_ten(self) -> None:
-        state = {"0": {"acct_cost": [0.1, 0.2, 0.3], "r_t_final": [0.1, 0.2, 0.3]}}
+        state = {
+            "0": {
+                "acct_cost": [0.1, 0.2, 0.3],
+                "r_t_final": [0.1, 0.2, 0.3],
+                "phase": ["warmup"] * 3,
+                "warmup_rounds": [1, 2, 3],
+            },
+        }
         result = _verify._check_warmup(_vr(state=state))
         assert result["n"] == 1
         assert abs(result["sum_mean"] - 0.6) < 1e-9
@@ -831,6 +1007,8 @@ class TestVerifyWarmup:
             "0": {
                 "acct_cost": [1.0, 1.0, 0.0],
                 "r_t_final": [1.5, 0.5, 0.0],
+                "phase": ["warmup"] * 3,
+                "warmup_rounds": [1, 2, 3],
             },
         }
         result = _verify._check_warmup(_vr(state=state))
@@ -842,6 +1020,37 @@ class TestVerifyWarmup:
         result = _verify._check_warmup(_vr(state=None))
         assert result["pass"] is None
         assert result["n"] == 0
+
+    def test_skips_methods_without_warmup_phase(self) -> None:
+        # Fixed r_t baselines (§4.4) have phase 'bo' throughout and no
+        # warm-up sum; the check must not compare 10×r_t to the BO nominal.
+        state = {
+            "0": {
+                "acct_cost": [0.476] * 20,
+                "r_t_final": [0.476] * 20,
+                "phase": ["bo"] * 20,
+                "warmup_rounds": [],
+            },
+        }
+        result = _verify._check_warmup(_vr(state=state))
+        assert result["pass"] is None
+        assert result["n"] == 0
+
+    def test_warmup_phase_inferred_from_phase_list(self) -> None:
+        from src.privacy.bo_scheduler import WARMUP_GRID
+
+        grid = list(WARMUP_GRID)
+        state = {
+            "0": {
+                "acct_cost": grid,
+                "r_t_final": grid,
+                "phase": ["warmup"] * len(grid),
+                "warmup_rounds": [],
+            },
+        }
+        result = _verify._check_warmup(_vr(state=state))
+        assert result["pass"] is True
+        assert result["n"] == 1
 
 
 class TestVerifyBudget:
@@ -932,8 +1141,12 @@ class TestVerifyFemnistCounts:
 
     def test_skips_when_data_absent(self, tmp_path: Path) -> None:
         run = _verify.VerifyRun(
-            "femnist_natural", "pldpbo_nun", "rid", 0,
-            {"dataset_root": str(tmp_path / "missing")}, None,
+            "femnist_natural",
+            "pldpbo_nun",
+            "rid",
+            0,
+            {"dataset_root": str(tmp_path / "missing")},
+            None,
         )
         result = _verify._check_femnist_counts(run)
         assert result["pass"] is None
@@ -947,35 +1160,51 @@ class TestVerifyFemnistCounts:
         assert "SKIP" in result["note"]
 
     def test_passes_when_counts_match(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         root = tmp_path / "data"
         (root / "FEMNIST").mkdir(parents=True)
         monkeypatch.setattr(
-            _verify, "femnist_counts", lambda _root: (654_281, 163_570, 3_598),
+            _verify,
+            "femnist_counts",
+            lambda _root: (654_281, 163_570, 3_597),
         )
         run = _verify.VerifyRun(
-            "femnist_natural", "pldpbo_nun", "rid", 0,
-            {"dataset_root": str(root)}, None,
+            "femnist_natural",
+            "pldpbo_nun",
+            "rid",
+            0,
+            {"dataset_root": str(root)},
+            None,
         )
         result = _verify._check_femnist_counts(run)
         assert result["pass"] is True
         assert result["train"] == 654_281
 
     def test_fails_on_mismatch(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         root = tmp_path / "data"
         (root / "FEMNIST").mkdir(parents=True)
         monkeypatch.setattr(_verify, "femnist_counts", lambda _root: (1, 2, 3))
         run = _verify.VerifyRun(
-            "femnist_natural", "pldpbo_nun", "rid", 0,
-            {"dataset_root": str(root)}, None,
+            "femnist_natural",
+            "pldpbo_nun",
+            "rid",
+            0,
+            {"dataset_root": str(root)},
+            None,
         )
         assert _verify._check_femnist_counts(run)["pass"] is False
 
     def test_skips_on_read_error(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         root = tmp_path / "data"
         (root / "FEMNIST").mkdir(parents=True)
@@ -985,8 +1214,12 @@ class TestVerifyFemnistCounts:
 
         monkeypatch.setattr(_verify, "femnist_counts", _boom)
         run = _verify.VerifyRun(
-            "femnist_natural", "pldpbo_nun", "rid", 0,
-            {"dataset_root": str(root)}, None,
+            "femnist_natural",
+            "pldpbo_nun",
+            "rid",
+            0,
+            {"dataset_root": str(root)},
+            None,
         )
         result = _verify._check_femnist_counts(run)
         assert result["pass"] is None
@@ -1000,8 +1233,12 @@ class TestVerifyAggregate:
         grid = list(WARMUP_GRID)
         run = _vr(
             state={
-                "0": {"acct_cost": grid, "r_t_final": grid,
-                      "cum_rdp": [10.0], "dropout_round": None},
+                "0": {
+                    "acct_cost": grid,
+                    "r_t_final": grid,
+                    "cum_rdp": [10.0],
+                    "dropout_round": None,
+                },
             },
             params={"T": "200"},
         )
@@ -1044,19 +1281,32 @@ class TestVerifyOutput:
                 "r_t_final": grid,
                 "cum_rdp": [10.0],
                 "dropout_round": None,
+                "phase": ["warmup"] * len(grid),
+                "warmup_rounds": list(range(len(grid))),
             },
         }
         return _make_verify_run(
-            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
-            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+            self.mlflow_uri,
+            "mnist_iid",
+            "pldpbo_snr_seed0",
+            method="pldpbo_snr",
+            dataset="mnist",
+            partition="iid",
+            seed=0,
             params={"T": "200", "B_RDP": "10.0"},
             state=state,
         )
 
     def test_no_runs_exits_zero(self, capsys: pytest.CaptureFixture[str]) -> None:
         code = _verify.cmd_verify(
-            SimpleNamespace(tracking_uri=self.mlflow_uri, dataset=[], partition=[],
-                            method=[], seeds=None, json=False),
+            SimpleNamespace(
+                tracking_uri=self.mlflow_uri,
+                dataset=[],
+                partition=[],
+                method=[],
+                seeds=None,
+                json=False,
+            ),
         )
         assert code == 0
         assert "no §4-schema runs" in capsys.readouterr().out
@@ -1064,8 +1314,14 @@ class TestVerifyOutput:
     def test_pass_run_exits_zero(self, capsys: pytest.CaptureFixture[str]) -> None:
         self._seed_pass_run()
         code = _verify.cmd_verify(
-            SimpleNamespace(tracking_uri=self.mlflow_uri, dataset=[], partition=[],
-                            method=[], seeds=None, json=False),
+            SimpleNamespace(
+                tracking_uri=self.mlflow_uri,
+                dataset=[],
+                partition=[],
+                method=[],
+                seeds=None,
+                json=False,
+            ),
         )
         out = capsys.readouterr().out
         assert code == 0
@@ -1076,14 +1332,25 @@ class TestVerifyOutput:
 
     def test_budget_failure_exits_one(self, capsys: pytest.CaptureFixture[str]) -> None:
         _make_verify_run(
-            self.mlflow_uri, "mnist_iid", "pldpbo_snr_seed0",
-            method="pldpbo_snr", dataset="mnist", partition="iid", seed=0,
+            self.mlflow_uri,
+            "mnist_iid",
+            "pldpbo_snr_seed0",
+            method="pldpbo_snr",
+            dataset="mnist",
+            partition="iid",
+            seed=0,
             params={"T": "200", "B_RDP": "10.0"},
             state={"0": {"cum_rdp": [9.0]}},
         )
         code = _verify.cmd_verify(
-            SimpleNamespace(tracking_uri=self.mlflow_uri, dataset=[], partition=[],
-                            method=[], seeds=None, json=False),
+            SimpleNamespace(
+                tracking_uri=self.mlflow_uri,
+                dataset=[],
+                partition=[],
+                method=[],
+                seeds=None,
+                json=False,
+            ),
         )
         out = capsys.readouterr().out
         assert code == 1
@@ -1093,14 +1360,19 @@ class TestVerifyOutput:
     def test_json_output_shape(self, capsys: pytest.CaptureFixture[str]) -> None:
         self._seed_pass_run()
         code = _verify.cmd_verify(
-            SimpleNamespace(tracking_uri=self.mlflow_uri, dataset=[], partition=[],
-                            method=[], seeds=None, json=True),
+            SimpleNamespace(
+                tracking_uri=self.mlflow_uri,
+                dataset=[],
+                partition=[],
+                method=[],
+                seeds=None,
+                json=True,
+            ),
         )
         payload = json.loads(capsys.readouterr().out)
         assert code == 0
         assert "verification" in payload
         checks = payload["verification"]["pldpbo_snr"]
-        assert set(checks) == {"warmup", "budget_match", "dropout",
-                               "enforcement", "femnist_counts"}
+        assert set(checks) == {"warmup", "budget_match", "dropout", "enforcement", "femnist_counts"}
         assert checks["warmup"]["pass"] is True
         assert checks["budget_match"]["utilization_mean"] == pytest.approx(1.0)

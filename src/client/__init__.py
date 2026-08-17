@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from torch.utils.data import DataLoader
 
 from src.client.base_client import FlowerClient
@@ -13,14 +15,14 @@ from src.privacy.accountant import RDPAccountant
 def create_client(
     cid: int,  # noqa: ARG001
     model: BaseModel,
-    trainloader: DataLoader,
-    valloader: DataLoader,
+    trainloader: DataLoader[Any],
+    valloader: DataLoader[Any],
     config: ExperimentConfig,
     client_epsilon: float | None = None,
     computed_sigma: float | None = None,
     accountant: RDPAccountant | None = None,
     seed: int | None = None,
-    mechanism_state: dict | None = None,
+    mechanism_state: dict[str, Any] | None = None,
     remaining_budget: float | None = None,
     remaining_rdp: float | None = None,
 ) -> FlowerClient:

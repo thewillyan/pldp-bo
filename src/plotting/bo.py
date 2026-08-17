@@ -4,6 +4,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.figure import Figure
 
 from src.plotting._helpers import (
     _is_rdp_native,
@@ -19,7 +20,7 @@ def plot_metric_vs_epsilon(
     warmup_rounds: int | None = None,
     save_path: Path | None = None,
     dpi: int = 150,
-) -> plt.Figure:
+) -> Figure:
     run = get_run_by_id(run_id)
 
     rdp = _is_rdp_native(run)
@@ -52,21 +53,29 @@ def plot_metric_vs_epsilon(
 
     if warmup_rounds is not None:
         warmup_idx = (
-            rds_arr <= warmup_rounds
-            if warmup_rounds > 0
-            else np.zeros_like(rds_arr, dtype=bool)
+            rds_arr <= warmup_rounds if warmup_rounds > 0 else np.zeros_like(rds_arr, dtype=bool)
         )
 
         if warmup_idx.any():
             ax.scatter(
-                eps_arr[warmup_idx], met_arr[warmup_idx],
-                c=rds_arr[warmup_idx], cmap="Blues", marker="o", s=50, alpha=0.7,
+                eps_arr[warmup_idx],
+                met_arr[warmup_idx],
+                c=rds_arr[warmup_idx],
+                cmap="Blues",
+                marker="o",
+                s=50,
+                alpha=0.7,
                 label="Warm-up",
             )
         if (~warmup_idx).any():
             ax.scatter(
-                eps_arr[~warmup_idx], met_arr[~warmup_idx],
-                c=rds_arr[~warmup_idx], cmap="Reds", marker="s", s=50, alpha=0.7,
+                eps_arr[~warmup_idx],
+                met_arr[~warmup_idx],
+                c=rds_arr[~warmup_idx],
+                cmap="Reds",
+                marker="s",
+                s=50,
+                alpha=0.7,
                 label="BO",
             )
 

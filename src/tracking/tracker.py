@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 import subprocess
-from dataclasses import fields
+from dataclasses import fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
@@ -60,9 +60,12 @@ def git_hash() -> str:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
-            capture_output=True, text=True, check=True, timeout=5,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
         )
-    except (subprocess.SubprocessError, OSError):
+    except subprocess.SubprocessError, OSError:
         return "unknown"
     return result.stdout.strip()
 
@@ -129,6 +132,8 @@ class ExperimentTracker:
 
     @staticmethod
     def _flatten_dataclass(obj: object, prefix: str = "") -> dict[str, str]:
+        if not is_dataclass(obj):
+            raise TypeError(f"expected a dataclass, got {type(obj).__name__}")
         result: dict[str, str] = {}
         for f in fields(obj):
             key = f"{prefix}.{f.name}" if prefix else f.name
@@ -190,11 +195,13 @@ class ExperimentTracker:
         params["partition_kwargs"] = json.dumps(
             build_partition_kwargs(data.partition_type, data.partition_alpha),
         )
-        params["seeds"] = json.dumps({
-            "global": config.seed,
-            "numpy": config.seed,
-            "torch": config.seed,
-        })
+        params["seeds"] = json.dumps(
+            {
+                "global": config.seed,
+                "numpy": config.seed,
+                "torch": config.seed,
+            }
+        )
         digest = data_hash(config)
         if digest is not None:
             params["data_hash"] = digest

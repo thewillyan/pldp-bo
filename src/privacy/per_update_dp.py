@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+from typing import Any
 
 import numpy as np
 
@@ -43,7 +44,11 @@ def _rdp_calibrate_sigma(
             "fundamental RDP lower bound ≈%.4f for delta=%.0e. "
             "Returning sigma_max=%.0e; actual privacy will be stronger "
             "than requested but epsilon will be clamped to ≈%.4f.",
-            epsilon, eps_at_max, delta, sigma_max, eps_at_max,
+            epsilon,
+            eps_at_max,
+            delta,
+            sigma_max,
+            eps_at_max,
         )
         return sigma_max
     eps_at_min = _rdp_epsilon_for_sigma(sigma_min, clipping_norm, delta)
@@ -78,7 +83,10 @@ def calibrate_sigma(
             "calibrate_sigma: RDP-calibrated sigma=%.6f for clipping_norm=%.2f, "
             "epsilon=%.2f is below min_sigma %.6f; clamping to min_sigma. "
             "Actual privacy will be stronger than requested epsilon.",
-            sigma, clipping_norm, epsilon, min_sigma,
+            sigma,
+            clipping_norm,
+            epsilon,
+            min_sigma,
         )
         return min_sigma
     return sigma
@@ -87,7 +95,8 @@ def calibrate_sigma(
 def _clip_update(delta: np.ndarray, clipping_norm: float) -> np.ndarray:
     norm = np.linalg.norm(delta)
     if norm > clipping_norm:
-        return delta * (clipping_norm / norm)
+        clipped: np.ndarray = delta * (clipping_norm / norm)
+        return clipped
     return delta
 
 
@@ -99,7 +108,8 @@ def add_gaussian_noise(
     if rng is None:
         rng = np.random.RandomState()
     noise = rng.normal(0, sigma, size=clipped_delta.shape).astype(clipped_delta.dtype)
-    return clipped_delta + noise
+    noisy: np.ndarray = clipped_delta + noise
+    return noisy
 
 
 def compute_rdp_cost(alpha: float, sigma: float, clipping_norm: float) -> float:
@@ -161,7 +171,11 @@ def _rdp_calibrate_sigma_dp_sgd(
             "fundamental RDP lower bound ≈%.4f for delta=%.0e. "
             "Returning sigma_max=%.0e; actual privacy will be stronger "
             "than requested but epsilon will be clamped to ≈%.4f.",
-            epsilon, eps_at_max, delta, sigma_max, eps_at_max,
+            epsilon,
+            eps_at_max,
+            delta,
+            sigma_max,
+            eps_at_max,
         )
         return sigma_max
     eps_at_min = _rdp_epsilon_for_sigma_dp_sgd(sigma_min, sampling_rate, delta)
@@ -198,7 +212,10 @@ def calibrate_sigma_dp_sgd(
             "sampling_rate=%.4f, epsilon=%.2f is below min_sigma %.6f; "
             "clamping to min_sigma. Actual privacy will be stronger "
             "than requested epsilon.",
-            sigma, sampling_rate, epsilon, min_sigma,
+            sigma,
+            sampling_rate,
+            epsilon,
+            min_sigma,
         )
         return min_sigma
     return sigma
@@ -229,7 +246,9 @@ def _sigma_for_rdp_target_dp_sgd(
     alpha: float,
     sampling_rate: float,
 ) -> float:
-    """Direct formula for DP-SGD with Poisson subsampling: sigma = sqrt(alpha * q^2 / (2 * rdp_target)).
+    """Direct formula for DP-SGD with Poisson subsampling.
+
+    sigma = sqrt(alpha * q^2 / (2 * rdp_target)).
 
     Here sigma is the noise multiplier (actual noise std = sigma * C).
     """
@@ -261,7 +280,10 @@ def calibrate_sigma_rdp(
             "calibrate_sigma_rdp: sigma=%.6f for alpha=%.1f, rdp_target=%.6f "
             "is below min_sigma %.6f; clamping to min_sigma. "
             "Actual RDP cost will be lower than rdp_target.",
-            sigma, alpha, rdp_target, min_sigma,
+            sigma,
+            alpha,
+            rdp_target,
+            min_sigma,
         )
         return min_sigma
     return sigma
@@ -286,7 +308,10 @@ def calibrate_sigma_rdp_dp_sgd(
             "calibrate_sigma_rdp_dp_sgd: sigma=%.6f for alpha=%.1f, "
             "rdp_target=%.6f is below min_sigma %.6f; clamping to min_sigma. "
             "Actual RDP cost will be lower than rdp_target.",
-            sigma, alpha, rdp_target, min_sigma,
+            sigma,
+            alpha,
+            rdp_target,
+            min_sigma,
         )
         return min_sigma
     return sigma
@@ -302,19 +327,27 @@ class PerUpdateGaussianMechanism:
         self._delta = delta
         self._rng = np.random.RandomState(seed)
 
-    def apply(self, delta: np.ndarray, epsilon: float, sigma: float | None = None) -> tuple[np.ndarray, float]:
+    def apply(
+        self,
+        delta: np.ndarray,
+        epsilon: float,
+        sigma: float | None = None,
+    ) -> tuple[np.ndarray, float]:
         if sigma is None:
             sigma = calibrate_sigma(epsilon, self._clipping_norm, self._delta)
         clipped = _clip_update(delta, self._clipping_norm)
         noisy = add_gaussian_noise(clipped, sigma, rng=self._rng)
         return noisy, sigma
 
-    def get_state(self) -> dict:
+    def get_state(self) -> dict[str, Any]:
         return {"rng_state": serialize_rng(self._rng)}
 
     @classmethod
     def from_state(
-        cls, state: dict, clipping_norm: float, delta: float,
+        cls,
+        state: dict[str, Any],
+        clipping_norm: float,
+        delta: float,
     ) -> PerUpdateGaussianMechanism:
         mechanism = cls(clipping_norm=clipping_norm, delta=delta)
         mechanism._rng.set_state(deserialize_rng(state["rng_state"]))
@@ -327,7 +360,6 @@ class PerUpdateGaussianMechanism:
     @property
     def delta(self) -> float:
         return self._delta
-
 
 
 def _hypothetical_epsilon(
@@ -377,8 +409,12 @@ def _is_epsilon_within_budget(
     else:
         sigma = calibrate_sigma(epsilon, clipping_norm, delta)
     projected = _hypothetical_epsilon(
-        current_rdp, sigma, clipping_norm, delta,
-        clipping_mode=clipping_mode, num_steps=num_steps,
+        current_rdp,
+        sigma,
+        clipping_norm,
+        delta,
+        clipping_mode=clipping_mode,
+        num_steps=num_steps,
         sampling_rate=sampling_rate,
     )
     return projected <= epsilon_budget
@@ -428,30 +464,44 @@ def enforce_epsilon_budget(
         return -1.0, 0.0
 
     if candidate_epsilon <= epsilon_min:
-        if _is_epsilon_within_budget(candidate_epsilon, current_rdp,
-                                     epsilon_budget, clipping_norm, delta,
-                                     clipping_mode=clipping_mode,
-                                     num_steps=num_steps,
-                                     sampling_rate=sampling_rate):
+        if _is_epsilon_within_budget(
+            candidate_epsilon,
+            current_rdp,
+            epsilon_budget,
+            clipping_norm,
+            delta,
+            clipping_mode=clipping_mode,
+            num_steps=num_steps,
+            sampling_rate=sampling_rate,
+        ):
             sigma = _calibrate(candidate_epsilon)
             return candidate_epsilon, sigma
         return -1.0, 0.0
 
     sigma_candidate = _calibrate(candidate_epsilon)
     hypothetical = _hypothetical_epsilon(
-        current_rdp, sigma_candidate, clipping_norm, delta,
-        clipping_mode=clipping_mode, num_steps=num_steps,
+        current_rdp,
+        sigma_candidate,
+        clipping_norm,
+        delta,
+        clipping_mode=clipping_mode,
+        num_steps=num_steps,
         sampling_rate=sampling_rate,
     )
 
     if hypothetical <= epsilon_budget:
         return candidate_epsilon, sigma_candidate
 
-    if not _is_epsilon_within_budget(epsilon_min, current_rdp, epsilon_budget,
-                                     clipping_norm, delta,
-                                     clipping_mode=clipping_mode,
-                                     num_steps=num_steps,
-                                     sampling_rate=sampling_rate):
+    if not _is_epsilon_within_budget(
+        epsilon_min,
+        current_rdp,
+        epsilon_budget,
+        clipping_norm,
+        delta,
+        clipping_mode=clipping_mode,
+        num_steps=num_steps,
+        sampling_rate=sampling_rate,
+    ):
         return -1.0, 0.0
 
     # Binary search over σ (monotonic: larger σ → smaller ε → lower RDP cost).
@@ -461,8 +511,12 @@ def enforce_epsilon_budget(
     for _ in range(30):
         mid_sigma = (lo_sigma + hi_sigma) / 2.0
         projected = _hypothetical_epsilon(
-            current_rdp, mid_sigma, clipping_norm, delta,
-            clipping_mode=clipping_mode, num_steps=num_steps,
+            current_rdp,
+            mid_sigma,
+            clipping_norm,
+            delta,
+            clipping_mode=clipping_mode,
+            num_steps=num_steps,
             sampling_rate=sampling_rate,
         )
         if projected <= epsilon_budget:
@@ -473,7 +527,9 @@ def enforce_epsilon_budget(
     result_sigma = (lo_sigma + hi_sigma) / 2.0
     if clipping_mode == "per_example":
         result_epsilon = _rdp_epsilon_for_sigma_dp_sgd(
-            result_sigma, _sr, delta,
+            result_sigma,
+            _sr,
+            delta,
         )
     else:
         result_epsilon = _rdp_epsilon_for_sigma(result_sigma, clipping_norm, delta)
@@ -527,9 +583,13 @@ def enforce_rdp_budget(
     if clipping_mode == "per_example":
         if sampling_rate is None:
             raise ValueError("sampling_rate required for per_example mode")
-        calibrate = lambda r: calibrate_sigma_rdp_dp_sgd(r, alpha, sampling_rate)
+
+        def calibrate(r: float) -> float:
+            return calibrate_sigma_rdp_dp_sgd(r, alpha, sampling_rate)
     else:
-        calibrate = lambda r: calibrate_sigma_rdp(r, alpha, clipping_norm)
+
+        def calibrate(r: float) -> float:
+            return calibrate_sigma_rdp(r, alpha, clipping_norm)
 
     # Check if candidate fits
     projected = current_rdp_sum + candidate_rdp * num_steps

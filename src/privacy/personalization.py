@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+from typing import Any, Sized
 
 import numpy as np
 from torch.utils.data import Dataset, Subset
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 def compute_budget_weight(
     partition_id: int,
-    train_dataset: Dataset | Subset,
+    train_dataset: Dataset[Any] | Subset[Any],
     config: PersonalizationConfig,
     num_clients: int = 1,
     total_train_size: int | None = None,
@@ -29,7 +30,11 @@ def compute_budget_weight(
                 "total_train_size is required for data_proportional strategy. "
                 "This should be provided by the caller (e.g., via create_client_dataloader)."
             )
-        return _weight_data_proportional(train_dataset, num_clients, total_train_size=total_train_size)
+        return _weight_data_proportional(
+            train_dataset,
+            num_clients,
+            total_train_size=total_train_size,
+        )
     if strategy == "heterogeneity":
         return _weight_heterogeneity(train_dataset, total_num_classes=total_num_classes)
     if strategy == "uniform":
@@ -56,7 +61,8 @@ def _weight_custom(partition_id: int, config: PersonalizationConfig) -> float:
 
 
 def _weight_data_proportional(
-    dataset: Dataset | Subset, num_clients: int,
+    dataset: Dataset[Any] | Subset[Any],
+    num_clients: int,
     total_train_size: int,
 ) -> float:
     """Budget weight proportional to data size.
@@ -65,13 +71,15 @@ def _weight_data_proportional(
     privacy / less noise), while clients with fewer data receive a
     smaller weight (stronger privacy / more noise).
     """
+    if not isinstance(dataset, Sized):
+        raise TypeError(f"dataset must implement __len__, got {type(dataset).__name__}")
     client_size = len(dataset)
     expected_per_client = total_train_size / num_clients
     return client_size / expected_per_client
 
 
 def _weight_heterogeneity(
-    dataset: Dataset | Subset,
+    dataset: Dataset[Any] | Subset[Any],
     total_num_classes: int | None = None,
 ) -> float:
     entropy = _compute_label_entropy(dataset)
@@ -80,7 +88,7 @@ def _weight_heterogeneity(
     return 1.0 - normalized_entropy
 
 
-def _compute_label_entropy(dataset: Dataset | Subset) -> float:
+def _compute_label_entropy(dataset: Dataset[Any] | Subset[Any]) -> float:
     targets = _get_targets(dataset)
     class_counts = np.bincount(targets, minlength=_get_num_classes(dataset)).astype(float)
     class_counts = class_counts[class_counts > 0]
@@ -89,7 +97,7 @@ def _compute_label_entropy(dataset: Dataset | Subset) -> float:
     return float(entropy)
 
 
-def _get_targets(dataset: Dataset | Subset) -> np.ndarray:
+def _get_targets(dataset: Dataset[Any] | Subset[Any]) -> np.ndarray:
     indices = None
     while isinstance(dataset, Subset):
         if indices is None:
@@ -97,16 +105,17 @@ def _get_targets(dataset: Dataset | Subset) -> np.ndarray:
         else:
             indices = np.asarray(dataset.indices)[indices]
         dataset = dataset.dataset
+    raw: Any = dataset
     try:
-        targets = np.array(dataset.targets)
-    except (AttributeError, IndexError):
-        targets = dataset.tensors[1].numpy()
+        targets = np.array(raw.targets)
+    except AttributeError, IndexError:
+        targets = raw.tensors[1].numpy()
     if indices is not None:
         targets = targets[indices]
     return targets
 
 
-def _get_num_classes(dataset: Dataset | Subset) -> int:
+def _get_num_classes(dataset: Dataset[Any] | Subset[Any]) -> int:
     targets = _get_targets(dataset)
     return len(np.unique(targets))
 
@@ -130,7 +139,7 @@ def _resolve_warmup(
 
 def assign_epsilon_bounds(
     partition_id: int,
-    train_dataset: Dataset | Subset,
+    train_dataset: Dataset[Any] | Subset[Any],
     personalization_config: PersonalizationConfig,
     bo_config: BOConfig,
     num_clients: int = 1,
@@ -142,11 +151,14 @@ def assign_epsilon_bounds(
     if strategy == "global":
         try:
             weight = compute_budget_weight(
-                partition_id, train_dataset, personalization_config, num_clients,
+                partition_id,
+                train_dataset,
+                personalization_config,
+                num_clients,
                 total_train_size=total_train_size,
                 total_num_classes=total_num_classes,
             )
-        except (ValueError, KeyError):
+        except ValueError, KeyError:
             weight = float(num_clients)
         warmup = _resolve_warmup(partition_id, bo_config, num_clients, num_rounds, weight)
         return bo_config.epsilon_min, bo_config.epsilon_max, warmup
@@ -173,7 +185,10 @@ def assign_epsilon_bounds(
                 "bounds_strategy='from_epsilon' requires personalization.enabled=True",
             )
         weight = compute_budget_weight(
-            partition_id, train_dataset, personalization_config, num_clients,
+            partition_id,
+            train_dataset,
+            personalization_config,
+            num_clients,
             total_train_size=total_train_size,
             total_num_classes=total_num_classes,
         )
@@ -188,7 +203,10 @@ def assign_epsilon_bounds(
                 "bounds_strategy='from_rdp' requires personalization.enabled=True",
             )
         weight = compute_budget_weight(
-            partition_id, train_dataset, personalization_config, num_clients,
+            partition_id,
+            train_dataset,
+            personalization_config,
+            num_clients,
             total_train_size=total_train_size,
             total_num_classes=total_num_classes,
         )

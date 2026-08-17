@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
@@ -9,7 +11,7 @@ from src.device import to_device
 
 def compute_utility_loss(
     model: nn.Module,
-    valloader: DataLoader,
+    valloader: DataLoader[Any],
     criterion: nn.Module | None = None,
 ) -> float:
     """Compute average validation loss.
@@ -25,7 +27,7 @@ def compute_utility_loss(
 
 def compute_validation_stats(
     model: nn.Module,
-    valloader: DataLoader,
+    valloader: DataLoader[Any],
     criterion: nn.Module | None = None,
 ) -> tuple[float, torch.Tensor]:
     """Compute average validation loss and return all logits.
