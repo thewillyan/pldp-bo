@@ -938,3 +938,33 @@ Everything below is the repo-side subset of `EXPERIMENTS-TODO.md` §8:
   replot code; the removed group/replot code took its 10 findings with it); mypy zero new
   errors (only pre-existing loader.py/test_server.py notes). Dry-run over an empty DB reports
   1,200 missing. `src/data/` still untracked/gitignored.
+- 2026-08-17: **IMPL-14 closed.** Tests, lint, smoke validation (spec §9.4/§9.5). Gates:
+  ruff 0 findings (57 files), mypy 0 errors, **651 tests green** (baseline 581 at IMPL-12
+  closure). Smoke acceptance (fresh sqlite DB, 4 cells × 4 clients × 1 run, real Ray+Flower
+  execution): `scripts/verify` → `runs: 4  failed_checks: 0`, exit 0. Per cell:
+  `nonprivate` budget PASS (nonprivate), other checks SKIP; `dpfedavg_fixed` /
+  `fedprox_fixed` budget PASS utilization=1.0000 (final_rdp 10.0000, 20×0.5 exactly),
+  drop-out PASS never=100.00% round=21.0 (T+1), warm-up SKIP (no warm-up phase, §4.4);
+  `pldpbo_nun` warm-up PASS mean=1.3995±0.0000 (grid sum, parity 0.0000), budget PASS
+  utilization=0.9813 (final_rdp 9.8132; in the 0.98–1.02 band), drop-out PASS
+  never=100.00% round=32.0 (T+1). Bugs found by real-DB verification and fixed: (1) the
+  server logged `client_state` under the mkstemp basename (`client_state_<rand>.json`) —
+  `tracker.log_artifact` keeps basenames — now staged as canonical `client_state.json` in a
+  per-run temp dir (also removes a parallel-run `os.replace` race); (2) `scripts/verify`
+  iterated the wrapped payload's `.values()` so every check saw one bogus entry — payload
+  unwrapped at load, per-run load failures degrade to SKIP instead of aborting the report;
+  (3) the warm-up sum counted any client's first-10 participations regardless of phase —
+  now phase-filtered ("warmup" participations only), which stays correct for
+  `fraction_fit < 1`; this surfaced the client's transition-round phase tag (the warm-up
+  grid spend of round 10 was tagged "bo" because the phase was read post-step) — the client
+  now tags the spend's phase (pre-step), pinned by a 12-round reply test. Documented
+  deviations from the IMPL-14 expected table: fixed cells SKIP warm-up (nominal 1.3995 is
+  BO-specific; impossible at utilization 1.0 with constant r_t); pldpbo_nun drop-out round
+  = 32.0 not 21.0 (T raised 20→31 per the plan's contingency so the budget is spent, §4.5
+  fill unreachable under the production 0.1 budget margin — the band, not the nominal,
+  defines acceptance); FEMNIST writers = 3,597 not 3,598 (on-disk ground truth; LEAF
+  canonical; `femnist_counts` unwraps the dict-shaped keys file; expected counts
+  654,281/163,570/3,597 re-verified on disk). CI: `.github/workflows/ci.yml` (uv sync +
+  ruff + mypy + pytest; runs on push to main / pull requests — will execute on the user's
+  next push; branch merged locally, never pushed per repo policy). `src/data/` still
+  untracked/gitignored.
