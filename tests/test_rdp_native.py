@@ -671,6 +671,45 @@ class TestResolveRDPSpecFields:
         assert isinstance(acct_time, float) and acct_time >= 0.0
 
 
+class TestResolveRDPNoScheduler:
+    """_resolve_rdp scheduler-None paths: privacy-disabled zeros vs raise (IMPL-14)."""
+
+    @staticmethod
+    def _make_config(privacy_enabled: bool) -> ExperimentConfig:
+        cfg = ExperimentConfig()
+        cfg.privacy.enabled = privacy_enabled
+        cfg.privacy.accountant_mode = "rdp_native"
+        cfg.privacy.clipping_mode = "per_example"
+        cfg.privacy.rdp_alpha = 10.0
+        cfg.privacy.update_clip_norm = 1.0
+        cfg.data.batch_size = 64
+        return cfg
+
+    def test_privacy_disabled_no_scheduler_returns_zeros(self) -> None:
+        from src.client_app import _resolve_rdp
+
+        result = _resolve_rdp(
+            None,
+            None,
+            self._make_config(privacy_enabled=False),
+            total_budget=10.0,
+            eps_min=0.01,
+            local_train_size=1000,
+        )
+        assert result == (0.0, 0.0, 0.0, 0.0, 0.0)
+
+    def test_privacy_enabled_no_scheduler_raises(self) -> None:
+        from src.client_app import _resolve_rdp
+
+        with pytest.raises(ValueError, match="RDP-native mode requires a scheduler"):
+            _resolve_rdp(
+                None,
+                None,
+                self._make_config(privacy_enabled=True),
+                local_train_size=1000,
+            )
+
+
 class TestPerExampleClientRoundParity:
     """Fit-level parity: acct_cost == r_t_final == accountant cumulative."""
 

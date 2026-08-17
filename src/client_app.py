@@ -603,6 +603,8 @@ def _resolve_rdp(
         else:
             candidate = scheduler.get_rdp()
     else:
+        if not config.privacy.enabled:
+            return 0.0, 0.0, 0.0, 0.0, 0.0
         raise ValueError(
             "RDP-native mode requires a scheduler (bo) or personalization with total_budget."
         )
