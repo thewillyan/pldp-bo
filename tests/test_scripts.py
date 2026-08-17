@@ -953,7 +953,7 @@ class TestVerifyWarmup:
         result = _verify._check_warmup(_vr(state=state))
         assert result["pass"] is False
 
-    def test_uses_first_ten_participations_only(self) -> None:
+    def test_caps_warmup_sum_at_ten_participations(self) -> None:
         from src.privacy.bo_scheduler import WARMUP_GRID
 
         grid = list(WARMUP_GRID)
@@ -967,6 +967,26 @@ class TestVerifyWarmup:
         }
         result = _verify._check_warmup(_vr(state=state))
         assert abs(result["sum_mean"] - _verify.WARMUP_SUM_NOMINAL) < 1e-9
+
+    def test_excludes_non_warmup_participations_from_sum(self) -> None:
+        # A late-joining client under fraction_fit < 1 has early BO-phase
+        # participations before its first warm-up spends; only participations
+        # recorded under phase "warmup" may enter the sum (IMPL-14 Task 6).
+        from src.privacy.bo_scheduler import WARMUP_GRID
+
+        grid = list(WARMUP_GRID)
+        state = {
+            "0": {
+                "acct_cost": [5.0] * 3 + grid,
+                "r_t_final": [5.0] * 3 + grid,
+                "phase": ["bo"] * 3 + ["warmup"] * len(grid),
+                "warmup_rounds": list(range(len(grid))),
+            },
+        }
+        result = _verify._check_warmup(_vr(state=state))
+        assert result["n"] == 1
+        assert abs(result["sum_mean"] - _verify.WARMUP_SUM_NOMINAL) < 1e-9
+        assert result["parity_median"] == 0.0
 
     def test_sums_available_participations_when_fewer_than_ten(self) -> None:
         state = {

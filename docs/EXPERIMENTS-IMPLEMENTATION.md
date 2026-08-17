@@ -939,8 +939,8 @@ Everything below is the repo-side subset of `EXPERIMENTS-TODO.md` §8:
   errors (only pre-existing loader.py/test_server.py notes). Dry-run over an empty DB reports
   1,200 missing. `src/data/` still untracked/gitignored.
 - 2026-08-17: **IMPL-14 closed.** Tests, lint, smoke validation (spec §9.4/§9.5). Gates:
-  ruff 0 findings (57 files), mypy 0 errors, **651 tests green** (baseline 581 at IMPL-12
-  closure). Smoke acceptance (fresh sqlite DB, 4 cells × 4 clients × 1 run, real Ray+Flower
+  ruff 0 findings; mypy 0 errors (57 source files); **651 tests green** (baseline 581 at
+  IMPL-12 closure). Smoke acceptance (fresh sqlite DB, 4 cells × 4 clients × 1 run, real Ray+Flower
   execution): `scripts/verify` → `runs: 4  failed_checks: 0`, exit 0. Per cell:
   `nonprivate` budget PASS (nonprivate), other checks SKIP; `dpfedavg_fixed` /
   `fedprox_fixed` budget PASS utilization=1.0000 (final_rdp 10.0000, 20×0.5 exactly),
