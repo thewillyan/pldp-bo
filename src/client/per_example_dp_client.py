@@ -324,9 +324,13 @@ class PerExampleDPClient(FlowerClient):
                     # every example's gradient before clipping. The shift is the
                     # same for all examples and public, so the per-example clip
                     # still bounds each example's contribution to the release.
+                    # Detached: a graph-carrying shift retained per-step history
+                    # through the momentum buffer (torch.func-era leak pattern;
+                    # IMPL-14 Task 6) — the drift is a plain value, not a
+                    # gradient source.
                     params = dict(net.named_parameters())
                     per_example_grads = {
-                        k: g + proximal_mu * (params[k] - global_params[k])
+                        k: (g + proximal_mu * (params[k] - global_params[k])).detach()
                         for k, g in per_example_grads.items()
                     }
 
