@@ -181,13 +181,14 @@ class TestSmokeConfigs:
 
         cfg = load_config(f"config/smoke/{name}.yaml")
         violations = collect_violations(cfg)
-        # The fixed cells deliberately retarget R to (10.0 - 1.3995)/10 so the
-        # tiny smoke horizon (T=20) fully spends the budget (§9.3 math); the
-        # locked 0.5 target is for the full matrix horizon.
+        # The fixed cells deliberately retarget R to ≈ B_RDP/T so the tiny
+        # smoke horizon fully spends the budget without refusals (§9.3 math);
+        # pldpbo_nun raises T to 25 so its BO rounds spend the post-warm-up
+        # 8.6005 RDP (IMPL-14 Task 6 contingencies).
         assert not any(
             v.startswith("method") and "fixed_rdp_target" not in v for v in violations
         ), violations
-        assert cfg.federated.num_rounds == 20
+        assert cfg.federated.num_rounds == (25 if name == "pldpbo_nun" else 20)
         assert cfg.data.num_clients == 4
 
     def test_femnist_loader_config_loads(self) -> None:

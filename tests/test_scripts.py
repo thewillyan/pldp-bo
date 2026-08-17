@@ -870,6 +870,22 @@ class TestVerifyDiscovery:
         runs = _verify._discover_runs(self.mlflow_uri)
         assert runs[0].client_state is None
 
+    def test_unwraps_server_payload_shape(self) -> None:
+        # server_app._write_client_state_artifact stores {"client_state": ...}.
+        inner = {"0": {"acct_cost": [0.01, 0.02]}}
+        _make_verify_run(
+            self.mlflow_uri,
+            "mnist_iid",
+            "pldpbo_snr_seed0",
+            method="pldpbo_snr",
+            dataset="mnist",
+            partition="iid",
+            seed=0,
+            state={"client_state": inner},
+        )
+        runs = _verify._discover_runs(self.mlflow_uri)
+        assert runs[0].client_state == inner
+
 
 class TestVerifyCli:
     def test_parser_exposes_matrix_style_flags(self) -> None:
@@ -905,8 +921,18 @@ class TestVerifyWarmup:
 
         grid = list(WARMUP_GRID)
         state = {
-            "0": {"acct_cost": grid, "r_t_final": grid},
-            "1": {"acct_cost": grid, "r_t_final": grid},
+            "0": {
+                "acct_cost": grid,
+                "r_t_final": grid,
+                "phase": ["warmup"] * len(grid),
+                "warmup_rounds": list(range(len(grid))),
+            },
+            "1": {
+                "acct_cost": grid,
+                "r_t_final": grid,
+                "phase": ["warmup"] * len(grid),
+                "warmup_rounds": list(range(len(grid))),
+            },
         }
         result = _verify._check_warmup(_vr(state=state))
         assert result["pass"] is True
@@ -916,7 +942,14 @@ class TestVerifyWarmup:
         assert result["parity_max"] == 0.0
 
     def test_fails_out_of_tolerance(self) -> None:
-        state = {"0": {"acct_cost": [0.2] * 10, "r_t_final": [0.2] * 10}}
+        state = {
+            "0": {
+                "acct_cost": [0.2] * 10,
+                "r_t_final": [0.2] * 10,
+                "phase": ["warmup"] * 10,
+                "warmup_rounds": list(range(10)),
+            },
+        }
         result = _verify._check_warmup(_vr(state=state))
         assert result["pass"] is False
 
@@ -924,12 +957,26 @@ class TestVerifyWarmup:
         from src.privacy.bo_scheduler import WARMUP_GRID
 
         grid = list(WARMUP_GRID)
-        state = {"0": {"acct_cost": grid + [5.0, 5.0], "r_t_final": grid + [5.0, 5.0]}}
+        state = {
+            "0": {
+                "acct_cost": grid + [5.0, 5.0],
+                "r_t_final": grid + [5.0, 5.0],
+                "phase": ["warmup"] * (len(grid) + 2),
+                "warmup_rounds": list(range(len(grid) + 2)),
+            },
+        }
         result = _verify._check_warmup(_vr(state=state))
         assert abs(result["sum_mean"] - _verify.WARMUP_SUM_NOMINAL) < 1e-9
 
     def test_sums_available_participations_when_fewer_than_ten(self) -> None:
-        state = {"0": {"acct_cost": [0.1, 0.2, 0.3], "r_t_final": [0.1, 0.2, 0.3]}}
+        state = {
+            "0": {
+                "acct_cost": [0.1, 0.2, 0.3],
+                "r_t_final": [0.1, 0.2, 0.3],
+                "phase": ["warmup"] * 3,
+                "warmup_rounds": [1, 2, 3],
+            },
+        }
         result = _verify._check_warmup(_vr(state=state))
         assert result["n"] == 1
         assert abs(result["sum_mean"] - 0.6) < 1e-9
@@ -940,6 +987,8 @@ class TestVerifyWarmup:
             "0": {
                 "acct_cost": [1.0, 1.0, 0.0],
                 "r_t_final": [1.5, 0.5, 0.0],
+                "phase": ["warmup"] * 3,
+                "warmup_rounds": [1, 2, 3],
             },
         }
         result = _verify._check_warmup(_vr(state=state))
@@ -951,6 +1000,37 @@ class TestVerifyWarmup:
         result = _verify._check_warmup(_vr(state=None))
         assert result["pass"] is None
         assert result["n"] == 0
+
+    def test_skips_methods_without_warmup_phase(self) -> None:
+        # Fixed r_t baselines (§4.4) have phase 'bo' throughout and no
+        # warm-up sum; the check must not compare 10×r_t to the BO nominal.
+        state = {
+            "0": {
+                "acct_cost": [0.476] * 20,
+                "r_t_final": [0.476] * 20,
+                "phase": ["bo"] * 20,
+                "warmup_rounds": [],
+            },
+        }
+        result = _verify._check_warmup(_vr(state=state))
+        assert result["pass"] is None
+        assert result["n"] == 0
+
+    def test_warmup_phase_inferred_from_phase_list(self) -> None:
+        from src.privacy.bo_scheduler import WARMUP_GRID
+
+        grid = list(WARMUP_GRID)
+        state = {
+            "0": {
+                "acct_cost": grid,
+                "r_t_final": grid,
+                "phase": ["warmup"] * len(grid),
+                "warmup_rounds": [],
+            },
+        }
+        result = _verify._check_warmup(_vr(state=state))
+        assert result["pass"] is True
+        assert result["n"] == 1
 
 
 class TestVerifyBudget:
@@ -1181,6 +1261,8 @@ class TestVerifyOutput:
                 "r_t_final": grid,
                 "cum_rdp": [10.0],
                 "dropout_round": None,
+                "phase": ["warmup"] * len(grid),
+                "warmup_rounds": list(range(len(grid))),
             },
         }
         return _make_verify_run(

@@ -560,7 +560,7 @@ class TestTrackedRunSchema:
         assert tags["config_version"] == locked_config_version()
         params = run.data.params
         assert params["data.num_clients"] == "4"
-        assert params["federated.num_rounds"] == "20"
+        assert params["federated.num_rounds"] == "25"
         assert params["seed"] == "0"
         assert params["dataset_root"] == "./data"
         assert run.data.metrics["loss"] == pytest.approx(0.5)

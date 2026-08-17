@@ -14,7 +14,7 @@ model:
   name: mlp
   num_classes: 10
 federated:
-  num_rounds: 20
+  num_rounds: 25
   fraction_fit: 1.0
   fraction_evaluate: 0.0
   local_epochs: 1
