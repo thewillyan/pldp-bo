@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, cast
 
 import numpy as np
@@ -194,6 +195,7 @@ class _RecordingTracker:
     def __init__(self) -> None:
         self.metrics: list[tuple[dict[str, float], int]] = []
         self.artifacts: list[str] = []
+        self.artifact_paths: list[str] = []
 
     def log_metrics(self, metrics: dict[str, Any], step: int | None = None) -> None:
         self.metrics.append((dict(metrics), step if step is not None else 0))
@@ -201,6 +203,7 @@ class _RecordingTracker:
     def log_artifact(self, local_path: str) -> None:
         with open(local_path) as f:
             self.artifacts.append(f.read())
+        self.artifact_paths.append(local_path)
 
 
 class _FakeModel:
@@ -776,6 +779,7 @@ class TestClientStateArtifact:
             strategy, self._config(), cast("ExperimentTracker", tracker), 10.0, 3
         )
         payload = json.loads(tracker.artifacts[0])
+        assert os.path.basename(tracker.artifact_paths[0]) == "client_state.json"
         assert "client_state" in payload
         entry = payload["client_state"]["0"]
         assert entry["r_t_candidate"] == [0.05]

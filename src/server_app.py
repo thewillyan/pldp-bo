@@ -205,9 +205,18 @@ def _write_client_state_artifact(
     try:
         with os.fdopen(fd, "w") as f:
             json.dump(payload, f, sort_keys=True, indent=2)
-        tracker.log_artifact(tmp_path)
+        # mlflow.log_artifact keeps the file's basename, so the temp name
+        # would reach the store; scripts/verify reads the canonical
+        # ``client_state.json`` (IMPL-14 Task 6).
+        artifact_path = os.path.join(os.path.dirname(tmp_path), "client_state.json")
+        os.replace(tmp_path, artifact_path)
+        try:
+            tracker.log_artifact(artifact_path)
+        finally:
+            os.unlink(artifact_path)
     finally:
-        os.unlink(tmp_path)
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
     logger.info("Logged client_state.json for %d clients", len(state))
 
     final_rdps = [s["cum_rdp"][-1] for s in state.values() if s["cum_rdp"]]
