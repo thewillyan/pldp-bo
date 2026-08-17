@@ -7,7 +7,6 @@ from typing import Any
 import numpy as np
 import torch
 from torch import nn
-from torch.func import functional_call, grad, vmap
 from torch.utils.data import DataLoader
 
 from src.client.base_client import FlowerClient, _get_optimizer
@@ -46,23 +45,31 @@ def _compute_per_example_grads(
     model: nn.Module,
     inputs: torch.Tensor,
     targets: torch.Tensor,
-    criterion: nn.Module,
 ) -> dict[str, torch.Tensor]:
-    """Compute per-example gradients via vmap + grad."""
-    params: dict[str, torch.Tensor] = dict(model.named_parameters())
-    buffers: dict[str, torch.Tensor] = dict(model.named_buffers())
+    """Compute per-example gradients in one batched autograd pass.
 
-    def loss_fn(
-        params: dict[str, torch.Tensor],
-        buffers: dict[str, torch.Tensor],
-        sample: torch.Tensor,
-        target: torch.Tensor,
-    ) -> torch.Tensor:
-        out = functional_call(model, (params, buffers), sample.unsqueeze(0))
-        return criterion(out, target.unsqueeze(0))  # type: ignore[no-any-return]
-
-    grads_fn = vmap(grad(loss_fn), in_dims=(None, None, 0, 0))
-    return grads_fn(params, buffers, inputs, targets)  # type: ignore[no-any-return]
+    One forward over the batch, then ``torch.autograd.grad`` with batched
+    grad_outputs (Opacus-style) — O(B x |params|) transient memory, released
+    after each call. The previous torch.func ``vmap(grad(...))``
+    implementation leaked ~100 MB per training step under the fit-loop state
+    on torch 2.13 CPU builds, ballooning a single client to ~30 GB and
+    tripping the kernel OOM killer during smoke runs (IMPL-14 Task 6).
+    """
+    outputs = model(inputs)
+    per_sample_loss = nn.CrossEntropyLoss(reduction="none")(outputs, targets)
+    batch_size = per_sample_loss.size(0)
+    grads = torch.autograd.grad(
+        per_sample_loss,
+        list(model.parameters()),
+        grad_outputs=torch.eye(
+            batch_size,
+            device=per_sample_loss.device,
+            dtype=per_sample_loss.dtype,
+        ),
+        is_grads_batched=True,
+    )
+    names = [name for name, _ in model.named_parameters()]
+    return dict(zip(names, grads, strict=True))
 
 
 def _clip_per_example(
@@ -310,7 +317,6 @@ class PerExampleDPClient(FlowerClient):
                     net,
                     images,
                     labels,
-                    criterion,
                 )
 
                 if proximal_mu > 0:

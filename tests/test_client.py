@@ -301,7 +301,6 @@ class TestPerExampleDPClient:
         )
         params = client.get_parameters({})
 
-        criterion = nn.CrossEntropyLoss()
         net_ref = copy.deepcopy(model.get_model())
         opt = torch.optim.SGD(
             net_ref.parameters(),
@@ -314,7 +313,6 @@ class TestPerExampleDPClient:
                     net_ref,
                     images,
                     labels,
-                    criterion,
                 )
                 clipped, _ = _clip_per_example(
                     per_example_grads,
@@ -377,7 +375,6 @@ class TestPerExampleDPClient:
         params = client.get_parameters({})
 
         mu = config.federated.proximal_mu
-        criterion = nn.CrossEntropyLoss()
         net_ref = copy.deepcopy(model.get_model())
         global_params = copy.deepcopy(dict(net_ref.named_parameters()))
         opt = torch.optim.SGD(net_ref.parameters(), lr=config.optimizer.lr)
@@ -386,7 +383,6 @@ class TestPerExampleDPClient:
                 net_ref,
                 images,
                 labels,
-                criterion,
             )
             params_now = dict(net_ref.named_parameters())
             shifted = {
@@ -799,6 +795,46 @@ class TestPerUpdateDPClient:
             compute_rdp_cost(10.0, metrics["sigma"], 1.0),
             rel=1e-9,
         )
+
+
+class TestPerExampleGrads:
+    def test_matches_manual_per_sample_backward(self) -> None:
+        torch.manual_seed(0)
+        model = nn.Sequential(nn.Linear(10, 8), nn.ReLU(), nn.Linear(8, 3))
+        inputs = torch.randn(5, 10)
+        targets = torch.randint(0, 3, (5,))
+        grads = _compute_per_example_grads(model, inputs, targets)
+
+        names = [name for name, _ in model.named_parameters()]
+        reference: dict[str, list[torch.Tensor]] = {name: [] for name in names}
+        for i in range(inputs.size(0)):
+            model.zero_grad()
+            loss = nn.CrossEntropyLoss()(model(inputs[i].unsqueeze(0)), targets[i].unsqueeze(0))
+            loss.backward()
+            for name, param in model.named_parameters():
+                assert param.grad is not None
+                reference[name].append(param.grad)
+        for name, param in model.named_parameters():
+            ref = torch.stack(reference[name])
+            assert grads[name].shape == torch.Size([5, *param.shape])
+            assert torch.allclose(grads[name], ref, atol=1e-5, rtol=1e-5)
+
+    def test_single_example_batch(self) -> None:
+        model = nn.Linear(10, 2)
+        inputs = torch.randn(1, 10)
+        targets = torch.randint(0, 2, (1,))
+        grads = _compute_per_example_grads(model, inputs, targets)
+        assert grads["weight"].shape == torch.Size([1, 2, 10])
+        assert grads["bias"].shape == torch.Size([1, 2])
+
+    def test_returns_plain_tensors_and_no_grad_history(self) -> None:
+        model = nn.Linear(4, 2)
+        inputs = torch.randn(3, 4)
+        targets = torch.randint(0, 2, (3,))
+        grads = _compute_per_example_grads(model, inputs, targets)
+        for tensor in grads.values():
+            assert not tensor.requires_grad
+            assert tensor.grad_fn is None
 
 
 class TestClipPerExample:
